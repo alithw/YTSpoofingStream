@@ -202,14 +202,22 @@
   }
 
   // Also pre-warm on YouTube SPA navigation (yt-navigate-start fires before new page renders)
-  window.addEventListener('yt-navigate-start', () => {
+  window.addEventListener('yt-navigate-start', (e) => {
     isInitialPageLoad = false; // We are now in SPA territory, never reload page
-    setTimeout(() => {
-      const vid = getVideoIdFromUrl();
-      if (vid) {
-        prewarmCache(vid);
-      }
-    }, 0);
+    // Try to get the incoming videoId from the event detail first,
+    // then fall back to parsing the URL (which may not have updated yet)
+    const incomingVid = e?.detail?.endpoint?.watchEndpoint?.videoId
+                     || e?.detail?.params?.videoId
+                     || null;
+    if (incomingVid) {
+      prewarmCache(incomingVid);
+    } else {
+      // Fallback: schedule after a tick so the URL has time to update
+      setTimeout(() => {
+        const vid = getVideoIdFromUrl();
+        if (vid) prewarmCache(vid);
+      }, 0);
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════════
@@ -476,17 +484,30 @@
         const json    = await clone.json();
         const videoId = json.videoDetails?.videoId;
 
-        // Check cache first → sync merge
+        // Check cache first → sync merge (no wait)
         const cached = videoId ? cacheGet(videoId) : null;
-        let hqFormats = cached || null;
 
-        // If not cached, fetch async (this is a background re-fetch by the player)
-        if (!hqFormats && S.hqFetch && videoId) {
-          hqFormats = await fetchAllHQAudio(videoId);
+        if (cached && cached.length > 0) {
+          // Cache HIT: inject immediately, zero latency
+          const modified = processPlayerResponse(json, cached);
+          return new Response(JSON.stringify(modified), {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          });
         }
 
-        const modified = processPlayerResponse(json, hqFormats);
-        return new Response(JSON.stringify(modified), {
+        // Cache MISS: Return original response immediately so the player
+        // doesn't freeze. Then kick off a background HQ fetch and apply
+        // it once it arrives via the prewarmCache → cache → next intercept cycle.
+        // This avoids blocking the player for 3-6 seconds on SPA navigation.
+        if (S.hqFetch && videoId) {
+          // Fire-and-forget: populate cache for next time this video is requested
+          fetchAllHQAudio(videoId).catch(() => {});
+        }
+
+        // Return the original (unmodified) response right away
+        return new Response(JSON.stringify(json), {
           status: response.status,
           statusText: response.statusText,
           headers: response.headers,
