@@ -248,7 +248,7 @@
       if (!seen.has(f.itag)) { seen.add(f.itag); pool.push({ ...f, _src: 'original' }); }
     }
 
-    // Remove itag 140 (low-quality AAC fallback) if possible
+    // Remove itag 140 (low-quality AAC fallback) if we have something better
     let filteredPool = pool.filter(f => f.itag !== 140);
     if (filteredPool.length === 0) filteredPool = pool;
 
@@ -283,30 +283,43 @@
       }
     } else {
       // HIGHEST: pick best bitrate regardless of codec
-      filteredPool.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-      selectedAudio = S.forceOverride ? [filteredPool[0]].filter(Boolean) : filteredPool;
+      // IMPORTANT: Prefer Opus streams over AAC 141 because Chrome's MSE pipeline
+      // cannot reliably play AAC 141 via adaptive streaming (it requires native decoder).
+      // If we only have AAC 141 and no Opus, fall back to original 251.
+      const opus = filteredPool.filter(f => (f.mimeType || '').includes('opus'))
+                               .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const aac  = filteredPool.filter(f => (f.mimeType || '').includes('mp4a') && f.itag !== 141)
+                               .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+      if (opus.length > 0) {
+        // Prefer highest Opus (774 or 251)
+        selectedAudio = S.forceOverride ? [opus[0]] : opus;
+      } else if (aac.length > 0) {
+        // No Opus at all, use best non-141 AAC
+        selectedAudio = S.forceOverride ? [aac[0]] : aac;
+      } else {
+        // Last resort: everything including 141
+        filteredPool.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        selectedAudio = S.forceOverride ? [filteredPool[0]].filter(Boolean) : filteredPool;
+      }
     }
 
-    // Spoof ITAG and MimeType to trick the web player into accepting them natively
-    // The web player rejects unknown itags (774, 141), leading to itag 18 fallback.
-    // By renaming them to standard itags (251 for Opus, 140 for AAC) and fixing mimeType, it works 100%.
+    // Spoof ITAG to trick the web player into accepting Premium streams natively.
+    // Rules:
+    //   774 (Opus HQ)  → spoof as 251 (standard Opus webm) — works perfectly
+    //   141 (AAC 256k) → DO NOT spoof to 140. Chrome MSE cannot play AAC adaptively.
+    //                    Keep as-is; if player rejects it, it will fall back gracefully.
     selectedAudio = selectedAudio.map(f => {
       const origItag = f.itag;
       if (origItag === 774) {
-        return { 
-          ...f, 
-          itag: 251, 
-          mimeType: (f.mimeType || '').replace('audio/mp4', 'audio/webm'), 
-          _origItag: 774 
+        return {
+          ...f,
+          itag: 251,
+          mimeType: 'audio/webm; codecs="opus"',
+          _origItag: 774
         };
       }
-      if (origItag === 141) {
-        return { 
-          ...f, 
-          itag: 140, 
-          _origItag: 141 
-        };
-      }
+      // For 141 and others: keep original itag, player will handle or reject gracefully
       return { ...f, _origItag: origItag };
     });
 
@@ -321,14 +334,16 @@
     if (active) {
       const codec  = (active.mimeType || '').includes('opus') ? 'Opus' : 'AAC';
       const kbps   = Math.round((active.bitrate || 0) / 1000);
-      
+
       const displayItag = active._origItag || active.itag;
       const isHQ   = (displayItag === 141 || displayItag === 774) ? ' [HQ ★]' : '';
       const src    = active._src || 'original';
 
       status.activeMethod    = src;
       status.activeAudioItag = displayItag;
-      status.bestAudioInfo   = `ITAG ${displayItag}${isHQ} | ${codec} ${kbps}kbps | Method: ${src} (Spoofed as ${active.itag})`;
+      status.bestAudioInfo   = `ITAG ${displayItag}${isHQ} | ${codec} ${kbps}kbps | Method: ${src}${
+        displayItag === 774 ? ' (Spoofed as 251)' : ''
+      }`;
       status.injectedStreams  = pool.length;
       report();
     }
@@ -455,18 +470,43 @@
   function forcePlayerReload(videoId, hqFormats) {
     if (!hqFormats || hqFormats.length === 0) return;
 
-    if (!isInitialPageLoad) {
-      console.log(TAG, `[PlayerReload] SPA navigation detected. Skipping page reload to prevent autoplay freeze.`);
-      return;
-    }
+    // For SPA navigation: use player API to reload the video.
+    // This triggers a new /youtubei/v1/player fetch which our fetch interceptor
+    // will catch and inject HQ formats into — no full page reload needed.
+    // For initial page load (F5): fall back to window.location.reload() since
+    // the player may not be initialized yet (loadVideoById would be ignored).
+    console.log(TAG, `[PlayerReload] Attempting player-level reload for ${videoId} (initialLoad=${isInitialPageLoad})`);
 
-    // The YouTube player is extremely stubborn. If it has already started buffering 
-    // the original format (251) because the cache was empty on page load, it will 
-    // silently ignore attempts to inject new formats via loadVideoByPlayerVars for the same videoId.
-    // The ONLY reliable way to force the player to use the spoofed formats is to reload the page ONCE.
-    // Since we just saved the formats to sessionStorage, the next load will hit the cache INSTANTLY.
-    console.log(TAG, `[PlayerReload] Reloading page to apply formats synchronously from cache!`);
-    window.location.reload();
+    let attempts = 0;
+    const tryReload = () => {
+      attempts++;
+      const playerEl = document.getElementById('movie_player')
+                    || document.querySelector('ytd-player #movie_player')
+                    || document.querySelector('.html5-video-player');
+
+      if (playerEl && typeof playerEl.loadVideoById === 'function') {
+        const currentTime = playerEl.getCurrentTime?.() || 0;
+        try {
+          playerEl.loadVideoById({ videoId, startSeconds: currentTime });
+          console.log(TAG, `[PlayerReload] loadVideoById called at t=${currentTime}`);
+        } catch (e) {
+          console.warn(TAG, '[PlayerReload] loadVideoById failed:', e);
+          if (isInitialPageLoad) window.location.reload();
+        }
+      } else if (attempts < 10) {
+        setTimeout(tryReload, 200);
+      } else {
+        // Player not found — only reload page on initial load to avoid breaking autoplay
+        if (isInitialPageLoad) {
+          console.warn(TAG, '[PlayerReload] Player not found, doing page reload (initial load only)');
+          window.location.reload();
+        } else {
+          console.warn(TAG, '[PlayerReload] Player not found on SPA, giving up to preserve autoplay.');
+        }
+      }
+    };
+
+    setTimeout(tryReload, isInitialPageLoad ? 300 : 100);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -488,7 +528,7 @@
         const cached = videoId ? cacheGet(videoId) : null;
 
         if (cached && cached.length > 0) {
-          // Cache HIT: inject immediately, zero latency
+          // Cache HIT: inject HQ immediately, zero latency
           const modified = processPlayerResponse(json, cached);
           return new Response(JSON.stringify(modified), {
             status: response.status,
@@ -498,12 +538,17 @@
         }
 
         // Cache MISS: Return original response immediately so the player
-        // doesn't freeze. Then kick off a background HQ fetch and apply
-        // it once it arrives via the prewarmCache → cache → next intercept cycle.
-        // This avoids blocking the player for 3-6 seconds on SPA navigation.
+        // doesn't freeze waiting 3-6s. Then kick off background HQ fetch.
+        // After fetch completes, call forcePlayerReload so the player
+        // re-issues /youtubei/v1/player which we intercept with HQ formats.
         if (S.hqFetch && videoId) {
-          // Fire-and-forget: populate cache for next time this video is requested
-          fetchAllHQAudio(videoId).catch(() => {});
+          fetchAllHQAudio(videoId).then(hqFormats => {
+            if (hqFormats.length > 0 && !reloadedVideos.has(videoId)) {
+              reloadedVideos.add(videoId);
+              console.log(TAG, `[FetchIntercept] Background HQ fetch done (${hqFormats.length} formats), reloading player...`);
+              forcePlayerReload(videoId, hqFormats);
+            }
+          }).catch(() => {});
         }
 
         // Return the original (unmodified) response right away
