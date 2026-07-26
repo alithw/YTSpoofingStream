@@ -15,6 +15,7 @@
 - [Key Features](#-key-features)
 - [Technical Architecture & Deep Dive](#-technical-architecture--deep-dive)
 - [Installation](#-installation)
+- [⚠️ Known Limitations](#️-known-limitations)
 - [Reporting Issues & Troubleshooting](#-reporting-issues--troubleshooting)
 - [Contributing](#-contributing)
 - [License](#-license)
@@ -71,6 +72,19 @@ Since this extension interacts with internal YouTube APIs, it is currently not a
 4. Enable **Developer mode** using the toggle in the top right corner.
 5. Click **Load unpacked** and select the folder containing this extension's files (where `manifest.json` is located).
 6. Open YouTube, ensure you are logged into your Premium account, and enjoy the high-fidelity sound!
+
+## ⚠️ Known Limitations
+
+> [!CAUTION]
+> **YouTube Music (`music.youtube.com`) is not supported.**
+> When this extension is active, `music.youtube.com` may behave erratically — songs in the playback queue can skip or jump unexpectedly due to the extension intercepting background pre-fetch requests. If you want to use YouTube Music normally, **please disable the extension first**.
+
+| Platform | Status |
+|---|---|
+| `youtube.com` | ✅ Fully supported |
+| `music.youtube.com` | ❌ Disable the extension before use |
+
+---
 
 ## 🐞 Reporting Issues & Troubleshooting
 

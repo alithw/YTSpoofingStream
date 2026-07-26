@@ -15,6 +15,7 @@
 - [Tính năng Nổi bật](#-tính-năng-nổi-bật)
 - [Kiến trúc Kỹ thuật & Chuyên sâu](#-kiến-trúc-kỹ-thuật--chuyên-sâu)
 - [Hướng dẫn Cài đặt](#-hướng-dẫn-cài-đặt)
+- [⚠️ Giới hạn đã biết](#️-giới-hạn-đã-biết)
 - [Báo cáo Lỗi & Hỗ trợ](#-báo-cáo-lỗi--hỗ-trợ)
 - [Đóng góp vào Dự án](#-đóng-góp-vào-dự-án)
 - [Giấy phép (License)](#-giấy-phép-license)
@@ -71,6 +72,19 @@ Do tiện ích này can thiệp sâu vào các API nội bộ của YouTube, nó
 4. Bật **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên cùng bên phải.
 5. Nhấn vào **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục chứa các file của tiện ích này (nơi có file `manifest.json`).
 6. Mở YouTube, đảm bảo bạn đã đăng nhập vào tài khoản Premium, và tận hưởng âm thanh chất lượng cao!
+
+## ⚠️ Giới hạn đã biết
+
+> [!CAUTION]
+> **Không tương thích với YouTube Music (`music.youtube.com`).**
+> Khi tiện ích đang bật, `music.youtube.com` có thể hoạt động bất thường — các bài hát trong hàng đợi phát (queue) có thể bị nhảy hoặc chuyển bài liên tục ngoài ý muốn do tiện ích bắt các yêu cầu tải trước (pre-fetch) ngầm trong nền. Nếu bạn muốn sử dụng YouTube Music bình thường, **hãy tắt tiện ích trước**.
+
+| Nền tảng | Trạng thái |
+|---|---|
+| `youtube.com` | ✅ Hỗ trợ đầy đủ |
+| `music.youtube.com` | ❌ Tắt tiện ích trước khi dùng |
+
+---
 
 ## 🐞 Báo cáo Lỗi & Hỗ trợ
 

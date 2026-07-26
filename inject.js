@@ -59,6 +59,7 @@
   const pendingFetches = new Map(); // videoId → Promise<hqFormats[]>
   const reloadedVideos = new Set(); // guard: only force-reload once per videoId
   let isInitialPageLoad = true;     // guard: only allow page reload on very first visit
+  const isMusicSite = location.hostname === 'music.youtube.com'; // YouTube Music needs special handling
 
   function cacheGet(videoId) {
     // 1. Check memory map first
@@ -470,6 +471,14 @@
   function forcePlayerReload(videoId, hqFormats) {
     if (!hqFormats || hqFormats.length === 0) return;
 
+    // On music.youtube.com, YouTube Music aggressively pre-fetches ALL songs in the
+    // queue. Calling loadVideoById here would interrupt the queue every second.
+    // The fetch interceptor already injects HQ formats on cache hits, which is enough.
+    if (isMusicSite) {
+      console.log(TAG, `[PlayerReload] music.youtube.com detected. Skipping player reload (fetch interceptor handles injection).`);
+      return;
+    }
+
     console.log(TAG, `[PlayerReload] Attempting player-level reload for ${videoId} (initialLoad=${isInitialPageLoad})`);
 
     let attempts = 0;
@@ -546,14 +555,20 @@
 
         // Cache MISS: Return original response immediately so the player
         // doesn't freeze waiting 3-6s. Then kick off background HQ fetch.
-        // After fetch completes, call forcePlayerReload so the player
-        // re-issues /youtubei/v1/player which we intercept with HQ formats.
+        // On youtube.com: after fetch completes, call forcePlayerReload so the
+        // player re-issues /youtubei/v1/player which we intercept with HQ formats.
+        // On music.youtube.com: just populate cache silently — never poke the player
+        // to avoid interrupting the song queue every second.
         if (S.hqFetch && videoId) {
           fetchAllHQAudio(videoId).then(hqFormats => {
             if (hqFormats.length > 0 && !reloadedVideos.has(videoId)) {
               reloadedVideos.add(videoId);
-              console.log(TAG, `[FetchIntercept] Background HQ fetch done (${hqFormats.length} formats), reloading player...`);
-              forcePlayerReload(videoId, hqFormats);
+              if (!isMusicSite) {
+                console.log(TAG, `[FetchIntercept] Background HQ fetch done (${hqFormats.length} formats), reloading player...`);
+                forcePlayerReload(videoId, hqFormats);
+              } else {
+                console.log(TAG, `[FetchIntercept] music.youtube.com: HQ cached for ${videoId}, will inject on next player request.`);
+              }
             }
           }).catch(() => {});
         }
