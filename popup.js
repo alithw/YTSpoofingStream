@@ -22,7 +22,7 @@
     hqFetch: true,
     forceOverride: true,
     autoReload: true,
-    audioMode: 'opus_hq',
+    audioMode: 'highest',
     preferredClient: 'AUTO',
   };
 

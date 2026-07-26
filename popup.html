@@ -387,53 +387,6 @@
     </div>
   </div>
 
-  <div class="sec">
-    <div class="sec-title">Audio Mode</div>
-    <div class="modes" id="modes">
-      <label class="mode active" data-mode="aac_only">
-        <input type="radio" name="m" value="aac_only" checked>
-        <div class="dot"></div>
-        <div class="mode-info">
-          <div class="mode-name">AAC Only (ITAG 140/141)</div>
-          <div class="mode-desc">Remove Opus, force AAC</div>
-        </div>
-        <span class="badge badge-1">G1</span>
-      </label>
-      <label class="mode" data-mode="opus_hq">
-        <input type="radio" name="m" value="opus_hq">
-        <div class="dot"></div>
-        <div class="mode-info">
-          <div class="mode-name">Opus HQ (ITAG 774)</div>
-          <div class="mode-desc">256kbps Opus via ANDROID</div>
-        </div>
-        <span class="badge badge-2">G2</span>
-      </label>
-      <label class="mode" data-mode="highest">
-        <input type="radio" name="m" value="highest">
-        <div class="dot"></div>
-        <div class="mode-info">
-          <div class="mode-name">Highest Bitrate</div>
-          <div class="mode-desc">Auto best quality</div>
-        </div>
-      </label>
-    </div>
-  </div>
-
-  <div class="sec" id="tvAuthSec">
-    <div class="sec-title">TVHTML5 Login (Premium Audio)</div>
-    <div id="tvAuthContent">
-      <div id="tvAuthStatus" style="font-size: 11px; margin-bottom: 6px; color: var(--dim);">Status: Checking...</div>
-      <div id="tvAuthCodeContainer" style="display: none; text-align: center; margin-bottom: 8px;">
-        <div style="font-size: 10px; color: var(--dim);">Enter this code at <a href="https://youtube.com/activate"
-            target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
-        <div id="tvAuthCode" style="font-size: 16px; font-weight: 700; letter-spacing: 2px; margin-top: 4px;"></div>
-      </div>
-      <div class="btns">
-        <button class="btn btn-p" id="btnTvLogin">Login to TV</button>
-        <button class="btn btn-s" id="btnTvLogout" style="display: none;">Logout</button>
-      </div>
-    </div>
-  </div>
 
   <div class="sec">
     <div class="sec-title">Controls</div>
@@ -490,6 +443,54 @@
   <div class="sec">
     <div class="sec-title">Log</div>
     <div class="log" id="log">Ready.</div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">Audio Mode</div>
+    <div class="modes" id="modes">
+      <label class="mode" data-mode="aac_only">
+        <input type="radio" name="m" value="aac_only">
+        <div class="dot"></div>
+        <div class="mode-info">
+          <div class="mode-name">AAC Only (ITAG 140/141)</div>
+          <div class="mode-desc">Remove Opus, force AAC</div>
+        </div>
+        <span class="badge badge-1">G1</span>
+      </label>
+      <label class="mode" data-mode="opus_hq">
+        <input type="radio" name="m" value="opus_hq">
+        <div class="dot"></div>
+        <div class="mode-info">
+          <div class="mode-name">Opus HQ (ITAG 774)</div>
+          <div class="mode-desc">256kbps Opus via ANDROID</div>
+        </div>
+        <span class="badge badge-2">G2</span>
+      </label>
+      <label class="mode active" data-mode="highest">
+        <input type="radio" name="m" value="highest" checked>
+        <div class="dot"></div>
+        <div class="mode-info">
+          <div class="mode-name">Highest Bitrate</div>
+          <div class="mode-desc">Auto best quality</div>
+        </div>
+      </label>
+    </div>
+  </div>
+
+  <div class="sec" id="tvAuthSec">
+    <div class="sec-title">TVHTML5 Login (Premium Audio)</div>
+    <div id="tvAuthContent">
+      <div id="tvAuthStatus" style="font-size: 11px; margin-bottom: 6px; color: var(--dim);">Status: Checking...</div>
+      <div id="tvAuthCodeContainer" style="display: none; text-align: center; margin-bottom: 8px;">
+        <div style="font-size: 10px; color: var(--dim);">Enter this code at <a href="https://youtube.com/activate"
+            target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
+        <div id="tvAuthCode" style="font-size: 16px; font-weight: 700; letter-spacing: 2px; margin-top: 4px;"></div>
+      </div>
+      <div class="btns">
+        <button class="btn btn-p" id="btnTvLogin">Login to TV</button>
+        <button class="btn btn-s" id="btnTvLogout" style="display: none;">Logout</button>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>
