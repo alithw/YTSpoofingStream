@@ -71,6 +71,13 @@ window.addEventListener('message', (event) => {
   }
 });
 
+// SW → MAIN world: immediate HQ upgrade trigger via chrome.tabs.onActivated
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'YTSS_TRIGGER_UPGRADE') {
+    window.postMessage({ type: 'YTSS_TRIGGER_UPGRADE', videoId: msg.videoId }, '*');
+  }
+});
+
 // Push settings changes to MAIN world
 chrome.storage.onChanged.addListener(() => {
   chrome.storage.local.get(null, (data) => {

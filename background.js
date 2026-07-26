@@ -501,19 +501,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener(() => {
   disableUAOverride();
   setupStaticRules();
-  // Start keepalive alarm: prevents Chrome from killing the SW after 30s idle.
-  // Fires every 20s, waking the SW just before Chrome's inactivity kill timer.
   chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
 });
 
-// Revive alarm on browser/SW restart
 chrome.runtime.onStartup.addListener(() => {
   setupStaticRules();
   chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
 });
 
-// Keepalive alarm handler — any async work here keeps the SW awake.
-// Also re-applies DNR rules if they were lost after an unplanned SW restart.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'ytss-keepalive') {
     chrome.declarativeNetRequest.getSessionRules().then(rules => {
@@ -523,6 +518,36 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         setupStaticRules();
       }
     }).catch(() => {});
+  }
+});
+
+// ─── TAB ACTIVATION: PUSH HQ UPGRADE FROM SW ─────────────────────────
+// When the user switches to a YouTube tab, the SW (running outside the throttled
+// page context) immediately checks if there are cached HQ formats for the
+// current video and sends an upgrade trigger to inject.js via the bridge.
+// This is more reliable than relying on page timers (which Chrome may freeze
+// for background tabs), ensuring the upgrade fires the instant the tab is focused.
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.url || !tab.url.includes('youtube.com/watch')) return;
+
+    const url = new URL(tab.url);
+    const videoId = url.searchParams.get('v');
+    if (!videoId) return;
+
+    const stored = await chrome.storage.session.get(`hq_${videoId}`);
+    const entry = stored[`hq_${videoId}`];
+    const TTL = 3600 * 1000; // 1 hour
+    if (!entry || !entry.formats?.length || (Date.now() - entry.ts) > TTL) return;
+
+    console.log(TAG, `[TabActivated] YouTube tab focused for ${videoId}, pushing HQ upgrade trigger`);
+    chrome.tabs.sendMessage(tabId, {
+      type: 'YTSS_TRIGGER_UPGRADE',
+      videoId,
+    }).catch(() => {}); // Tab may not have content script ready — ignore errors
+  } catch (e) {
+    // Tab may have been closed or navigated away — ignore
   }
 });
 

@@ -509,15 +509,14 @@
 
         const currentTime = playerEl.getCurrentTime?.() || 0;
         try {
-          // When reloading the SAME videoId that's currently playing, the player
-          // may silently ignore loadVideoById() as a no-op. Calling stopVideo()
-          // first resets the player state, forcing a genuine re-fetch of the
-          // /youtubei/v1/player response (which our interceptor will inject HQ into).
-          if (currentVideoId === videoId && typeof playerEl.stopVideo === 'function') {
+          if (!document.hidden && currentVideoId === videoId && typeof playerEl.stopVideo === 'function') {
+            // Foreground only: stopVideo() resets player state so loadVideoById
+            // is treated as a fresh load even for the same videoId.
+            // NOT called in background to avoid interrupting audio playback.
             playerEl.stopVideo();
           }
           playerEl.loadVideoById({ videoId, startSeconds: currentTime });
-          console.log(TAG, `[PlayerReload] loadVideoById called at t=${currentTime}`);
+          console.log(TAG, `[PlayerReload] loadVideoById called at t=${currentTime} (hidden=${document.hidden})`);
         } catch (e) {
           console.warn(TAG, '[PlayerReload] loadVideoById failed:', e);
           if (isInitialPageLoad) window.location.reload();
@@ -537,45 +536,51 @@
     setTimeout(tryReload, isInitialPageLoad ? 300 : 100);
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // [APPROACH 5] TAB FOCUS UPGRADE
-  // When the user returns to the YouTube tab after being away, the autoplay
-  // may have advanced to a new video with only original quality (251).
-  // On visibilitychange, check if current video has HQ in cache and upgrade.
-  // ═══════════════════════════════════════════════════════════════════
+
+  // ─── SW-TRIGGERED UPGRADE ─────────────────────────────────────────
+  // When user clicks back to the YouTube tab, background.js fires
+  // chrome.tabs.onActivated → bridge.js relays as YTSS_TRIGGER_UPGRADE.
+  // This complements visibilitychange with a SW-side trigger that isn't
+  // subject to Chrome's background tab JS timer throttling/freezing.
+  function tryUpgradeVideo(videoId, source) {
+    if (!videoId || !S.enabled || isMusicSite) return;
+    const cached = cacheGet(videoId);
+    if (!cached?.length) {
+      prewarmCache(videoId);
+      return;
+    }
+    if (reloadedVideos.has(videoId)) return;
+
+    const playerEl = document.getElementById('movie_player')
+                  || document.querySelector('.html5-video-player');
+    if (!playerEl || typeof playerEl.loadVideoById !== 'function') return;
+
+    const currentVideoId = playerEl.getVideoData?.()?.video_id
+                        || new URLSearchParams(playerEl.getVideoUrl?.() || '').get('v');
+    if (currentVideoId !== videoId) return;
+
+    reloadedVideos.add(videoId);
+    const currentTime = playerEl.getCurrentTime?.() || 0;
+    console.log(TAG, `[${source}] Upgrading ${videoId} to HQ at t=${currentTime}`);
+    try {
+      if (typeof playerEl.stopVideo === 'function') playerEl.stopVideo();
+      playerEl.loadVideoById({ videoId, startSeconds: currentTime });
+    } catch (e) {
+      console.warn(TAG, `[${source}] loadVideoById failed:`, e);
+    }
+  }
+
+  // Reuse tryUpgradeVideo for visibilitychange too
   document.addEventListener('visibilitychange', () => {
     if (document.hidden || !S.enabled || isMusicSite) return;
-
     const videoId = getVideoIdFromUrl();
-    if (!videoId) return;
+    if (videoId) tryUpgradeVideo(videoId, 'VisibilityChange');
+  });
 
-    const cached = cacheGet(videoId);
-
-    if (cached?.length > 0) {
-      // HQ formats available in cache. If player hasn't been upgraded yet, do it now.
-      if (!reloadedVideos.has(videoId)) {
-        const playerEl = document.getElementById('movie_player')
-                      || document.querySelector('.html5-video-player');
-        if (!playerEl || typeof playerEl.loadVideoById !== 'function') return;
-
-        const currentVideoId = playerEl.getVideoData?.()?.video_id
-                            || new URLSearchParams(playerEl.getVideoUrl?.() || '').get('v');
-        if (currentVideoId !== videoId) return;
-
-        reloadedVideos.add(videoId);
-        const currentTime = playerEl.getCurrentTime?.() || 0;
-        console.log(TAG, `[VisibilityChange] Tab focused, upgrading ${videoId} to HQ at t=${currentTime}`);
-        try {
-          if (typeof playerEl.stopVideo === 'function') playerEl.stopVideo();
-          playerEl.loadVideoById({ videoId, startSeconds: currentTime });
-        } catch (e) {
-          console.warn(TAG, '[VisibilityChange] loadVideoById failed:', e);
-        }
-      }
-    } else {
-      // No HQ in cache yet for this video — kick off a fresh prewarm.
-      prewarmCache(videoId);
-    }
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || e.data?.type !== 'YTSS_TRIGGER_UPGRADE') return;
+    const { videoId } = e.data;
+    if (videoId) tryUpgradeVideo(videoId, 'SWTrigger');
   });
 
   // ═══════════════════════════════════════════════════════════════════
