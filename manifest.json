@@ -9,7 +9,8 @@
     "activeTab",
     "tabs",
     "cookies",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "alarms"
   ],
   "host_permissions": [
     "*://*.youtube.com/*",

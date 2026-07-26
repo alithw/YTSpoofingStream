@@ -501,6 +501,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener(() => {
   disableUAOverride();
   setupStaticRules();
+  // Start keepalive alarm: prevents Chrome from killing the SW after 30s idle.
+  // Fires every 20s, waking the SW just before Chrome's inactivity kill timer.
+  chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
+});
+
+// Revive alarm on browser/SW restart
+chrome.runtime.onStartup.addListener(() => {
+  setupStaticRules();
+  chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
+});
+
+// Keepalive alarm handler — any async work here keeps the SW awake.
+// Also re-applies DNR rules if they were lost after an unplanned SW restart.
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'ytss-keepalive') {
+    chrome.declarativeNetRequest.getSessionRules().then(rules => {
+      const hasOriginRule = rules.some(r => r.id === ORIGIN_RULE_ID);
+      if (!hasOriginRule) {
+        console.log(TAG, '[Keepalive] DNR rules missing — re-applying...');
+        setupStaticRules();
+      }
+    }).catch(() => {});
+  }
 });
 
 // Also run on startup just to be safe

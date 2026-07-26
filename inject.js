@@ -112,19 +112,23 @@
 
       window.postMessage({ type: 'YTSS_FETCH_HQ', videoId, requestId }, '*');
 
+      // 12s timeout: SW may need to restart after being killed by Chrome (~30s idle).
+      // During restart, sendMessage fails once, bridge retries after 500ms, then
+      // all 6 API calls run in parallel (~3-5s). 12s gives comfortable headroom.
       setTimeout(() => {
         window.removeEventListener('message', onMessage);
         resolve([]);
-      }, 6000);
+      }, 12000);
     });
   }
 
   async function fetchAllHQAudio(videoId) {
     // Dedup: if already fetching same videoId, wait for existing promise
     if (pendingFetches.has(videoId)) return await pendingFetches.get(videoId);
-    // Cache hit (not expired)
+    // Cache hit (not expired) — ONLY return cache if it has actual formats.
+    // An empty cache entry means a previous fetch failed; we must retry.
     const cached = cacheGet(videoId);
-    if (cached) return cached;
+    if (cached?.length > 0) return cached;
 
     console.log(TAG, `[HQ] Fetching for ${videoId}...`);
     status.clientStats = {}; // Clear stale stats before fetching
@@ -156,7 +160,11 @@
       }
 
       hqCache.delete(videoId);
-      cacheSet(videoId, merged);
+      // Only cache if we actually got formats back.
+      // Caching an empty result would permanently block re-fetching for this videoId.
+      if (merged.length > 0) {
+        cacheSet(videoId, merged);
+      }
       pendingFetches.delete(videoId);
       report();
       return merged;
@@ -182,9 +190,12 @@
 
   function prewarmCache(videoId) {
     if (!videoId || !S.enabled || !S.hqFetch) return;
-    // Invalidate stale cache for this videoId first
+    // Invalidate stale cache and any in-flight/completed fetches for this videoId.
+    // This ensures a fresh API call on every navigation, preventing stale empty
+    // results from blocking re-injection after a SW timeout.
     hqCache.delete(videoId);
     reloadedVideos.delete(videoId);
+    pendingFetches.delete(videoId); // clear stale dedup entry so we always re-fetch
     status.prewarmStatus = `pre-fetching ${videoId}…`;
     report();
     fetchAllHQAudio(videoId).then(formats => {
@@ -471,11 +482,8 @@
   function forcePlayerReload(videoId, hqFormats) {
     if (!hqFormats || hqFormats.length === 0) return;
 
-    // On music.youtube.com, YouTube Music aggressively pre-fetches ALL songs in the
-    // queue. Calling loadVideoById here would interrupt the queue every second.
-    // The fetch interceptor already injects HQ formats on cache hits, which is enough.
     if (isMusicSite) {
-      console.log(TAG, `[PlayerReload] music.youtube.com detected. Skipping player reload (fetch interceptor handles injection).`);
+      console.log(TAG, `[PlayerReload] music.youtube.com detected. Skipping player reload.`);
       return;
     }
 
@@ -489,21 +497,25 @@
                     || document.querySelector('.html5-video-player');
 
       if (playerEl && typeof playerEl.loadVideoById === 'function') {
-        // GUARD: Only reload if the player is currently on the exact same videoId.
-        // If the player has moved to a different video (e.g. mini-player, homepage
-        // pre-fetch, playlist auto-advance to next), do NOT call loadVideoById
-        // or we will interrupt the wrong video entirely.
         const currentVideoId = playerEl.getVideoData?.()?.video_id
                             || new URLSearchParams(playerEl.getVideoUrl?.() || '').get('v')
                             || null;
 
+        // Anti-hijack guard: only reload if player is on the correct video
         if (currentVideoId && currentVideoId !== videoId) {
-          console.log(TAG, `[PlayerReload] Player is on ${currentVideoId}, not ${videoId}. Skipping to avoid hijack.`);
+          console.log(TAG, `[PlayerReload] Player is on ${currentVideoId}, not ${videoId}. Skipping.`);
           return;
         }
 
         const currentTime = playerEl.getCurrentTime?.() || 0;
         try {
+          // When reloading the SAME videoId that's currently playing, the player
+          // may silently ignore loadVideoById() as a no-op. Calling stopVideo()
+          // first resets the player state, forcing a genuine re-fetch of the
+          // /youtubei/v1/player response (which our interceptor will inject HQ into).
+          if (currentVideoId === videoId && typeof playerEl.stopVideo === 'function') {
+            playerEl.stopVideo();
+          }
           playerEl.loadVideoById({ videoId, startSeconds: currentTime });
           console.log(TAG, `[PlayerReload] loadVideoById called at t=${currentTime}`);
         } catch (e) {
@@ -517,13 +529,54 @@
           console.warn(TAG, '[PlayerReload] Player not found, doing page reload (initial load only)');
           window.location.reload();
         } else {
-          console.warn(TAG, '[PlayerReload] Player not found on SPA, giving up to preserve autoplay.');
+          console.warn(TAG, '[PlayerReload] Player not found on SPA, giving up.');
         }
       }
     };
 
     setTimeout(tryReload, isInitialPageLoad ? 300 : 100);
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // [APPROACH 5] TAB FOCUS UPGRADE
+  // When the user returns to the YouTube tab after being away, the autoplay
+  // may have advanced to a new video with only original quality (251).
+  // On visibilitychange, check if current video has HQ in cache and upgrade.
+  // ═══════════════════════════════════════════════════════════════════
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !S.enabled || isMusicSite) return;
+
+    const videoId = getVideoIdFromUrl();
+    if (!videoId) return;
+
+    const cached = cacheGet(videoId);
+
+    if (cached?.length > 0) {
+      // HQ formats available in cache. If player hasn't been upgraded yet, do it now.
+      if (!reloadedVideos.has(videoId)) {
+        const playerEl = document.getElementById('movie_player')
+                      || document.querySelector('.html5-video-player');
+        if (!playerEl || typeof playerEl.loadVideoById !== 'function') return;
+
+        const currentVideoId = playerEl.getVideoData?.()?.video_id
+                            || new URLSearchParams(playerEl.getVideoUrl?.() || '').get('v');
+        if (currentVideoId !== videoId) return;
+
+        reloadedVideos.add(videoId);
+        const currentTime = playerEl.getCurrentTime?.() || 0;
+        console.log(TAG, `[VisibilityChange] Tab focused, upgrading ${videoId} to HQ at t=${currentTime}`);
+        try {
+          if (typeof playerEl.stopVideo === 'function') playerEl.stopVideo();
+          playerEl.loadVideoById({ videoId, startSeconds: currentTime });
+        } catch (e) {
+          console.warn(TAG, '[VisibilityChange] loadVideoById failed:', e);
+        }
+      }
+    } else {
+      // No HQ in cache yet for this video — kick off a fresh prewarm.
+      prewarmCache(videoId);
+    }
+  });
 
   // ═══════════════════════════════════════════════════════════════════
   // INTERCEPTORS — fetch & XHR (response-only, no request modification)

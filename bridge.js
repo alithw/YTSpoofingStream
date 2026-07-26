@@ -4,18 +4,27 @@
 // ╚══════════════════════════════════════════════════════════════════╝
 
 // MAIN world → Service Worker
-function safeSend(msg, callback) {
+// Retries once after 600ms if the SW was killed and is restarting.
+function safeSend(msg, callback, retryCount = 0) {
   try {
     chrome.runtime.sendMessage(msg, (response) => {
       if (chrome.runtime.lastError) {
-        // Context invalidated or SW not ready — fail silently
+        const err = chrome.runtime.lastError.message || '';
+        // SW may be restarting — retry once after a short delay
+        if (retryCount === 0 && (err.includes('receiving end') || err.includes('Could not establish'))) {
+          setTimeout(() => safeSend(msg, callback, 1), 600);
+          return;
+        }
         if (callback) callback(null);
         return;
       }
       if (callback) callback(response);
     });
   } catch (e) {
-    // Extension context invalidated — ignore
+    if (retryCount === 0) {
+      setTimeout(() => safeSend(msg, callback, 1), 600);
+      return;
+    }
     if (callback) callback(null);
   }
 }
