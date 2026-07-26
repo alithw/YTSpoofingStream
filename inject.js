@@ -470,11 +470,6 @@
   function forcePlayerReload(videoId, hqFormats) {
     if (!hqFormats || hqFormats.length === 0) return;
 
-    // For SPA navigation: use player API to reload the video.
-    // This triggers a new /youtubei/v1/player fetch which our fetch interceptor
-    // will catch and inject HQ formats into — no full page reload needed.
-    // For initial page load (F5): fall back to window.location.reload() since
-    // the player may not be initialized yet (loadVideoById would be ignored).
     console.log(TAG, `[PlayerReload] Attempting player-level reload for ${videoId} (initialLoad=${isInitialPageLoad})`);
 
     let attempts = 0;
@@ -485,6 +480,19 @@
                     || document.querySelector('.html5-video-player');
 
       if (playerEl && typeof playerEl.loadVideoById === 'function') {
+        // GUARD: Only reload if the player is currently on the exact same videoId.
+        // If the player has moved to a different video (e.g. mini-player, homepage
+        // pre-fetch, playlist auto-advance to next), do NOT call loadVideoById
+        // or we will interrupt the wrong video entirely.
+        const currentVideoId = playerEl.getVideoData?.()?.video_id
+                            || new URLSearchParams(playerEl.getVideoUrl?.() || '').get('v')
+                            || null;
+
+        if (currentVideoId && currentVideoId !== videoId) {
+          console.log(TAG, `[PlayerReload] Player is on ${currentVideoId}, not ${videoId}. Skipping to avoid hijack.`);
+          return;
+        }
+
         const currentTime = playerEl.getCurrentTime?.() || 0;
         try {
           playerEl.loadVideoById({ videoId, startSeconds: currentTime });
@@ -496,7 +504,6 @@
       } else if (attempts < 10) {
         setTimeout(tryReload, 200);
       } else {
-        // Player not found — only reload page on initial load to avoid breaking autoplay
         if (isInitialPageLoad) {
           console.warn(TAG, '[PlayerReload] Player not found, doing page reload (initial load only)');
           window.location.reload();
