@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <title>YTSpoofingStream</title>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #161625;
+      --surface2: #1c1c35;
+      --accent: #e94560;
+      --accent-dim: rgba(233, 69, 96, 0.15);
+      --text: #eaeaea;
+      --dim: #777;
+      --green: #00c853;
+      --gold: #f59e0b;
+      --radius: 8px;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 340px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 14px;
+    }
+
+    .hdr {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .hdr svg {
+      flex-shrink: 0;
+    }
+
+    .hdr h1 {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .hdr .ver {
+      font-size: 10px;
+      color: var(--dim);
+    }
+
+    .sec {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+
+    .sec-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--dim);
+      margin-bottom: 6px;
+    }
+
+    /* Mode selector */
+    .modes {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .mode {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      transition: 0.15s;
+    }
+
+    .mode:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .mode.active {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .mode input {
+      display: none;
+    }
+
+    .dot {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #444;
+      border-radius: 50%;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .mode.active .dot {
+      border-color: var(--accent);
+    }
+
+    .mode.active .dot::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 6px;
+      height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+
+    .mode-info {
+      flex: 1;
+    }
+
+    .mode-name {
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .mode-desc {
+      font-size: 9px;
+      color: var(--dim);
+    }
+
+    .badge {
+      font-size: 8px;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .badge-1 {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .badge-2 {
+      background: var(--gold);
+      color: #111;
+    }
+
+    /* Toggle */
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+    }
+
+    .row label {
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .tog {
+      position: relative;
+      width: 36px;
+      height: 20px;
+    }
+
+    .tog input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .tog .sl {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: 0.2s;
+      pointer-events: none;
+    }
+
+    .tog .sl::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: 0.2s;
+    }
+
+    .tog input:checked+.sl {
+      background: var(--accent);
+    }
+
+    .tog input:checked+.sl::before {
+      transform: translateX(16px);
+    }
+
+    .sel-method {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      padding: 4px 6px;
+      font-size: 11px;
+      outline: none;
+      cursor: pointer;
+      width: 140px;
+    }
+
+    .sel-method:focus {
+      border-color: var(--accent);
+    }
+
+    /* Status */
+    .st-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      padding: 3px 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .st-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+
+    .st-badge.off .st-dot {
+      background: #555;
+      animation: none;
+    }
+
+    .info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      padding: 2px 0;
+    }
+
+    .info .l {
+      color: var(--dim);
+    }
+
+    .info .v {
+      font-weight: 500;
+      font-size: 10px;
+    }
+
+    /* Client Stats Grid */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 4px;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .grid-item {
+      display: flex;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.15);
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 9px;
+    }
+
+    .grid-item .cn {
+      color: var(--dim);
+    }
+
+    .grid-item .cs {
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    .grid-item.ok .cs {
+      color: var(--green);
+    }
+
+    .grid-item.err .cs {
+      color: var(--accent);
+    }
+
+    .grid-item.hq {
+      background: var(--accent-dim);
+      border: 1px solid var(--gold);
+    }
+
+    .grid-item.hq .cs {
+      color: var(--gold);
+      font-weight: 700;
+    }
+
+    .btns {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 7px;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+
+    .btn-p {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-p:hover {
+      background: #d63350;
+    }
+
+    .btn-s {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    .btn-s:hover {
+      background: #252545;
+    }
+
+    .log {
+      font-family: 'Cascadia Code', monospace;
+      font-size: 9px;
+      max-height: 60px;
+      overflow-y: auto;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 6px;
+      border-radius: 4px;
+      color: var(--dim);
+      line-height: 1.4;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="hdr">
+    <svg width="26" height="26" viewBox="0 0 24 24">
+      <rect width="24" height="24" rx="5" fill="#e94560" />
+      <path d="M8 6L18 12L8 18Z" fill="#fff" />
+    </svg>
+    <div>
+      <h1>YTSpoofingStream</h1>
+      <div class="ver">v0.1.0 &bull; Deep Sync Client Spoofing</div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">Audio Mode</div>
+    <div class="modes" id="modes">
+      <label class="mode active" data-mode="aac_only">
+        <input type="radio" name="m" value="aac_only" checked>
+        <div class="dot"></div>
+        <div class="mode-info">
+          <div class="mode-name">AAC Only (ITAG 140/141)</div>
+          <div class="mode-desc">Remove Opus, force AAC</div>
+        </div>
+        <span class="badge badge-1">G1</span>
+      </label>
+      <label class="mode" data-mode="opus_hq">
+        <input type="radio" name="m" value="opus_hq">
+        <div class="dot"></div>
+        <div class="mode-info">
+          <div class="mode-name">Opus HQ (ITAG 774)</div>
+          <div class="mode-desc">256kbps Opus via ANDROID</div>
+        </div>
+        <span class="badge badge-2">G2</span>
+      </label>
+      <label class="mode" data-mode="highest">
+        <input type="radio" name="m" value="highest">
+        <div class="dot"></div>
+        <div class="mode-info">
+          <div class="mode-name">Highest Bitrate</div>
+          <div class="mode-desc">Auto best quality</div>
+        </div>
+      </label>
+    </div>
+  </div>
+
+  <div class="sec" id="tvAuthSec">
+    <div class="sec-title">TVHTML5 Login (Premium Audio)</div>
+    <div id="tvAuthContent">
+      <div id="tvAuthStatus" style="font-size: 11px; margin-bottom: 6px; color: var(--dim);">Status: Checking...</div>
+      <div id="tvAuthCodeContainer" style="display: none; text-align: center; margin-bottom: 8px;">
+        <div style="font-size: 10px; color: var(--dim);">Enter this code at <a href="https://youtube.com/activate"
+            target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
+        <div id="tvAuthCode" style="font-size: 16px; font-weight: 700; letter-spacing: 2px; margin-top: 4px;"></div>
+      </div>
+      <div class="btns">
+        <button class="btn btn-p" id="btnTvLogin">Login to TV</button>
+        <button class="btn btn-s" id="btnTvLogout" style="display: none;">Logout</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">Controls</div>
+    <div class="row">
+      <label for="preferredClient">Spoofing Method</label>
+      <select id="preferredClient" class="sel-method">
+        <option value="AUTO">Auto (Best Available)</option>
+        <option value="WEB_REMIX">WEB_REMIX (Music)</option>
+        <option value="TVHTML5">TVHTML5 (YouTube TV)</option>
+        <option value="ANDROID">ANDROID (Mobile)</option>
+        <option value="IOS">IOS (Apple)</option>
+        <option value="ANDROID_MUSIC">ANDROID_MUSIC</option>
+        <option value="ANDROID_VR">ANDROID_VR (Quest)</option>
+      </select>
+    </div>
+    <label class="row" for="en"><span>Enable Extension</span>
+      <span class="tog"><input type="checkbox" id="en" checked><span class="sl"></span></span>
+    </label>
+    <label class="row" for="hq"><span>Fetch HQ Audio (Multi-client)</span>
+      <span class="tog"><input type="checkbox" id="hq" checked><span class="sl"></span></span>
+    </label>
+    <label class="row" for="fo"><span>Force Override</span>
+      <span class="tog"><input type="checkbox" id="fo" checked><span class="sl"></span></span>
+    </label>
+    <label class="row" for="ar"><span>Auto-reload page on change</span>
+      <span class="tog"><input type="checkbox" id="ar" checked><span class="sl"></span></span>
+    </label>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">Status</div>
+    <div class="row">
+      <span class="st-badge" id="stBadge"><span class="st-dot"></span><span id="stText">Active</span></span>
+      <span style="font-size:10px;color:var(--dim)" id="swSt">SW: —</span>
+    </div>
+    <div class="info"><span class="l">Mode</span><span class="v" id="iMode">—</span></div>
+    <div class="info"><span class="l">Active Method</span><span class="v" id="iMethod" style="color:var(--gold);font-weight:700;">—</span></div>
+    <div class="info"><span class="l">Streams</span><span class="v" id="iStreams">0</span></div>
+    <div class="info"><span class="l">Active Audio</span><span class="v" id="iAudio">—</span></div>
+
+    <div class="grid" id="statsGrid">
+      <!-- Generated dynamically in popup.js -->
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">Actions</div>
+    <div class="btns">
+      <button class="btn btn-p" id="btnR">↻ Refresh Page</button>
+      <button class="btn btn-s" id="btnL">⟳ Reload</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">Log</div>
+    <div class="log" id="log">Ready.</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

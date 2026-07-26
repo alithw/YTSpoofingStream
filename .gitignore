@@ -1,0 +1,6 @@
+node_modules/
+.claude/
+.codex/
+image_captured/
+*.rar
+prompt.txt

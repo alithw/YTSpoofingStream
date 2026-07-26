@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "YTSpoofingStream",
+  "version": "0.1.0",
+  "description": "Force high-quality audio on YouTube via Service Worker Resolver (TVHTML5 774 / Android 774 / AAC 141)",
+  "permissions": [
+    "scripting",
+    "storage",
+    "activeTab",
+    "tabs",
+    "cookies",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.googleapis.com/*",
+    "*://*.googleusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}
