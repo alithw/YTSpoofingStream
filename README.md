@@ -34,8 +34,10 @@ YTSpoofingStream acts as a transparent bridge. It securely requests the premium 
 
 - **Unlock Premium Audio**: Enjoy crystal-clear audio by forcing YouTube to serve high-bitrate audio formats (ITAG 141, 774) normally hidden from the web player.
 - **Multi-Client Spoofing Engine**: Seamlessly switches between various YouTube internal clients (WEB_REMIX, ANDROID, IOS, TVHTML5) to hunt down the best available audio format for every video.
+- **BotGuard & poToken Bypass**: Automatically extracts and injects `poToken` and `visitorData` from the live webpage to pass YouTube's strict anti-bot mechanisms, eliminating "Video unavailable" errors on modern clients.
+- **Vevo & Official Music Video Support**: Seamlessly processes encrypted `signatureCipher` streams. Premium audio works perfectly even on copyrighted music videos.
 - **Manifest V3 Native**: Built entirely on Manifest V3. Intercepts API requests and modifies headers (`Origin`, `User-Agent`) silently using Chrome's native `declarativeNetRequest` API. Zero performance penalty.
-- **Intelligent Caching & Sync**: Utilizes a combination of `sessionStorage` and in-memory caches to ensure the video player loads high-quality formats instantly on page refresh or playlist auto-play, completely eliminating network delays.
+- **Intelligent Pre-warm & Sync**: Caches HQ formats asynchronously during Single Page Application (SPA) navigation (like clicking a video in the sidebar) and auto-reloads the player precisely when ready. Zero network delays.
 - **Stats for Nerds Dashboard**: A live, beautiful popup dashboard displaying detailed logs, injected streams, active audio methods, and real-time spoofing status.
 
 ## 🧠 Technical Architecture & Deep Dive
@@ -48,19 +50,18 @@ YouTube delivers its video data (`streamingData`) through three different avenue
 - `window.ytplayer.config.args.raw_player_response` (legacy/fallback configuration).
 - `window.fetch` (used by the SPA router when navigating between videos).
 
-This extension injects a content script (`inject.js`) at `document_start` to intercept all three. We use `Object.defineProperty` to hook into global variables before YouTube's own scripts even boot up. When the SPA router makes a `fetch` request to `/youtubei/v1/player`, we intercept the Promise, parse the JSON, inject our custom formats, and repackage it into a `new Response()`.
+This extension injects a content script (`inject.js`) at `document_start` to intercept all three. We use `Object.defineProperty` to hook into global variables before YouTube's own scripts even boot up. When the SPA router fetches data, we intercept the Promise, parse the JSON, inject our custom formats, and repackage it into a `new Response()`.
 
-### 2. Multi-Client Spoofing via Background SW
-To get the high-quality formats, the Content Script delegates network requests to the Background Service Worker via Message Passing. The SW then queries the `/youtubei/v1/player` endpoint using multiple custom payloads representing different clients (e.g., passing `"clientName": "WEB_REMIX"` or `"TVHTML5"`). 
-Because YouTube heavily validates CORS and Origin headers, we dynamically register `declarativeNetRequest` session rules to spoof `User-Agent`, `Origin`, and `Referer` headers for these background requests, ensuring they are indistinguishable from genuine client requests.
+### 2. Multi-Client Spoofing & BotGuard Bypass
+To get the high-quality formats, the Content Script delegates network requests to the Background Service Worker via Message Passing. The SW then queries the `/youtubei/v1/player` endpoint using multiple custom payloads representing different clients.
+- **BotGuard Bypass:** YouTube recently enforced `poToken` (Proof of Origin) verification for API requests. We actively intercept the web player's outgoing requests to extract the live `poToken`, `signatureTimestamp`, and `visitorData`, and tunnel them into our SW payload to perfectly mimic the authorized session.
+- **Header Spoofing:** We dynamically register `declarativeNetRequest` session rules to spoof `User-Agent`, `Origin`, and `Referer` headers for background requests.
 
 ### 3. Overcoming "The Stubborn Player" (State Corruption & Auto-play policies)
 One of the biggest challenges was making the YouTube HTML5 player accept the injected formats smoothly:
-- **Format Spoofing**: The standard web player will crash ("Video unavailable") if it receives an unknown ITAG like `774`. To bypass this, we deep-clone the 774 stream and "spoof" its ITAG to `251` (and adjust its `mimeType`), tricking the player into thinking it's playing standard Opus, while actually streaming the 300+ kbps Premium source.
-- **SPA Autoplay Freezes**: Attempting to force the player to reload via `player.loadVideoByPlayerVars()` often corrupts the player state if the `videoId` hasn't changed. Furthermore, delaying the SPA transition too long causes browsers (like Chrome) to drop the "user gesture" token, which triggers strict Autoplay policies and permanently freezes the video upon transition. 
-- **The Caching Solution**: To solve this, we implemented a sophisticated `sessionStorage` cache with a 1-hour TTL. 
-  - **On first load:** The extension performs a one-time programmatic page reload (`window.location.reload()`) to synchronously inject the formats, guaranteeing a clean player initialization. 
-  - **On SPA navigation (Playlists):** The extension uses the `fetch` interceptor to block and inject formats perfectly in sync with the router, ensuring 0% autoplay blockage and a seamless transition.
+- **ITAG Disguise (Format Spoofing):** The standard web player will crash ("Format Error") if it receives an unknown ITAG like `774`. To bypass this, we "disguise" the 774 stream's ITAG to `251` (and adjust its `mimeType`), tricking the player into thinking it's playing standard Opus, while actually streaming the 300+ kbps Premium source.
+- **Vevo & signatureCipher:** Copyrighted music videos don't use direct URLs; they use a heavily encrypted `signatureCipher`. Our injection logic deliberately preserves the cipher intact, allowing the web player's native `base.js` to automatically decrypt our injected premium formats alongside original ones.
+- **SPA Autoplay Freezes & Pre-warming:** Instead of blindly reloading the player on SPA navigation (which triggers Chrome's strict Autoplay block policies), we listen to `yt-navigate-start` to "pre-warm" the HQ formats in the background. Once the formats are secured, we trigger an immediate targeted player upgrade (`loadVideoById` / `updateVideoData`), completely avoiding page reloads and ensuring seamless playback.
 
 ## 🚀 Installation
 
@@ -98,11 +99,11 @@ If you encounter any bugs, such as "Video unavailable" errors, infinite bufferin
 We welcome contributions from the community! If you have ideas to improve spoofing methods, bypass new restrictions, or optimize the caching engine:
 
 1. Fork the project.
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
+2. Create a new branch (`git checkout -b feature/AmazingFeature`).
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
 4. Push to the branch (`git push origin feature/AmazingFeature`).
 5. Open a Pull Request.
 
 ## 📄 License
 
-This project is open-source and distributed under the **MIT License**. See the `LICENSE` file for more information.
+Distributed under the MIT License. See `LICENSE` for more information.

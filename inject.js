@@ -1,6 +1,6 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.0.8 — Main World Script                     ║
-// ║  v0.0.5 Core + Pre-warm Cache + Force Player Reload              ║
+// ║  YTSpoofingStream — Main World Script                             ║
+// ║  Pre-warm Cache + ITAG Disguise + Force Player Reload            ║
 // ╚══════════════════════════════════════════════════════════════════╝
 (function () {
   'use strict';
@@ -12,6 +12,28 @@
 
   const MODES = { AAC: 'aac_only', OPUS_HQ: 'opus_hq', HIGHEST: 'highest' };
 
+  const CLIENT_VERSIONS = {
+    'TVHTML5': '7.20240101.01.01',
+    'TVHTML5_SIMPLY_EMBEDDED_PLAYER': '2.0',
+    'WEB_REMIX': '1.20250720.01.00',
+    'ANDROID': '21.04.223',
+    'ANDROID_MUSIC': '7.27.52',
+    'IOS': '19.45.4',
+    'ANDROID_VR': '1.58.1',
+  };
+
+  // ─── ITAG DISGUISE TABLE ──────────────────────────────────────────
+  // The desktop web player refuses itags that are not in its own format table
+  // ("Video unavailable" / silent playback). So each premium itag is presented to
+  // the player under a codec-compatible itag it does accept, while the `url` still
+  // points at the premium stream. The fetch/XHR interceptors then restore the real
+  // itag and client on the outgoing videoplayback request.
+  const ITAG_DISGUISE = {
+    774: { as: 251, mimeType: 'audio/webm; codecs="opus"' },        // Opus 256-300kbps → Opus 160kbps slot
+    141: { as: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"' },    // AAC 256kbps → AAC 128kbps slot
+  };
+  const HQ_ITAGS = Object.keys(ITAG_DISGUISE).map(Number);
+
   // ─── SETTINGS ────────────────────────────────────────────────────
   let S = {
     enabled: true,
@@ -22,17 +44,75 @@
     preferredClient: 'AUTO'
   };
 
+  // Keys that may live in `S`. Earlier builds pushed the whole extension storage
+  // area into this world, which meant the TV OAuth token (access_token +
+  // refresh_token) ended up in `S` and persisted to youtube.com localStorage where
+  // any page script could read it. Filtering on both read and write also scrubs
+  // tokens that older builds already wrote.
+  const SETTING_KEYS = Object.keys(S);
+
+  function pickSettings(obj) {
+    const out = {};
+    if (!obj || typeof obj !== 'object') return out;
+    for (const key of SETTING_KEYS) {
+      if (obj[key] !== undefined) out[key] = obj[key];
+    }
+    return out;
+  }
+
+  function persistSettings() {
+    try { localStorage.setItem('ytss_settings', JSON.stringify(S)); } catch (e) {}
+  }
+
   try {
     const stored = localStorage.getItem('ytss_settings');
-    if (stored) Object.assign(S, JSON.parse(stored));
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      Object.assign(S, pickSettings(parsed));
+      // Rewrite immediately if the stored blob carried anything it shouldn't.
+      if (Object.keys(parsed).some(k => !SETTING_KEYS.includes(k))) {
+        persistSettings();
+        try { localStorage.removeItem('ytSpoofingStream_settings'); } catch (e) {}
+        console.warn(TAG, 'Purged non-settings keys from stored config.');
+      }
+    }
   } catch (e) {}
 
   window.addEventListener('message', (e) => {
+    // Only trust messages this page posted to itself — otherwise any embedded
+    // iframe on the page could push arbitrary settings into the extension.
+    if (e.source !== window) return;
     if ((e.data?.type === 'YTSS_SETTINGS_UPDATE' || e.data?.type === 'YTSpoofingStream_settingsUpdate') && e.data.settings) {
-      Object.assign(S, e.data.settings);
-      localStorage.setItem('ytss_settings', JSON.stringify(S));
+      Object.assign(S, pickSettings(e.data.settings));
+      persistSettings();
     }
   });
+
+  // ── DISABLE SERVICE WORKER ──────────────────────────────────────────
+  // YouTube uses a Service Worker (sw.js) to intercept network requests.
+  // If active, it handles videoplayback requests in a separate thread,
+  // bypassing our window.fetch and XHR hooks. We must disable it!
+  // Gated on S.enabled: with the extension switched off there is nothing to
+  // intercept, and breaking YouTube's own Service Worker anyway would degrade
+  // the site for no reason.
+  if (navigator.serviceWorker && S.enabled) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for (let registration of registrations) {
+        registration.unregister().then(success => {
+          if (success) console.log(TAG, 'Unregistered existing Service Worker');
+        });
+      }
+    }).catch(e => {});
+
+    Object.defineProperty(navigator.serviceWorker, 'register', {
+      value: function() {
+        console.log(TAG, "Service Worker registration blocked by YTSpoofingStream.");
+        return Promise.reject(new Error("Service Worker disabled to force fetch intercept."));
+      },
+      configurable: true,
+      writable: true
+    });
+  }
 
   // ─── STATUS ──────────────────────────────────────────────────────
   const status = {
@@ -57,7 +137,11 @@
   const HQ_CACHE_TTL_MS = 3600000; // 1 hour
   const hqCache = new Map();        // videoId → { formats, ts }
   const pendingFetches = new Map(); // videoId → Promise<hqFormats[]>
+  const VIDEO_ID_RE = /^[\w-]{11}$/;
+  const failedFetches = new Map();  // videoId → ts of the last empty result (backoff)
+  const FAILED_RETRY_MS = 20000;    // don't re-run the fan-out for a failing video more often than this
   const reloadedVideos = new Set(); // guard: only force-reload once per videoId
+  const pendingReloads = new Set(); // guard: only one reload retry loop per videoId
   let isInitialPageLoad = true;     // guard: only allow page reload on very first visit
   const isMusicSite = location.hostname === 'music.youtube.com'; // YouTube Music needs special handling
 
@@ -110,7 +194,7 @@
       }
       window.addEventListener('message', onMessage);
 
-      window.postMessage({ type: 'YTSS_FETCH_HQ', videoId, requestId }, '*');
+      window.postMessage({ type: 'YTSS_FETCH_HQ', videoId, requestId, context: collectPageContext() }, '*');
 
       // 12s timeout: SW may need to restart after being killed by Chrome (~30s idle).
       // During restart, sendMessage fails once, bridge retries after 500ms, then
@@ -123,12 +207,23 @@
   }
 
   async function fetchAllHQAudio(videoId) {
+    // Reject anything that isn't a real 11-char YouTube ID. Player-URL parsing
+    // occasionally yields fragments like "ux", and each one burned a full 7-client
+    // fan-out that could never succeed.
+    if (!videoId || !VIDEO_ID_RE.test(videoId)) return [];
     // Dedup: if already fetching same videoId, wait for existing promise
     if (pendingFetches.has(videoId)) return await pendingFetches.get(videoId);
     // Cache hit (not expired) — ONLY return cache if it has actual formats.
     // An empty cache entry means a previous fetch failed; we must retry.
     const cached = cacheGet(videoId);
     if (cached?.length > 0) return cached;
+
+    // Empty results are deliberately never cached, so without a cooldown every
+    // caller that asks again immediately re-runs the whole fan-out. Back off
+    // instead: a video that genuinely has no HQ formats, or a worker that is
+    // failing right now, gets retried at most once per FAILED_RETRY_MS.
+    const failedAt = failedFetches.get(videoId);
+    if (failedAt && Date.now() - failedAt < FAILED_RETRY_MS) return [];
 
     console.log(TAG, `[HQ] Fetching for ${videoId}...`);
     status.clientStats = {}; // Clear stale stats before fetching
@@ -164,6 +259,9 @@
       // Caching an empty result would permanently block re-fetching for this videoId.
       if (merged.length > 0) {
         cacheSet(videoId, merged);
+        failedFetches.delete(videoId);
+      } else {
+        failedFetches.set(videoId, Date.now());
       }
       pendingFetches.delete(videoId);
       report();
@@ -188,14 +286,28 @@
     } catch (e) { return null; }
   }
 
+  // The videoId the SPA is currently heading for. During a playlist advance the
+  // three sources of truth update at different times — yt-navigate-start fires
+  // first, then location.search, then #movie_player — so neither the URL nor the
+  // player element on its own can answer "does this pending upgrade still belong
+  // to the track the user is about to hear?".
+  let navTargetVideoId = getVideoIdFromUrl();
+
+  function isCurrentTarget(videoId) {
+    return !!videoId && (videoId === navTargetVideoId || videoId === getVideoIdFromUrl());
+  }
+
   function prewarmCache(videoId) {
-    if (!videoId || !S.enabled || !S.hqFetch) return;
-    // Invalidate stale cache and any in-flight/completed fetches for this videoId.
-    // This ensures a fresh API call on every navigation, preventing stale empty
-    // results from blocking re-injection after a SW timeout.
-    hqCache.delete(videoId);
+    if (!videoId || !VIDEO_ID_RE.test(videoId) || !S.enabled || !S.hqFetch) return;
+    navTargetVideoId = videoId;
     reloadedVideos.delete(videoId);
-    pendingFetches.delete(videoId); // clear stale dedup entry so we always re-fetch
+    // An in-flight fetch for this videoId is exactly what the dedup map is for, so
+    // join it rather than clearing it. Clearing it here (as this used to) let every
+    // re-entry kick off another 7-client fan-out: one video whose fetch came back
+    // empty would re-trigger prewarm, which cancelled the dedup, which re-fetched,
+    // and the resulting storm is what eventually starved the worker into returning
+    // nothing for everything until a hard refresh.
+    if (pendingFetches.has(videoId)) return;
     status.prewarmStatus = `pre-fetching ${videoId}…`;
     report();
     fetchAllHQAudio(videoId).then(formats => {
@@ -204,6 +316,9 @@
         : 'no HQ formats';
       report();
       console.log(TAG, `[Pre-warm] ${status.prewarmStatus} for ${videoId}`);
+      if (formats.length > 0 && S.autoReload) {
+        forcePlayerReload(videoId, formats);
+      }
     });
   }
 
@@ -248,9 +363,19 @@
     const seen = new Set();
     const pool = [];
 
+    // Filter HQ formats by preferred client if specified
+    let filteredHq = hqFormats || [];
+    if (S.preferredClient && S.preferredClient !== 'AUTO') {
+      filteredHq = filteredHq.filter(f => f._src === S.preferredClient);
+    }
+
     // HQ from SW first (priority)
-    if (hqFormats?.length > 0) {
-      for (const f of hqFormats) {
+    if (filteredHq.length > 0) {
+      for (const f of filteredHq) {
+        // Allow both direct URLs and signatureCipher formats. The web player's
+        // base.js will automatically decipher signatureCipher formats just like
+        // it does for originalFormats.
+        if (!f.url && !f.signatureCipher) continue;
         if (!seen.has(f.itag)) { seen.add(f.itag); pool.push(f); }
       }
     }
@@ -267,73 +392,107 @@
     const mode = S.audioMode || MODES.HIGHEST;
     let selectedAudio = [];
 
+    // Highest-bitrate-first ordering helper.
+    const byBitrate = (list) => list.slice().sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+    const pick = (list) => (S.forceOverride ? [list[0]] : list);
+
     if (mode === MODES.AAC) {
-      const aac = filteredPool.filter(f => (f.mimeType || '').includes('mp4a'))
-                              .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const aac = byBitrate(filteredPool.filter(f => (f.mimeType || '').includes('mp4a')));
       const target = aac.find(f => f.itag === 141);
       if (target) {
         selectedAudio = [target];
         console.log(TAG, `★ ITAG 141 (AAC 256kbps) [${target._src}]`);
       } else if (aac.length) {
-        selectedAudio = S.forceOverride ? [aac[0]] : aac;
+        selectedAudio = pick(aac);
         console.log(TAG, `AAC -> ITAG ${aac[0].itag} (${Math.round((aac[0].bitrate || 0) / 1000)}k) [${aac[0]._src}]`);
       } else {
         selectedAudio = filteredPool;
       }
     } else if (mode === MODES.OPUS_HQ) {
-      const opus = filteredPool.filter(f => (f.mimeType || '').includes('opus'))
-                               .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const opus = byBitrate(filteredPool.filter(f => (f.mimeType || '').includes('opus')));
       const target = opus.find(f => f.itag === 774);
       if (target) {
         selectedAudio = [target];
         console.log(TAG, `★ ITAG 774 (Opus 256kbps+) [${target._src}]`);
       } else if (opus.length) {
-        selectedAudio = S.forceOverride ? [opus[0]] : opus;
+        selectedAudio = pick(opus);
         console.log(TAG, `Opus -> ITAG ${opus[0].itag} (${Math.round((opus[0].bitrate || 0) / 1000)}k) [${opus[0]._src}]`);
       } else {
         selectedAudio = filteredPool;
       }
     } else {
-      // HIGHEST: pick best bitrate regardless of codec
-      // IMPORTANT: Prefer Opus streams over AAC 141 because Chrome's MSE pipeline
-      // cannot reliably play AAC 141 via adaptive streaming (it requires native decoder).
-      // If we only have AAC 141 and no Opus, fall back to original 251.
-      const opus = filteredPool.filter(f => (f.mimeType || '').includes('opus'))
-                               .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-      const aac  = filteredPool.filter(f => (f.mimeType || '').includes('mp4a') && f.itag !== 141)
-                               .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-
-      if (opus.length > 0) {
-        // Prefer highest Opus (774 or 251)
-        selectedAudio = S.forceOverride ? [opus[0]] : opus;
-      } else if (aac.length > 0) {
-        // No Opus at all, use best non-141 AAC
-        selectedAudio = S.forceOverride ? [aac[0]] : aac;
+      // HIGHEST: itag 774 is the stated top target, so prefer it outright when present.
+      // Otherwise fall back to plain highest bitrate. itag 141 is a legitimate
+      // candidate here because ITAG_DISGUISE presents it to the player as 140,
+      // which the desktop player does accept.
+      const target774 = filteredPool.find(f => f.itag === 774);
+      if (target774) {
+        selectedAudio = [target774];
+        console.log(TAG, `★ ITAG 774 (Opus 256kbps+) [${target774._src}]`);
       } else {
-        // Last resort: everything including 141
-        filteredPool.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-        selectedAudio = S.forceOverride ? [filteredPool[0]].filter(Boolean) : filteredPool;
+        const ranked = byBitrate(filteredPool);
+        selectedAudio = ranked.length ? pick(ranked) : [];
+        if (ranked.length) {
+          console.log(TAG, `Highest -> ITAG ${ranked[0].itag} (${Math.round((ranked[0].bitrate || 0) / 1000)}k) [${ranked[0]._src}]`);
+        }
       }
     }
 
-    // Spoof ITAG to trick the web player into accepting Premium streams natively.
-    // Rules:
-    //   774 (Opus HQ)  → spoof as 251 (standard Opus webm) — works perfectly
-    //   141 (AAC 256k) → DO NOT spoof to 140. Chrome MSE cannot play AAC adaptively.
-    //                    Keep as-is; if player rejects it, it will fall back gracefully.
+    selectedAudio = selectedAudio.filter(Boolean);
+
+    // ── Strategy: ITAG disguise + URL-swap ──────────────────────────────
+    // Present each premium stream under an itag the web player accepts (see
+    // ITAG_DISGUISE) while keeping the premium `url`. Strip &sabr=1 so the server
+    // does not activate the SABR/UMP POST pathway for this stream, and tag the URL
+    // with _ytss_* so the fetch/XHR interceptors can restore the real client and
+    // itag on the outgoing videoplayback request.
     selectedAudio = selectedAudio.map(f => {
-      const origItag = f.itag;
-      if (origItag === 774) {
-        return {
-          ...f,
-          itag: 251,
-          mimeType: 'audio/webm; codecs="opus"',
-          _origItag: 774
-        };
+      const origItag = f._origItag || f.itag;
+      const disguise = ITAG_DISGUISE[origItag];
+      // Preserve the absence of a url — overwriting it with '' would turn a
+      // signatureCipher-only format into a broken one.
+      const hasUrl = typeof f.url === 'string' && f.url.length > 0;
+      let streamUrl = hasUrl ? f.url.replace(/&sabr=1/g, '') : f.url;
+
+      if (!disguise) return { ...f, _origItag: origItag, ...(hasUrl ? { url: streamUrl } : {}) };
+
+      if (hasUrl) {
+        try {
+          const urlObj = new URL(streamUrl);
+          // Only stamp a real spoofed client. '_src' is 'original' for page-native
+          // formats, and echoing that back produced `c=original` on the outgoing
+          // videoplayback request — an invalid client paired with a stale cver.
+          if (f._src && f._src !== 'original') {
+            urlObj.searchParams.set('_ytss_client', f._src);
+          }
+          urlObj.searchParams.set('_ytss_orig_itag', String(origItag));
+          streamUrl = urlObj.toString();
+        } catch (e) {}
       }
-      // For 141 and others: keep original itag, player will handle or reject gracefully
-      return { ...f, _origItag: origItag };
+
+      return {
+        ...f,
+        itag: disguise.as,
+        mimeType: disguise.mimeType,
+        ...(hasUrl ? { url: streamUrl } : {}),
+        _origItag: origItag,
+        _src: f._src || 'hq',
+      };
     });
+
+    // Disguising can collide with an original stream that already uses the target
+    // itag (e.g. 774→251 alongside the real 251, which happens whenever
+    // forceOverride is off). Two entries with the same itag confuse the player, so
+    // keep one per itag and prefer the premium stream.
+    const byItag = new Map();
+    for (const f of selectedAudio) {
+      const existing = byItag.get(f.itag);
+      if (!existing) { byItag.set(f.itag, f); continue; }
+      const incomingIsHQ = HQ_ITAGS.includes(f._origItag);
+      const existingIsHQ = HQ_ITAGS.includes(existing._origItag);
+      if (incomingIsHQ && !existingIsHQ) byItag.set(f.itag, f);
+    }
+    selectedAudio = [...byItag.values()];
 
     json.streamingData.adaptiveFormats = [...videoFormats, ...selectedAudio];
 
@@ -342,20 +501,38 @@
     delete json.streamingData.dashManifestUrl;
     delete json.streamingData.hlsManifestUrl;
 
+    // CRITICAL 2: Nuclear option to completely disable SABR (Server ABR / UMP).
+    // SABR ignores our `url` property and constructs POST requests from scratch.
+    // By deeply deleting all SABR configurations, we force standard HTTP GET requests.
+    function deepDeleteSABR(obj) {
+      if (!obj || typeof obj !== 'object') return;
+      if (Array.isArray(obj)) {
+        for (let i = 0; i < obj.length; i++) deepDeleteSABR(obj[i]);
+      } else {
+        for (const key in obj) {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey.includes('sabr') || lowerKey.includes('serverabr') || lowerKey === 'mediaumpconfig') {
+            delete obj[key];
+          } else {
+            deepDeleteSABR(obj[key]);
+          }
+        }
+      }
+    }
+    deepDeleteSABR(json);
+
     const active = selectedAudio[0];
     if (active) {
       const codec  = (active.mimeType || '').includes('opus') ? 'Opus' : 'AAC';
       const kbps   = Math.round((active.bitrate || 0) / 1000);
 
       const displayItag = active._origItag || active.itag;
-      const isHQ   = (displayItag === 141 || displayItag === 774) ? ' [HQ ★]' : '';
+      const isHQ   = HQ_ITAGS.includes(displayItag) ? ' [HQ ★]' : '';
       const src    = active._src || 'original';
 
       status.activeMethod    = src;
       status.activeAudioItag = displayItag;
-      status.bestAudioInfo   = `ITAG ${displayItag}${isHQ} | ${codec} ${kbps}kbps | Method: ${src}${
-        displayItag === 774 ? ' (Spoofed as 251)' : ''
-      }`;
+      status.bestAudioInfo   = `ITAG ${displayItag}${isHQ} | ${codec} ${kbps}kbps | Method: ${src}`;
       status.injectedStreams  = pool.length;
       report();
     }
@@ -383,6 +560,11 @@
       if (cached?.length > 0) {
         console.log(TAG, `[ytInitialPlayerResponse] Cache HIT → sync merge ${cached.length} formats`);
         initialResponseValue = processPlayerResponse(val, cached);
+        // The player is initialising straight onto the HQ formats, so there is
+        // nothing to upgrade. Claim the guard so a later visibilitychange or SW
+        // tab-activation trigger doesn't reload an already-HQ stream and cost a
+        // re-buffer for no gain.
+        reloadedVideos.add(videoId);
       } else {
         // No cache yet → sync process with original only, then async merge + player reload
         initialResponseValue = processPlayerResponse(val, null);
@@ -396,10 +578,8 @@
               // [APPROACH 4] Force player re-init ONCE per videoId
               // NOTE: Do NOT delete cache here — the player's re-fetch needs the
               // cached HQ formats to merge synchronously (avoids second SW round-trip).
-              if (!reloadedVideos.has(videoId)) {
-                reloadedVideos.add(videoId);
-                forcePlayerReload(videoId, hqFormats);
-              }
+              // forcePlayerReload owns the reloadedVideos guard.
+              forcePlayerReload(videoId, hqFormats);
             }
           });
         }
@@ -408,6 +588,95 @@
     configurable: true,
     enumerable: true,
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PAGE CONTEXT → SERVICE WORKER
+  // InnerTube drops the premium formats when a spoofed client sends no visitorData
+  // matching the real session. Read those identifiers straight out of the page's own
+  // ytcfg and relay them to the SW (via bridge.js) so its spoofed requests carry the
+  // same session identity as the page.
+  // ═══════════════════════════════════════════════════════════════════
+  let lastPageContextSent = '';
+
+  // Read the page's current session identity. Kept separate from reportPageContext
+  // so it can also ride along on every HQ request — the worker gets evicted after
+  // ~30s idle, and a fingerprint-deduped one-shot push has no way to notice that
+  // the receiver has forgotten what it was told.
+  function collectPageContext() {
+    try {
+      const cfg = window.ytcfg;
+      if (!cfg || typeof cfg.get !== 'function') return null;
+
+      const innertube = cfg.get('INNERTUBE_CONTEXT');
+      const context = {
+        visitorData: cfg.get('VISITOR_DATA') || innertube?.client?.visitorData || null,
+        sessionIndex: cfg.get('SESSION_INDEX') ?? null,
+        delegatedSessionId: cfg.get('DELEGATED_SESSION_ID') || null,
+        sts: cfg.get('STS') || (window.ytplayer && window.ytplayer.config && window.ytplayer.config.sts) || null,
+        poToken: cfg.get('POTOKEN') || (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args && window.ytplayer.config.args.raw_player_response && window.ytplayer.config.args.raw_player_response.serviceTrackingParams && window.ytplayer.config.args.raw_player_response.serviceTrackingParams.find(x => x.service === 'CSI')?.params?.find(x => x.key === 'potoken')?.value) || null,
+      };
+      return context.visitorData ? context : null;
+    } catch (e) { return null; }
+  }
+
+  function reportPageContext() {
+    try {
+      const context = collectPageContext();
+      if (!context) return;
+
+      // Only post when something actually changed (ytcfg.set is called repeatedly).
+      const fingerprint = JSON.stringify(context);
+      if (fingerprint === lastPageContextSent) return;
+      lastPageContextSent = fingerprint;
+
+      window.postMessage({ type: 'YTSS_PAGE_CONTEXT', context }, '*');
+      console.log(TAG, `[PageContext] Sent visitorData + authUser=${context.sessionIndex ?? '0'} to SW`);
+    } catch (e) {}
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // [APPROACH 2.5] YTCFG EXPERIMENT FLAGS HOOK
+  // Force disable SABR globally via YouTube's experiment flags
+  // ═══════════════════════════════════════════════════════════════════
+  let _ytcfg = window.ytcfg;
+  Object.defineProperty(window, 'ytcfg', {
+    get() { return _ytcfg; },
+    set(val) {
+      if (val && typeof val.set === 'function' && !val._ytssHooked) {
+        const origSet = val.set;
+        val.set = function(...args) {
+          try {
+            let obj = args[0];
+            if (typeof args[0] === 'string' && args.length > 1) {
+              obj = { [args[0]]: args[1] };
+            }
+            if (obj && obj.EXPERIMENT_FLAGS) {
+              for (const key in obj.EXPERIMENT_FLAGS) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey.includes('sabr')) {
+                  obj.EXPERIMENT_FLAGS[key] = false;
+                }
+              }
+              obj.EXPERIMENT_FLAGS.html5_disable_sabr = true;
+              obj.EXPERIMENT_FLAGS.html5_enable_sabr = false;
+              obj.EXPERIMENT_FLAGS.sabr_force_ump = false;
+            }
+          } catch (e) { }
+          const result = origSet.apply(this, args);
+          // Session identifiers land here during page boot and again on SPA nav.
+          reportPageContext();
+          return result;
+        };
+        val._ytssHooked = true;
+      }
+      _ytcfg = val;
+    }
+  });
+
+  // ytcfg may already be populated before our hook installs (or be set via a path
+  // that bypasses .set), so also sample it once the document is ready.
+  document.addEventListener('DOMContentLoaded', reportPageContext);
+  window.addEventListener('yt-navigate-finish', reportPageContext);
 
   // ═══════════════════════════════════════════════════════════════════
   // [APPROACH 3] ytplayer.config HOOK
@@ -426,10 +695,8 @@
       if (args.raw_player_response?.streamingData) {
         const videoId = args.raw_player_response.videoDetails?.videoId;
         const cached  = videoId ? cacheGet(videoId) : null;
-        if (cached?.length > 0) {
-          console.log(TAG, `[ytplayer.config] raw_player_response sync patch`);
-          args.raw_player_response = processPlayerResponse(args.raw_player_response, cached);
-        }
+        console.log(TAG, `[ytplayer.config] raw_player_response sync patch (cached: ${!!cached})`);
+        args.raw_player_response = processPlayerResponse(args.raw_player_response, cached);
       }
 
       // player_response (older / fallback, JSON string)
@@ -439,10 +706,8 @@
           if (pr.streamingData) {
             const videoId = pr.videoDetails?.videoId;
             const cached  = videoId ? cacheGet(videoId) : null;
-            if (cached?.length > 0) {
-              console.log(TAG, `[ytplayer.config] player_response sync patch`);
-              args.player_response = JSON.stringify(processPlayerResponse(pr, cached));
-            }
+            console.log(TAG, `[ytplayer.config] player_response sync patch (cached: ${!!cached})`);
+            args.player_response = JSON.stringify(processPlayerResponse(pr, cached));
           }
         } catch (e) {}
       }
@@ -478,6 +743,12 @@
   // [APPROACH 4] FORCE PLAYER RELOAD
   // After async HQ inject, tell the YouTube player to reload the video
   // so it picks up the new (better) format list.
+  //
+  // Owns the `reloadedVideos` guard: it is claimed only when loadVideoById is
+  // actually issued, and released again on every give-up path. Callers must NOT
+  // pre-add to the set — doing so used to burn the guard whenever this function
+  // bailed out, leaving the video stuck on low quality with no retry path except
+  // the user manually focusing the tab.
   // ═══════════════════════════════════════════════════════════════════
   function forcePlayerReload(videoId, hqFormats) {
     if (!hqFormats || hqFormats.length === 0) return;
@@ -487,11 +758,38 @@
       return;
     }
 
+    if (reloadedVideos.has(videoId)) return;
+    // Both the ytInitialPlayerResponse merge and the fetch/XHR interceptors can land
+    // on the same video, and neither claims reloadedVideos until it actually reloads.
+    // Without this, each would spin up its own retry loop and the player would get
+    // reloaded twice.
+    if (pendingReloads.has(videoId)) return;
+    pendingReloads.add(videoId);
+
     console.log(TAG, `[PlayerReload] Attempting player-level reload for ${videoId} (initialLoad=${isInitialPageLoad})`);
 
     let attempts = 0;
+    // ~5s of retries. On SPA navigation the HQ fetch for the incoming video often
+    // completes before #movie_player has switched over to it, so we have to wait
+    // the player out rather than give up on the first mismatch.
+    const MAX_ATTEMPTS = 25;
+
+    const release = (why) => {
+      // Let visibilitychange / the SW tab-activation trigger / the player's next
+      // /youtubei/v1/player request try the upgrade again later.
+      reloadedVideos.delete(videoId);
+      pendingReloads.delete(videoId);
+      console.warn(TAG, `[PlayerReload] ${why} — releasing guard for ${videoId}`);
+    };
+
     const tryReload = () => {
       attempts++;
+      // A sync merge on the player's own request may have delivered the HQ formats
+      // while we were waiting, in which case reloading would only cost a re-buffer.
+      if (reloadedVideos.has(videoId)) {
+        pendingReloads.delete(videoId);
+        return;
+      }
       const playerEl = document.getElementById('movie_player')
                     || document.querySelector('ytd-player #movie_player')
                     || document.querySelector('.html5-video-player');
@@ -501,34 +799,51 @@
                             || new URLSearchParams(playerEl.getVideoUrl?.() || '').get('v')
                             || null;
 
-        // Anti-hijack guard: only reload if player is on the correct video
+        // Anti-hijack guard. Two very different situations produce a mismatch:
+        //   - we are still heading for `videoId` → the SPA navigation is mid-flight
+        //     and #movie_player has not caught up yet, so wait for it. During a
+        //     playlist advance neither location.search nor the player has switched
+        //     over when the HQ fetch lands, which is why this checks the nav target
+        //     rather than the URL alone.
+        //   - we are heading somewhere else → the user genuinely moved on, and
+        //     reloading would hijack whatever they are watching now.
         if (currentVideoId && currentVideoId !== videoId) {
-          console.log(TAG, `[PlayerReload] Player is on ${currentVideoId}, not ${videoId}. Skipping.`);
+          if (isCurrentTarget(videoId) && attempts < MAX_ATTEMPTS) {
+            setTimeout(tryReload, 200);
+            return;
+          }
+          release(`player is on ${currentVideoId}, not ${videoId}`);
           return;
         }
 
         const currentTime = playerEl.getCurrentTime?.() || 0;
+        // Claim the guard only now that we are actually going to reload.
+        reloadedVideos.add(videoId);
+        pendingReloads.delete(videoId);
         try {
-          if (!document.hidden && currentVideoId === videoId && typeof playerEl.stopVideo === 'function') {
-            // Foreground only: stopVideo() resets player state so loadVideoById
-            // is treated as a fresh load even for the same videoId.
-            // NOT called in background to avoid interrupting audio playback.
-            playerEl.stopVideo();
-          }
+          // stopVideo() resets player state so loadVideoById is treated as a fresh
+          // load even for the same videoId — without it the player short-circuits
+          // and keeps the low-quality stream. This is why a background tab used to
+          // never upgrade: it costs a brief re-buffer at the same position, which
+          // beats listening to the low-quality stream for the rest of the track.
+          if (typeof playerEl.stopVideo === 'function') playerEl.stopVideo();
           playerEl.loadVideoById({ videoId, startSeconds: currentTime });
           console.log(TAG, `[PlayerReload] loadVideoById called at t=${currentTime} (hidden=${document.hidden})`);
         } catch (e) {
           console.warn(TAG, '[PlayerReload] loadVideoById failed:', e);
+          reloadedVideos.delete(videoId);
+          pendingReloads.delete(videoId);
           if (isInitialPageLoad) window.location.reload();
         }
-      } else if (attempts < 10) {
+      } else if (attempts < MAX_ATTEMPTS) {
         setTimeout(tryReload, 200);
       } else {
         if (isInitialPageLoad) {
           console.warn(TAG, '[PlayerReload] Player not found, doing page reload (initial load only)');
+          pendingReloads.delete(videoId);
           window.location.reload();
         } else {
-          console.warn(TAG, '[PlayerReload] Player not found on SPA, giving up.');
+          release('player not found on SPA');
         }
       }
     };
@@ -566,6 +881,8 @@
       if (typeof playerEl.stopVideo === 'function') playerEl.stopVideo();
       playerEl.loadVideoById({ videoId, startSeconds: currentTime });
     } catch (e) {
+      // Release the guard so a later trigger can retry this upgrade.
+      reloadedVideos.delete(videoId);
       console.warn(TAG, `[${source}] loadVideoById failed:`, e);
     }
   }
@@ -587,9 +904,27 @@
   // INTERCEPTORS — fetch & XHR (response-only, no request modification)
   // ═══════════════════════════════════════════════════════════════════
   window.fetch = async function (...args) {
-    const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+    let url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
 
     if (url.includes('/youtubei/v1/player') && !url.includes('_ytss=1')) {
+      try {
+        if (args[1] && args[1].body) {
+          const req = JSON.parse(args[1].body);
+          const poToken = req.serviceIntegrityDimensions?.poToken;
+          const sts = req.playbackContext?.contentPlaybackContext?.signatureTimestamp;
+          if (poToken || sts) {
+            const context = {
+              visitorData: window.ytcfg?.get('VISITOR_DATA') || null,
+              sessionIndex: window.ytcfg?.get('SESSION_INDEX') ?? '0',
+              delegatedSessionId: window.ytcfg?.get('DELEGATED_SESSION_ID') || null,
+              sts: sts || window.ytcfg?.get('STS'),
+              poToken: poToken || window.ytcfg?.get('POTOKEN')
+            };
+            window.postMessage({ type: 'YTSS_PAGE_CONTEXT', context }, '*');
+          }
+        }
+      } catch (e) {}
+
       const response = await ORIGINAL_FETCH.apply(this, args);
       if (!S.enabled) return response;
 
@@ -604,6 +939,8 @@
         if (cached && cached.length > 0) {
           // Cache HIT: inject HQ immediately, zero latency
           const modified = processPlayerResponse(json, cached);
+          // This response *is* the upgrade, so nothing is left to reload.
+          reloadedVideos.add(videoId);
           return new Response(JSON.stringify(modified), {
             status: response.status,
             statusText: response.statusText,
@@ -619,14 +956,14 @@
         // to avoid interrupting the song queue every second.
         if (S.hqFetch && videoId) {
           fetchAllHQAudio(videoId).then(hqFormats => {
-            if (hqFormats.length > 0 && !reloadedVideos.has(videoId)) {
-              reloadedVideos.add(videoId);
+            if (hqFormats.length > 0) {
               if (!isMusicSite) {
                 console.log(TAG, `[FetchIntercept] Background HQ fetch done (${hqFormats.length} formats), reloading player...`);
-                forcePlayerReload(videoId, hqFormats);
               } else {
                 console.log(TAG, `[FetchIntercept] music.youtube.com: HQ cached for ${videoId}, will inject on next player request.`);
               }
+              // Owns the reloadedVideos guard and the isMusicSite skip itself.
+              forcePlayerReload(videoId, hqFormats);
             }
           }).catch(() => {});
         }
@@ -643,16 +980,94 @@
       }
     }
 
+    // ── Parameter Rewriting for Injected Streams ──────────────────────────
+    // When the player performs a GET to videoplayback, its JS rewriting logic
+    // normally overrides `c` to `WEB` and `itag` to `251` (matching metadata).
+    // If our ytss parameters are present, we intercept and restore the original
+    // client configuration (e.g. c=TVHTML5, itag=774) before the request goes out.
+    if (url.includes('googlevideo.com/videoplayback') && !url.includes('_ytss=1')) {
+      try {
+        const urlObj = new URL(url);
+        const ytssClient = urlObj.searchParams.get('_ytss_client');
+        const ytssOrigItag = urlObj.searchParams.get('_ytss_orig_itag');
+        if (ytssClient) {
+          urlObj.searchParams.set('c', ytssClient);
+          if (CLIENT_VERSIONS[ytssClient]) {
+            urlObj.searchParams.set('cver', CLIENT_VERSIONS[ytssClient]);
+          }
+          if (ytssOrigItag) {
+            urlObj.searchParams.set('itag', ytssOrigItag);
+          }
+          urlObj.searchParams.delete('_ytss_client');
+          urlObj.searchParams.delete('_ytss_orig_itag');
+          urlObj.searchParams.set('_ytss', '1');
+          const newUrl = urlObj.toString();
+          console.log(TAG, `[FetchRedirect] Param rewrite: c=${ytssClient}, itag=${ytssOrigItag}`);
+          if (typeof args[0] === 'string') {
+            args[0] = newUrl;
+          } else if (args[0] && typeof args[0] === 'object') {
+            args[0] = new Request(newUrl, args[0]);
+          }
+          url = newUrl;
+        }
+      } catch (e) {}
+    }
+
+    // NOTE: A SABR/UMP binary body patcher used to live here. It scanned the whole
+    // POST body for the byte pair 0xFB 0x01 (varint 251) and rewrote it to
+    // 0x86 0x06 (varint 774). Those bytes occur naturally throughout protobuf
+    // payloads — any varint field holding 251, byte counts, timestamps — so the
+    // blind rewrite corrupted unrelated request data. It was also redundant:
+    // deepDeleteSABR() plus removing dashManifestUrl/hlsManifestUrl already forces
+    // the player onto plain GETs, which the parameter rewriting above handles.
+
+    // ── Block emergency itag blacklist ───────────────────────────────────
+    if (url.includes('streaming_data_emergency_itag_blacklist')) {
+      console.log(TAG, '[BlacklistBlock] Blocked emergency itag blacklist');
+      return Promise.resolve(new Response('{}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+    }
+
     return ORIGINAL_FETCH.apply(this, args);
   };
 
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    if (typeof url === 'string' && url.includes('googlevideo.com/videoplayback')) {
+      try {
+        const urlObj = new URL(url);
+
+        // FetchRedirect GET param rewrite
+        if (!url.includes('_ytss=1')) {
+          const ytssClient = urlObj.searchParams.get('_ytss_client');
+          const ytssOrigItag = urlObj.searchParams.get('_ytss_orig_itag');
+          if (ytssClient) {
+            urlObj.searchParams.set('c', ytssClient);
+            if (CLIENT_VERSIONS[ytssClient]) {
+              urlObj.searchParams.set('cver', CLIENT_VERSIONS[ytssClient]);
+            }
+            if (ytssOrigItag) {
+              urlObj.searchParams.set('itag', ytssOrigItag);
+            }
+            urlObj.searchParams.delete('_ytss_client');
+            urlObj.searchParams.delete('_ytss_orig_itag');
+            url = urlObj.toString();
+            console.log(TAG, `[XHRRedirect] Param rewrite: c=${ytssClient}, itag=${ytssOrigItag}`);
+          }
+        }
+      } catch (e) {}
+    }
     this._ytssUrl = url;
     return ORIGINAL_XHR_OPEN.call(this, method, url, ...rest);
   };
 
   XMLHttpRequest.prototype.send = function (...args) {
     const url = this._ytssUrl;
+
+    // NOTE: the SABR/UMP binary body patcher that used to run here was removed for
+    // the same reason as the fetch-side one — see the comment in window.fetch.
+
     if (url && typeof url === 'string' && url.includes('/youtubei/v1/player') && !url.includes('_ytss=1')) {
       const self = this;
       const origHandler = this.onreadystatechange;
@@ -662,17 +1077,23 @@
           try {
             const json    = JSON.parse(self.responseText);
             const videoId = json.videoDetails?.videoId;
+            const cached  = videoId ? cacheGet(videoId) : null;
 
-            (async () => {
-              const cached = videoId ? cacheGet(videoId) : null;
-              const hqFormats = cached || (S.hqFetch && videoId ? await fetchAllHQAudio(videoId) : null);
-              const modified  = processPlayerResponse(json, hqFormats);
-
+            if (cached && cached.length > 0) {
+              const modified = processPlayerResponse(json, cached);
               Object.defineProperty(self, 'responseText', { value: JSON.stringify(modified), configurable: true });
               Object.defineProperty(self, 'response',     { value: JSON.stringify(modified), configurable: true });
-              if (origHandler) origHandler.apply(self, arguments);
-            })();
-            return;
+              // This response *is* the upgrade, so nothing is left to reload.
+              reloadedVideos.add(videoId);
+            } else if (S.hqFetch && videoId) {
+              // Cache miss: fetch in background and reload once ready.
+              // forcePlayerReload owns the reloadedVideos guard and the music skip.
+              fetchAllHQAudio(videoId).then(hqFormats => {
+                if (hqFormats.length > 0) {
+                  forcePlayerReload(videoId, hqFormats);
+                }
+              });
+            }
           } catch (e) {}
         }
         if (origHandler) origHandler.apply(self, arguments);
@@ -685,17 +1106,32 @@
   window.YTSS_SpoofingMethods = {
     getStatus: () => ({ ...status, settings: { ...S } }),
     applySettings: (newSettings) => {
-      Object.assign(S, newSettings);
-      localStorage.setItem('ytss_settings', JSON.stringify(S));
+      Object.assign(S, pickSettings(newSettings));
+      persistSettings();
       if (S.autoReload && window.location.href.includes('youtube.com')) {
         window.location.reload();
       }
     },
     forceReload: () => {
+      window.YTSS_SpoofingMethods.clearCache();
       if (window.location.href.includes('youtube.com')) window.location.reload();
     },
-    clearCache: () => { hqCache.clear(); pendingFetches.clear(); reloadedVideos.clear(); }
+    clearCache: () => {
+      hqCache.clear();
+      pendingFetches.clear();
+      reloadedVideos.clear();
+      pendingReloads.clear();
+      failedFetches.clear();
+      // cacheGet falls back to the sessionStorage tier, so clearing only the
+      // in-memory Map left every entry live for the full 1-hour TTL.
+      try {
+        for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+          const key = window.sessionStorage.key(i);
+          if (key && key.startsWith('ytss_hq_')) window.sessionStorage.removeItem(key);
+        }
+      } catch (e) {}
+    }
   };
 
-  console.log(TAG, 'v0.0.8 Injected — Pre-warm + ytplayer.config + ForceReload active');
+  console.log(TAG, 'Injected — Pre-warm + ytplayer.config + ITAG disguise + ForceReload active');
 })();

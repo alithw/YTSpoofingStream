@@ -1,9 +1,10 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.0.8 — Service Worker Resolver              ║
-// ║  Restored v0.0.5 Core + Preferred Client Selector               ║
+// ║  YTSpoofingStream — Service Worker Resolver                      ║
+// ║  Multi-client InnerTube resolver + per-client header spoofing    ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
 const TAG = '[YTSS-SW]';
+const VERSION = chrome.runtime.getManifest().version;
 
 // ─── FULL CLIENT CONFIGURATIONS ──────────────────────────────────────
 // Restored from working v0.0.5: WEB_REMIX first (best HQ success rate)
@@ -11,7 +12,7 @@ const CLIENTS = [
   {
     name: 'WEB_REMIX',
     clientName: 'WEB_REMIX',
-    clientVersion: '1.20250720.01.00',
+    clientVersion: '1.20241118.01.00',
     clientId: '67',
     apiKey: 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
     ua: null,
@@ -28,7 +29,7 @@ const CLIENTS = [
     extraContext: {},
   },
   {
-    // ANDROID (clientId 3) — works reliably with SAPISIDHASH
+    // ANDROID (clientId 3)
     name: 'ANDROID',
     clientName: 'ANDROID',
     clientVersion: '21.04.223',
@@ -86,28 +87,88 @@ const CLIENTS = [
   },
 ];
 
-const UA_RULE_ID = 9001;
+
+// Stable index per client — used to build the per-client DNR rule IDs and the
+// `_ytss_c=<idx>` URL marker those rules match on. Must stay stable for the
+// lifetime of the SW, so it is derived from array position exactly once.
+CLIENTS.forEach((c, i) => { c.idx = i; });
 
 // ─── AUTHENTICATION ──────────────────────────────────────────────────
+// YouTube web derives its Authorization header from up to three cookies, each with
+// its own hash prefix. Sending only `SAPISIDHASH` while hashing a 3PAPISID value
+// (the old behaviour) produces an Authorization the server rejects, so the request
+// falls back to unauthenticated and Premium-only formats are stripped from it.
+const SAPISID_COOKIES = [
+  { name: 'SAPISID', prefix: 'SAPISIDHASH' },
+  { name: '__Secure-1PAPISID', prefix: 'SAPISID1PHASH' },
+  { name: '__Secure-3PAPISID', prefix: 'SAPISID3PHASH' },
+];
+
+async function sha1Hex(input) {
+  const buf = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest('SHA-1', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function getSapisidHash() {
   try {
-    const cookie = await chrome.cookies.get({ url: 'https://www.youtube.com', name: 'SAPISID' }) ||
-      await chrome.cookies.get({ url: 'https://www.youtube.com', name: '__Secure-3PAPISID' });
-    if (!cookie) return null;
-
     const origin = 'https://www.youtube.com';
     const ts = Math.floor(Date.now() / 1000);
-    const input = `${ts} ${cookie.value} ${origin}`;
+    const parts = [];
 
-    const buf = new TextEncoder().encode(input);
-    const hash = await crypto.subtle.digest('SHA-1', buf);
-    const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    for (const { name, prefix } of SAPISID_COOKIES) {
+      const cookie = await chrome.cookies.get({ url: origin, name });
+      if (!cookie?.value) continue;
+      const hex = await sha1Hex(`${ts} ${cookie.value} ${origin}`);
+      parts.push(`${prefix} ${ts}_${hex}`);
+    }
 
-    return `SAPISIDHASH ${ts}_${hex}`;
+    return parts.length ? parts.join(' ') : null;
   } catch (err) {
     return null;
   }
 }
+
+// ─── PAGE CONTEXT (visitorData / session index) ───────────────────────
+// InnerTube drops high-quality formats when a spoofed client sends no visitorData
+// that matches the logged-in session. inject.js reads these values out of the page's
+// own ytcfg and relays them here via bridge.js (YTSS_PAGE_CONTEXT).
+// Mirrored into chrome.storage.session so the values survive a service worker restart.
+let pageContext = { visitorData: null, sessionIndex: null, delegatedSessionId: null };
+
+async function loadPageContext() {
+  try {
+    const s = await chrome.storage.session.get('pageContext');
+    if (s.pageContext) pageContext = { ...pageContext, ...s.pageContext };
+  } catch (e) { }
+}
+// Kept as a promise so request handlers can await it. Chrome evicts this worker
+// after ~30s idle; without the await, the FETCH_HQ that woke it up would read an
+// empty pageContext and resolve every client unauthenticated, which makes InnerTube
+// strip the Premium-only formats for the rest of the page's life.
+const pageContextReady = loadPageContext();
+
+function setPageContext(ctx) {
+  if (!ctx || typeof ctx !== 'object') return;
+  const next = { ...pageContext };
+  if (typeof ctx.visitorData === 'string' && ctx.visitorData) next.visitorData = ctx.visitorData;
+  if (ctx.sessionIndex !== undefined && ctx.sessionIndex !== null) next.sessionIndex = String(ctx.sessionIndex);
+  // Accept an explicit null/'' as "clear it". Unlike visitorData and sessionIndex,
+  // this field is not self-healing: a page that has left a brand/delegated account
+  // reports null, and treating that as "no update" would pin a stale X-Goog-PageId
+  // onto every later request for the rest of the browser session.
+  if (ctx.delegatedSessionId === null || typeof ctx.delegatedSessionId === 'string') {
+    next.delegatedSessionId = ctx.delegatedSessionId || null;
+  }
+
+  const changed = JSON.stringify(next) !== JSON.stringify(pageContext);
+  pageContext = next;
+  if (changed) {
+    console.log(TAG, `[PageContext] visitorData=${next.visitorData ? 'set' : 'none'} authUser=${next.sessionIndex ?? '0'}`);
+    chrome.storage.session.set({ pageContext: next }).catch(() => { });
+  }
+}
+
 
 // ─── TV OAUTH 2.0 DEVICE FLOW ────────────────────────────────────────
 const TV_CLIENT_ID = '861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com';
@@ -167,7 +228,19 @@ async function getTVAccessToken() {
   let token = storage.tvOAuthToken;
   if (!token || !token.access_token) return null;
 
-  if (Date.now() > token.expires_at - 5 * 60 * 1000) {
+  // Treat a missing/NaN expires_at as "already expired". Older tokens were stored
+  // without the field, and `Date.now() > undefined - 300000` is `> NaN` → false,
+  // which used to hand back a long-dead access_token forever. That made TVHTML5
+  // send `Bearer <expired>`, InnerTube answer "This video is unavailable", and —
+  // since we never fell back to cookies — every video failed until a full refresh.
+  const expiresAt = Number(token.expires_at);
+  const needsRefresh = !Number.isFinite(expiresAt) || Date.now() > expiresAt - 5 * 60 * 1000;
+
+  if (needsRefresh) {
+    if (!token.refresh_token) {
+      console.warn(TAG, '[OAuth] token expired and no refresh_token — falling back to cookie auth');
+      return null;
+    }
     try {
       const resp = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
@@ -185,10 +258,19 @@ async function getTVAccessToken() {
         token.expires_in = data.expires_in;
         token.expires_at = Date.now() + (data.expires_in * 1000);
         await chrome.storage.local.set({ tvOAuthToken: token });
+        console.log(TAG, `[OAuth] refreshed access_token, valid ${Math.round(data.expires_in / 60)}min`);
       } else {
+        // invalid_grant means the refresh_token itself is revoked/expired — the stored
+        // token is now useless, so drop it rather than retrying the dead grant on every
+        // fetch. The user must re-authorise; until then we use cookie auth.
+        console.warn(TAG, `[OAuth] refresh failed (${data.error || 'unknown'}) — clearing token, using cookie auth`);
+        if (data.error === 'invalid_grant') {
+          await chrome.storage.local.remove('tvOAuthToken').catch(() => {});
+        }
         return null;
       }
     } catch (e) {
+      console.warn(TAG, '[OAuth] refresh request threw — using cookie auth:', e.message);
       return null;
     }
   }
@@ -196,19 +278,35 @@ async function getTVAccessToken() {
 }
 
 // ─── DECLARATIVENETREQUEST: HEADER SPOOFING ──────────────────────────
-const ORIGIN_RULE_ID = 9000;
-const MEDIA_RULE_ID_BASE = 9100;
+const ORIGIN_RULE_ID       = 9000;
+const MEDIA_RULE_ID_BASE   = 9100;
+const SABR_BLOCK_RULE_ID   = 9200;
+const BLACKLIST_BLOCK_RULE_ID = 9201;
+const SW_BLOCK_RULE_ID     = 9300;
+const API_UA_RULE_ID_BASE  = 9400;
 
-// Persistent rules: 
+// Escape a string for safe embedding in a DNR regexFilter.
+function reEscape(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Persistent rules:
 // 1. Spoof Origin/Referer/Sec-Fetch-* headers on ALL player API requests
-// 2. Spoof User-Agent on googlevideo.com media segment fetches based on the client ('c=' parameter)
-//    If we don't do this, googlevideo.com returns 403 for TV/Mobile URLs played on Desktop.
+// 2. Spoof User-Agent on the SW's own player API request, per client. Each client
+//    tags its request URL with `_ytss_c=<idx>` and gets its OWN rule matching that
+//    tag, so all clients can be resolved in parallel without clobbering each other.
+// 3. Spoof User-Agent on googlevideo.com media segment fetches based on the client
+//    ('c=' parameter). Without this, googlevideo.com returns 403 for TV/Mobile URLs
+//    played on Desktop.
 async function setupStaticRules() {
   try {
     const rulesToAdd = [];
     const rulesToRemove = [ORIGIN_RULE_ID];
 
-    // 1. Origin spoofing for API requests
+    // 1. Origin spoofing for API requests.
+    //    resourceTypes MUST include 'other': fetch() issued from a service worker
+    //    is frequently classified as 'other' rather than 'xmlhttprequest', and those
+    //    are exactly the requests that need the spoofed Origin.
     rulesToAdd.push({
       id: ORIGIN_RULE_ID,
       priority: 1,
@@ -223,104 +321,150 @@ async function setupStaticRules() {
       },
       condition: {
         urlFilter: '*youtubei/v1/player*',
-        resourceTypes: ['xmlhttprequest'],
+        resourceTypes: ['xmlhttprequest', 'other'],
       },
     });
 
-    // 2. Media segment User-Agent spoofing for each client
-    CLIENTS.forEach((c, index) => {
-      const ruleId = MEDIA_RULE_ID_BASE + index;
+    // 2. Per-client User-Agent for the player API request.
+    //    One permanent rule per client, keyed on the `_ytss_c=<idx>` marker that
+    //    fetchFromClient() appends to its URL. This replaces the old approach of
+    //    toggling a single shared rule around each fetch, which raced badly: all
+    //    clients resolve concurrently via Promise.all, so they overwrote each
+    //    other's User-Agent and removed the rule while others were still in flight.
+    // 2. Per-client User-Agent for the player API request.
+    CLIENTS.forEach((c) => {
+      const ruleId = API_UA_RULE_ID_BASE + c.idx;
       rulesToRemove.push(ruleId);
+      if (!c.ua) return;
 
-      if (c.ua) {
-        rulesToAdd.push({
-          id: ruleId,
-          priority: 2,
-          action: {
-            type: 'modifyHeaders',
-            requestHeaders: [
-              { header: 'User-Agent', operation: 'set', value: c.ua }
-            ],
-          },
-          condition: {
-            // Match videoplayback URLs that have this client's name in the 'c' query parameter
-            urlFilter: `*googlevideo.com/videoplayback*c=${c.clientName}*`,
-            resourceTypes: ['xmlhttprequest', 'media', 'other'],
-          },
-        });
-      }
+      rulesToAdd.push({
+        id: ruleId,
+        priority: 20,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [
+            { header: 'User-Agent', operation: 'set', value: c.ua },
+          ],
+        },
+        condition: {
+          urlFilter: `*youtubei/v1/player*_ytss_c=${c.idx}*`,
+          resourceTypes: ['xmlhttprequest', 'other'],
+        },
+      });
+    });
+
+    // 3. Media segment User-Agent spoofing for each client.
+    CLIENTS.forEach((c) => {
+      const ruleId = MEDIA_RULE_ID_BASE + c.idx;
+      rulesToRemove.push(ruleId);
+      if (!c.ua) return;
+
+      rulesToAdd.push({
+        id: ruleId,
+        priority: 2,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [
+            { header: 'User-Agent', operation: 'set', value: c.ua }
+          ],
+        },
+        condition: {
+          urlFilter: `*googlevideo.com/videoplayback*c=${c.clientName}*`,
+          resourceTypes: ['xmlhttprequest', 'media', 'other'],
+        },
+      });
+    });
+
+
+    // SABR block rule removed. We rely on parameter rewriting instead.
+    // CRITICAL: We must explicitly remove it, otherwise it persists in the browser.
+    rulesToRemove.push(SABR_BLOCK_RULE_ID);
+
+    // 4. Block the streaming_data_emergency_itag_blacklist endpoint.
+    // YouTube dynamically blacklists itags (like 774) via this endpoint.
+    // Block it so our injected itags remain available to the player.
+    rulesToRemove.push(BLACKLIST_BLOCK_RULE_ID);
+    rulesToAdd.push({
+      id: BLACKLIST_BLOCK_RULE_ID,
+      priority: 5,
+      action: { type: 'block' },
+      condition: {
+        urlFilter: '*streaming_data_emergency_itag_blacklist*',
+        resourceTypes: ['xmlhttprequest', 'other'],
+      },
+    });
+
+    // 5. Block YouTube Service Worker (sw.js) to ensure all media fetches go through main thread.
+    rulesToRemove.push(SW_BLOCK_RULE_ID);
+    rulesToAdd.push({
+      id: SW_BLOCK_RULE_ID,
+      priority: 6,
+      action: { type: 'block' },
+      condition: {
+        urlFilter: '*youtube.com/sw.js*',
+        resourceTypes: ['script', 'other', 'xmlhttprequest'],
+      },
     });
 
     await chrome.declarativeNetRequest.updateSessionRules({
       removeRuleIds: rulesToRemove,
       addRules: rulesToAdd,
     });
-    console.log(TAG, 'Static DNR rules (Origin + Media UA) enabled.');
+    console.log(TAG, `Static DNR rules enabled (${rulesToAdd.length} rules: Origin + per-client API UA + Media UA + Blacklist/SW Block).`);
   } catch (e) {
     console.error(TAG, 'Failed to setup static rules:', e);
   }
 }
 
-// Per-client UA override via declarativeNetRequest.
-// resourceTypes includes 'xmlhttprequest' (page fetches) AND 'other' (SW fetch()).
-async function enableUAOverride(ua) {
-  try {
-    await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [UA_RULE_ID],
-      addRules: [{
-        id: UA_RULE_ID,
-        priority: 10,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: [
-            { header: 'User-Agent', operation: 'set', value: ua },
-          ],
-        },
-        condition: {
-          urlFilter: '*youtubei/v1/player*',
-          // Include 'other' so SW fetch() calls are also covered
-          resourceTypes: ['xmlhttprequest', 'other'],
-        },
-      }],
-    });
-  } catch (e) { }
-}
-
-async function disableUAOverride() {
-  try {
-    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [UA_RULE_ID] });
-  } catch (e) { }
-}
-
-// (setupStaticRules is called at the end of the file now)
+// (setupStaticRules is called at the end of the file)
 
 // ─── INNERTUBE NATIVE FETCHER ─────────────────────────────────────────
 async function fetchFromClient(videoId, client) {
+  // This worker gets evicted after ~30s idle, and the FETCH_HQ that wakes it back up
+  // races the session-storage restore. Without this await the first request after every
+  // eviction goes out with no visitorData/authUser, InnerTube answers without the
+  // Premium formats, and the page has no way to know it should re-send its context.
+  await pageContextReady;
   const origin = 'https://www.youtube.com';
   let auth = null;
   let bearerToken = null;
 
+  const isMobileClient = client.name.startsWith('ANDROID') || client.name === 'IOS';
+  const isTVClient = client.name.startsWith('TVHTML5');
+
   // Auth strategy:
   // TVHTML5: try Bearer OAuth first (Premium 774), fallback SAPISIDHASH
-  // All others: SAPISIDHASH only
-  if (client.name === 'TVHTML5') {
+  // WEB_REMIX / TVHTML5_SIMPLY: SAPISIDHASH
+  // Mobile clients (ANDROID, IOS, etc.): No web SAPISIDHASH (causes HTTP 400 Bad Request)
+  if (isTVClient) {
     bearerToken = await getTVAccessToken();
     if (bearerToken) auth = `Bearer ${bearerToken}`;
   }
-  if (!auth) {
+  if (!auth && !isMobileClient) {
     auth = await getSapisidHash();
   }
 
-  // Headers — when using Bearer token, drop X-Goog-AuthUser (conflicts with OAuth)
+  // Headers — when using Bearer token or Mobile, omit web-only AuthUser/VisitorId
   const headers = {
     'Content-Type': 'application/json',
     'X-Youtube-Client-Name': client.clientId,
     'X-Youtube-Client-Version': client.clientVersion,
-    'X-Origin': origin,
   };
-  if (!bearerToken) {
-    // Only needed for cookie-based (SAPISIDHASH) auth
-    headers['X-Goog-AuthUser'] = '0';
+  if (!isMobileClient) {
+    headers['X-Origin'] = origin;
+  }
+  if (!bearerToken && !isMobileClient) {
+    headers['X-Goog-AuthUser'] = pageContext.sessionIndex ?? '0';
+    if (pageContext.delegatedSessionId) {
+      headers['X-Goog-PageId'] = pageContext.delegatedSessionId;
+    }
+  }
+
+  // visitorData: send ONLY for WEB_REMIX when using web cookies.
+  // Pairing Web visitorData with TV/Mobile clients causes "Video unavailable" or HTTP 400.
+  const allowVisitorData = !bearerToken && !isMobileClient && client.name === 'WEB_REMIX';
+  if (allowVisitorData && pageContext.visitorData) {
+    headers['X-Goog-Visitor-Id'] = pageContext.visitorData;
   }
   if (auth) headers['Authorization'] = auth;
 
@@ -333,16 +477,17 @@ async function fetchFromClient(videoId, client) {
     ...client.extraContext,
   };
   if (client.ua) clientObj.userAgent = client.ua;
+  if (allowVisitorData && pageContext.visitorData) clientObj.visitorData = pageContext.visitorData;
 
   // TVHTML5-specific client fields
-  if (client.name === 'TVHTML5') {
+  if (isTVClient) {
     clientObj.deviceCategory = 'TV';
     clientObj.clientFormFactor = 'LARGE_FORM_FACTOR';
   }
 
   // Build context — TVHTML5 needs user + request blocks to pass validation
   const context = { client: clientObj };
-  if (client.name === 'TVHTML5') {
+  if (isTVClient) {
     context.user = { lockedSafetyMode: false };
     context.request = { useSsl: true, internalExperimentFlags: [] };
   }
@@ -352,34 +497,48 @@ async function fetchFromClient(videoId, client) {
     videoId,
     contentCheckOk: true,
     racyCheckOk: true,
+    playbackContext: {
+      contentPlaybackContext: {
+        signatureTimestamp: pageContext.sts || 19900,
+      },
+    },
   };
 
-  // TVHTML5 requires playbackContext for HTML5 stream selection
-  if (client.name === 'TVHTML5') {
-    payload.playbackContext = {
-      contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' },
+  if (!isMobileClient || client.name === 'ANDROID_VR') {
+    payload.playbackContext.contentPlaybackContext.html5Preference = 'HTML5_PREF_WANTS';
+  }
+  
+  // Ask for high quality if possible.
+  payload.playbackContext.contentPlaybackContext.audioQualityPreference = 'AUDIO_QUALITY_HIGH';
+
+  // If a poToken was extracted from the page, pass it along exactly as InnerTube expects it
+  if (pageContext.poToken) {
+    payload.serviceIntegrityDimensions = {
+      poToken: pageContext.poToken
     };
+    context.request = context.request || {};
+    context.request.useSsl = true;
   }
 
-  // When using Bearer (OAuth), omit ?key= — YouTube TV rejects dual-auth requests
+
+
+  // When using Bearer (OAuth), omit ?key= — YouTube TV rejects dual-auth requests.
+  // `_ytss_c=<idx>` is the marker the per-client User-Agent DNR rule matches on.
+  // InnerTube ignores unknown query params (everything meaningful is in the body).
   let url;
   if (bearerToken) {
-    url = `${origin}/youtubei/v1/player?prettyPrint=false`;
+    url = `${origin}/youtubei/v1/player?prettyPrint=false&_ytss_c=${client.idx}`;
   } else {
-    url = `${origin}/youtubei/v1/player?key=${client.apiKey}&prettyPrint=false`;
+    url = `${origin}/youtubei/v1/player?key=${client.apiKey}&prettyPrint=false&_ytss_c=${client.idx}`;
   }
 
   try {
-    if (client.ua) await enableUAOverride(client.ua);
-
     const resp = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
       credentials: 'include',
     });
-
-    if (client.ua) await disableUAOverride();
 
     if (!resp.ok) {
       let body = '';
@@ -403,7 +562,6 @@ async function fetchFromClient(videoId, client) {
     const reason = data.playabilityStatus?.reason || data.playabilityStatus?.status || 'No Stream';
     return { source: client.name, error: reason, audioFormats: [] };
   } catch (err) {
-    if (client.ua) await disableUAOverride();
     return { source: client.name, error: err.message, audioFormats: [] };
   }
 }
@@ -412,6 +570,17 @@ async function fetchFromClient(videoId, client) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'FETCH_HQ') {
     const { videoId } = msg;
+    // Ignore anything that isn't a real 11-char YouTube ID. Player-URL parsing
+    // occasionally hands us fragments like "ux", and those burn a 7-client fan-out
+    // and cache a permanently-empty result under a junk key.
+    if (!/^[\w-]{11}$/.test(videoId || '')) {
+      sendResponse({ success: false, results: [], error: 'invalid videoId' });
+      return true;
+    }
+    // The page ships its session identity with every request, so an evicted worker
+    // is re-primed by the very message that woke it rather than depending on the
+    // page noticing that its one-shot context push needs repeating.
+    if (msg.context) setPageContext(msg.context);
 
     (async () => {
       const storage = await chrome.storage.local.get('preferredClient');
@@ -478,35 +647,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── Session cache: read cached HQ formats for a specific videoId
-  if (msg.type === 'GET_SESSION_CACHE') {
-    const TTL = 25000;
-    chrome.storage.session.get(`hq_${msg.videoId}`).then(s => {
-      const entry = s[`hq_${msg.videoId}`];
-      if (entry && (Date.now() - entry.ts) < TTL) {
-        sendResponse({ formats: entry.formats });
-      } else {
-        sendResponse({ formats: [] });
-      }
-    }).catch(() => sendResponse({ formats: [] }));
+  // ── Page context relayed from inject.js via bridge.js.
+  //    Supplies visitorData / session index so spoofed clients look like the
+  //    real logged-in session (see setPageContext).
+  if (msg.type === 'PAGE_CONTEXT_UPDATE') {
+    setPageContext(msg.context);
+    sendResponse({ ok: true });
     return true;
   }
 
   if (msg.type === 'SW_PING') {
-    sendResponse({ ready: true, version: '0.0.8' });
+    sendResponse({ ready: true, version: VERSION });
     return;
   }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  disableUAOverride();
   setupStaticRules();
-  chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
 });
 
 chrome.runtime.onStartup.addListener(() => {
   setupStaticRules();
-  chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -551,5 +712,9 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   }
 });
 
-// Also run on startup just to be safe
+// Also run on every SW wake-up. Session rules and the keepalive alarm are both
+// idempotent (rules are replaced by ID, the alarm is keyed by name), so re-running
+// here restores state after Chrome evicts the worker without waiting for a
+// re-install or browser restart.
 setupStaticRules();
+chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });

@@ -34,8 +34,10 @@ YTSpoofingStream hoạt động như một chiếc cầu nối vô hình. Nó b�
 
 - **Mở khóa Âm thanh Premium**: Tận hưởng âm thanh trong trẻo bằng cách ép YouTube phục vụ các định dạng âm thanh bitrate cao (ITAG 141, 774) vốn bị ẩn đi trên nền web.
 - **Động cơ Giả mạo Đa nền tảng (Multi-Client)**: Luân chuyển mượt mà giữa các client nội bộ của YouTube (WEB_REMIX, ANDROID, IOS, TVHTML5) để săn lùng định dạng âm thanh tốt nhất cho từng video.
-- **Nền tảng Manifest V3 Tiên tiến**: Đánh chặn các yêu cầu API và sửa đổi Header (`Origin`, `User-Agent`) một cách tĩnh lặng thông qua API `declarativeNetRequest` gốc của Chrome. Đảm bảo hiệu năng tuyệt đối, không làm chậm trình duyệt như `webRequest` cũ.
-- **Bộ đệm & Đồng bộ Thông minh**: Sử dụng kết hợp `sessionStorage` và bộ nhớ tạm (in-memory) để đảm bảo video tải được định dạng chất lượng cao ngay lập tức khi bạn F5 hoặc khi Playlist tự động chuyển bài, loại bỏ hoàn toàn độ trễ mạng.
+- **Vượt rào BotGuard & poToken**: Tự động trích xuất `poToken` và `visitorData` trực tiếp từ trang web đang chạy để đánh lừa các cơ chế chống bot khắt khe của YouTube, triệt tiêu hoàn toàn lỗi "Video unavailable".
+- **Hỗ trợ Vevo & Video Ca nhạc Bản quyền**: Xử lý mượt mà các luồng dữ liệu bị mã hóa `signatureCipher`. Tận hưởng âm thanh Premium ngay cả trên các MV ca nhạc được bảo vệ bản quyền.
+- **Nền tảng Manifest V3 Tiên tiến**: Đánh chặn các yêu cầu API và sửa đổi Header (`Origin`, `User-Agent`) một cách tĩnh lặng thông qua API `declarativeNetRequest` gốc của Chrome. Đảm bảo hiệu năng tuyệt đối.
+- **Pre-warm & Tự động Nâng cấp**: Tải trước các luồng HQ ngầm trong nền ngay khi bạn click chọn video ở thanh bên (Cơ chế SPA). Tự động nâng cấp trình phát lên HQ ngay khi dữ liệu sẵn sàng mà không cần tải lại trang.
 - **Bảng điều khiển cho Dân công nghệ (Stats for Nerds)**: Giao diện popup trực quan, hiển thị nhật ký chi tiết, số lượng stream được tiêm vào, phương thức âm thanh đang hoạt động và trạng thái giả mạo theo thời gian thực.
 
 ## 🧠 Kiến trúc Kỹ thuật & Chuyên sâu
@@ -48,19 +50,18 @@ YouTube cung cấp dữ liệu video (`streamingData`) qua ba luồng khác nhau
 - `window.ytplayer.config.args.raw_player_response` (cấu hình dự phòng/cũ).
 - `window.fetch` (được sử dụng bởi router SPA khi người dùng bấm chuyển video).
 
-Tiện ích tiêm một Content Script (`inject.js`) tại thời điểm `document_start` để chặn cả ba luồng này. Bằng cách sử dụng `Object.defineProperty`, chúng tôi móc (hook) vào các biến toàn cục trước khi script của YouTube kịp khởi động. Khi SPA router gọi lệnh `fetch` đến `/youtubei/v1/player`, chúng tôi chặn Promise lại, chỉnh sửa JSON, tiêm định dạng xịn vào và đóng gói trả lại dưới dạng một `new Response()` hợp lệ.
+Tiện ích tiêm một Content Script (`inject.js`) tại thời điểm `document_start` để chặn cả ba luồng này. Chúng tôi dùng `Object.defineProperty` để "móc" vào các biến toàn cục trước khi script của YouTube kịp khởi động. Khi SPA router gọi lệnh `fetch`, chúng tôi chặn Promise lại, chỉnh sửa JSON, tiêm định dạng xịn vào và đóng gói trả lại dưới dạng một `new Response()` hợp lệ.
 
-### 2. Giả mạo Đa nền tảng qua Background SW
-Để lấy được các định dạng chất lượng cao, Content Script ủy quyền các truy vấn mạng cho Background Service Worker. Service Worker này sẽ gọi đến API `/youtubei/v1/player` kèm theo các payload tùy chỉnh đại diện cho các client khác nhau (ví dụ: gửi `"clientName": "WEB_REMIX"` hoặc `"TVHTML5"`).
-Vì YouTube kiểm tra rất gắt gao các header CORS và Origin, chúng tôi đăng ký linh hoạt các quy tắc `declarativeNetRequest` để giả mạo `User-Agent`, `Origin`, và `Referer`, khiến máy chủ YouTube tưởng lầm đây là yêu cầu phát ra từ các thiết bị di động hay Smart TV thực sự.
+### 2. Giả mạo Đa nền tảng & Vượt rào BotGuard
+Để lấy được định dạng cao cấp, Content Script ủy quyền các truy vấn mạng cho Background Service Worker. SW này sẽ gọi API `/youtubei/v1/player` với các payload của thiết bị khác (như `WEB_REMIX` hoặc `TVHTML5`).
+- **Bypass BotGuard:** YouTube kiểm tra rất gắt gao `poToken` (Proof of Origin) trên các client như TVHTML5. Tiện ích liên tục bắt lén các Request gửi đi của YouTube Player, trích xuất `poToken`, `signatureTimestamp` và `visitorData` còn "tươi" nhất, rồi tuồn sang Background SW để gắn vào Payload, giúp qua mặt BotGuard dễ dàng.
+- **Spoofing Header:** Chúng tôi đăng ký linh hoạt các quy tắc `declarativeNetRequest` để giả mạo `User-Agent` và `Origin`, khiến máy chủ YouTube tưởng lầm yêu cầu phát ra từ Smart TV thực sự.
 
 ### 3. Khuất phục "Trình phát Cứng đầu" (State Corruption & Autoplay)
-Thách thức lớn nhất là làm sao để trình phát HTML5 của YouTube chấp nhận định dạng mới một cách mượt mà:
-- **Format Spoofing**: Trình phát mặc định sẽ văng lỗi ("Video unavailable") nếu nó nhận được một ITAG lạ lẫm như `774`. Để qua mặt nó, chúng tôi clone toàn bộ stream 774 và "giả mạo" mã ITAG của nó thành `251` (kèm theo việc chỉnh sửa `mimeType`). Trình phát sẽ bị lừa và tưởng nó đang phát định dạng Opus tiêu chuẩn, nhưng thực chất nó đang gánh luồng dữ liệu 300+ kbps của Premium.
-- **Đóng băng Autoplay trên SPA**: Nếu cố tình ép trình phát tải lại bằng API `player.loadVideoByPlayerVars()`, trạng thái nội bộ của player rất dễ bị lỗi (corrupted) nếu `videoId` không thay đổi. Tệ hơn nữa, nếu việc tải định dạng làm kẹt luồng SPA quá lâu, các trình duyệt (như Chrome) sẽ tước bỏ quyền "user gesture" (tương tác người dùng), kích hoạt chính sách chặn Autoplay khắt khe và đóng băng video hoàn toàn khi chuyển bài.
-- **Giải pháp Caching**: Để giải quyết triệt để, chúng tôi xây dựng một bộ đệm `sessionStorage` với vòng đời 1 giờ.
-  - **Ở lần tải đầu tiên (F5):** Tiện ích chủ động ép tải lại trang một lần duy nhất (`window.location.reload()`) để tiêm định dạng một cách đồng bộ (synchronous), đảm bảo player khởi tạo hoàn hảo.
-  - **Khi chuyển bài (Playlist/SPA):** Cờ bảo vệ ngăn chặn việc tải lại trang. Thay vào đó, `fetch` interceptor sẽ đảm nhiệm việc chặn và tiêm định dạng khớp từng mili-giây với router của YouTube, đảm bảo tỷ lệ chặn Autoplay là 0% và chuyển bài mượt mà.
+Thách thức lớn nhất là làm sao để trình phát HTML5 chấp nhận định dạng mới một cách mượt mà:
+- **ITAG Disguise (Cú lừa ngoạn mục):** Trình phát mặc định sẽ văng lỗi ("Video unavailable" hoặc "Format Error") nếu nhận được mã ITAG lạ lẫm như `774`. Để qua mặt nó, chúng tôi "ngụy trang" mã ITAG của luồng 774 thành `251` (kèm chỉnh sửa `mimeType`). Trình phát sẽ bị lừa và tưởng nó đang phát Opus tiêu chuẩn 160kbps, nhưng thực chất nó đang gánh luồng 300+ kbps của Premium.
+- **Vevo & signatureCipher:** Các MV ca nhạc có bản quyền (Vevo) không dùng link URL tĩnh mà dùng luồng mã hóa `signatureCipher`. Tiện ích được thiết kế cực kỳ cẩn thận để giữ nguyên cấu trúc mã hóa này khi tiêm vào Player, để thuật toán bẻ khóa `base.js` của chính YouTube tự tay giải mã định dạng Premium cho chúng ta.
+- **Đóng băng Autoplay & Pre-warming:** Ép trình phát tải lại trang sẽ khiến Chrome tước bỏ quyền "tương tác người dùng", làm video bị đóng băng (Autoplay Policy). Thay vào đó, tiện ích lắng nghe sự kiện `yt-navigate-start` để tải trước (pre-warm) dữ liệu HQ trong nền. Ngay khi luồng 774 sẵn sàng, tiện ích gửi lệnh nâng cấp cưỡng chế thẳng vào API nội bộ của Player, nâng cấp âm thanh mượt mà không cần F5!
 
 ## 🚀 Hướng dẫn Cài đặt
 
@@ -98,11 +99,11 @@ Nếu bạn gặp bất kỳ lỗi nào, ví dụ như "Video unavailable", buff
 Chúng tôi luôn hoan nghênh sự đóng góp từ cộng đồng! Nếu bạn có ý tưởng cải thiện phương pháp giả mạo, vượt rào các hạn chế mới, hay tối ưu hóa bộ nhớ đệm:
 
 1. Fork dự án này.
-2. Tạo một nhánh tính năng mới (`git checkout -b feature/TinhNangMoi`).
-3. Commit các thay đổi của bạn (`git commit -m 'Thêm TinhNangMoi'`).
-4. Push lên nhánh vừa tạo (`git push origin feature/TinhNangMoi`).
+2. Tạo một nhánh mới (`git checkout -b feature/AmazingFeature`).
+3. Commit thay đổi (`git commit -m 'Thêm tính năng AmazingFeature'`).
+4. Push lên nhánh (`git push origin feature/AmazingFeature`).
 5. Mở một Pull Request.
 
 ## 📄 Giấy phép (License)
 
-Dự án này là mã nguồn mở và được phân phối theo giấy phép **MIT License**. Vui lòng xem file `LICENSE` để biết thêm thông tin chi tiết.
+Dự án này được phân phối dưới Giấy phép MIT. Xem file `LICENSE` để biết thêm chi tiết.

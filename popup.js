@@ -26,10 +26,24 @@
     preferredClient: 'AUTO',
   };
 
+  // chrome.storage.local also holds `tvOAuthToken` (access_token + refresh_token).
+  // `settings` gets handed to executeScript and written into the page's localStorage,
+  // so it must never pick up anything outside this list.
+  const SETTING_KEYS = Object.keys(settings);
+
+  function pickSettings(data) {
+    const out = {};
+    if (!data) return out;
+    for (const key of SETTING_KEYS) {
+      if (data[key] !== undefined) out[key] = data[key];
+    }
+    return out;
+  }
+
   // Load from chrome.storage
-  chrome.storage.local.get(null, (data) => {
+  chrome.storage.local.get(SETTING_KEYS, (data) => {
     if (data && Object.keys(data).length > 0) {
-      Object.assign(settings, data);
+      Object.assign(settings, pickSettings(data));
     } else {
       loadLegacy();
     }
@@ -46,7 +60,7 @@
       }, (results) => {
         if (results?.[0]?.result) {
           try {
-            Object.assign(settings, JSON.parse(results[0].result));
+            Object.assign(settings, pickSettings(JSON.parse(results[0].result)));
             chrome.storage.local.set(settings);
             applyUI();
           } catch (e) { }

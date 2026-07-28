@@ -33,8 +33,8 @@ window.addEventListener('message', (event) => {
   if (event.source !== window || !event.data) return;
 
   if (event.data.type === 'YTSS_FETCH_HQ') {
-    const { videoId, requestId } = event.data;
-    safeSend({ type: 'FETCH_HQ', videoId }, (response) => {
+    const { videoId, requestId, context } = event.data;
+    safeSend({ type: 'FETCH_HQ', videoId, context }, (response) => {
       window.postMessage({
         type: 'YTSS_HQ_RESULT',
         requestId,
@@ -55,20 +55,6 @@ window.addEventListener('message', (event) => {
       }, '*');
     });
   }
-
-  // inject.js → SW: load previously cached HQ formats from chrome.storage.session
-  // This allows sync-merge at page start without waiting for a new SW fetch
-  if (event.data.type === 'YTSS_GET_SESSION_CACHE') {
-    const { videoId, requestId } = event.data;
-    safeSend({ type: 'GET_SESSION_CACHE', videoId }, (response) => {
-      window.postMessage({
-        type: 'YTSS_SESSION_CACHE_RESULT',
-        requestId,
-        videoId,
-        formats: response?.formats || [],
-      }, '*');
-    });
-  }
 });
 
 // SW → MAIN world: immediate HQ upgrade trigger via chrome.tabs.onActivated
@@ -78,16 +64,39 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Push settings changes to MAIN world
-chrome.storage.onChanged.addListener(() => {
-  chrome.storage.local.get(null, (data) => {
-    window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings: data }, '*');
+// Settings the MAIN world is allowed to see. `chrome.storage.local` also holds
+// `tvOAuthToken` (access_token + refresh_token). Posting the whole storage area
+// into the page handed those tokens to youtube.com — and to anything else running
+// in the page — so only these keys ever cross the boundary.
+const EXPOSED_SETTINGS = [
+  'enabled',
+  'hqFetch',
+  'forceOverride',
+  'autoReload',
+  'audioMode',
+  'preferredClient',
+];
+
+function pickSettings(data) {
+  const out = {};
+  if (!data) return out;
+  for (const key of EXPOSED_SETTINGS) {
+    if (data[key] !== undefined) out[key] = data[key];
+  }
+  return out;
+}
+
+function pushSettings() {
+  chrome.storage.local.get(EXPOSED_SETTINGS, (data) => {
+    const settings = pickSettings(data);
+    if (Object.keys(settings).length > 0) {
+      window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings }, '*');
+    }
   });
-});
+}
+
+// Push settings changes to MAIN world
+chrome.storage.onChanged.addListener(pushSettings);
 
 // On load, push current settings to MAIN world
-chrome.storage.local.get(null, (data) => {
-  if (data && Object.keys(data).length > 0) {
-    window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings: data }, '*');
-  }
-});
+pushSettings();
