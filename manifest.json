@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "description": "Force high-quality audio on YouTube via Service Worker Resolver (TVHTML5 774 / Android 774 / AAC 141)",
   "icons": {
-    "16": "logo.svg",
-    "48": "logo.svg",
-    "128": "logo.svg"
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   },
   "permissions": [
     "scripting",
@@ -29,9 +29,9 @@
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "logo.svg",
-      "48": "logo.svg",
-      "128": "logo.svg"
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
     }
   },
   "content_scripts": [
