@@ -15,6 +15,8 @@
     hqFetch: '#hq',
     forceOverride: '#fo',
     autoReload: '#ar',
+    rawItag: '#ri',
+    shadowPlayer: '#sp',
   };
 
   let settings = {
@@ -24,6 +26,9 @@
     autoReload: true,
     audioMode: 'highest',
     preferredClient: 'AUTO',
+    rawItag: false,
+    shadowPlayer: true,
+    shadowVolume: 1.0,
   };
 
   // chrome.storage.local also holds `tvOAuthToken` (access_token + refresh_token).
@@ -77,6 +82,11 @@
     if ($('#preferredClient')) {
       $('#preferredClient').value = settings.preferredClient || 'AUTO';
     }
+    if ($('#sv')) {
+      const vol = settings.shadowVolume !== undefined ? settings.shadowVolume : 1.0;
+      $('#sv').value = Math.round(vol * 100);
+      if ($('#svVal')) $('#svVal').textContent = `${Math.round(vol * 100)}%`;
+    }
     document.querySelectorAll('.mode').forEach(m => {
       m.classList.toggle('active', m.dataset.mode === settings.audioMode);
       const radio = m.querySelector('input');
@@ -89,12 +99,17 @@
     settings.hqFetch = $('#hq').checked;
     settings.forceOverride = $('#fo').checked;
     settings.autoReload = $('#ar').checked;
+    if ($('#ri')) settings.rawItag = $('#ri').checked;
+    if ($('#sp')) settings.shadowPlayer = $('#sp').checked;
+    if ($('#sv')) settings.shadowVolume = parseInt($('#sv').value, 10) / 100;
     if ($('#preferredClient')) {
       settings.preferredClient = $('#preferredClient').value;
     }
 
     chrome.storage.local.set(settings);
-    log(`Settings saved. Method: ${settings.preferredClient}, Mode: ${settings.audioMode}`);
+    log(`Settings saved. Method: ${settings.preferredClient}, Mode: ${settings.audioMode}`
+      + `${settings.rawItag ? ', RAW ITAG' : ''}`
+      + `${settings.shadowPlayer ? ', Shadow Audio ON' : ''}`);
 
     // Yêu cầu: YouTube page PHẢI refresh sau mỗi lần load config
     // Gửi settings đến content script và force reload
@@ -124,71 +139,81 @@
     });
   }
 
-  // ─── TV OAUTH ──────────────────────────────────────────────────────
-  function checkTvAuth() {
-    chrome.runtime.sendMessage({ type: 'CHECK_TV_AUTH' }, (res) => {
-      if (res && res.isAuth) {
-        $('#tvAuthStatus').textContent = 'Status: Logged In (Ready for Premium 774)';
-        $('#tvAuthStatus').style.color = 'var(--green)';
-        $('#btnTvLogin').style.display = 'none';
-        $('#btnTvLogout').style.display = 'block';
-        $('#tvAuthCodeContainer').style.display = 'none';
-      } else {
-        $('#tvAuthStatus').textContent = 'Status: Not Logged In (Required for TVHTML5 774)';
-        $('#tvAuthStatus').style.color = 'var(--dim)';
-        $('#btnTvLogin').style.display = 'block';
-        $('#btnTvLogout').style.display = 'none';
-      }
+  // ─── CLIENT OAUTH HANDLERS ─────────────────────────────────────────
+  function setupAuthControl(clientKey, statusElId, codeContId, codeElId, loginBtnId, logoutBtnId, labelName) {
+    function checkAuth() {
+      chrome.runtime.sendMessage({ type: 'CHECK_CLIENT_AUTH', client: clientKey }, (res) => {
+        if (res && res.isAuth) {
+          $(statusElId).textContent = `Status: Logged In (${labelName} Authenticated)`;
+          $(statusElId).style.color = 'var(--green)';
+          $(loginBtnId).style.display = 'none';
+          $(logoutBtnId).style.display = 'block';
+          $(codeContId).style.display = 'none';
+        } else {
+          $(statusElId).textContent = `Status: Not Logged In`;
+          $(statusElId).style.color = 'var(--dim)';
+          $(loginBtnId).style.display = 'block';
+          $(logoutBtnId).style.display = 'none';
+        }
+      });
+    }
+
+    $(loginBtnId)?.addEventListener('click', () => {
+      $(loginBtnId).disabled = true;
+      $(loginBtnId).textContent = 'Loading...';
+
+      chrome.runtime.sendMessage({ type: 'START_CLIENT_AUTH', client: clientKey }, (res) => {
+        $(loginBtnId).disabled = false;
+        $(loginBtnId).textContent = `Login to ${labelName}`;
+        if (res && res.success && res.data) {
+          const d = res.data;
+          $(statusElId).textContent = 'Status: Waiting for you to activate...';
+          $(statusElId).style.color = 'var(--gold)';
+
+          $(codeElId).textContent = d.user_code;
+          $(codeContId).style.display = 'block';
+
+          const pollUI = setInterval(() => {
+            chrome.runtime.sendMessage({ type: 'CHECK_CLIENT_AUTH', client: clientKey }, (check) => {
+              if (check && check.isAuth) {
+                clearInterval(pollUI);
+                checkAuth();
+                log(`${labelName} Auth Successful!`);
+              }
+            });
+          }, 3000);
+        } else {
+          $(statusElId).textContent = 'Status: Error - ' + (res?.error || 'Unknown');
+          $(statusElId).style.color = 'var(--accent)';
+        }
+      });
     });
+
+    $(logoutBtnId)?.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'LOGOUT_CLIENT', client: clientKey }, () => {
+        checkAuth();
+        log(`${labelName} Logged out.`);
+      });
+    });
+
+    checkAuth();
   }
 
-  $('#btnTvLogin')?.addEventListener('click', () => {
-    $('#btnTvLogin').disabled = true;
-    $('#btnTvLogin').textContent = 'Loading...';
-
-    chrome.runtime.sendMessage({ type: 'START_TV_AUTH' }, (res) => {
-      $('#btnTvLogin').textContent = 'Login to TV';
-      if (res && res.success && res.data) {
-        const d = res.data;
-        $('#tvAuthStatus').textContent = 'Status: Waiting for you to activate...';
-        $('#tvAuthStatus').style.color = 'var(--gold)';
-
-        $('#tvAuthCode').textContent = d.user_code;
-        $('#tvAuthCodeContainer').style.display = 'block';
-
-        // Setup polling in popup just to update UI when done
-        const pollUI = setInterval(() => {
-          chrome.runtime.sendMessage({ type: 'CHECK_TV_AUTH' }, (check) => {
-            if (check && check.isAuth) {
-              clearInterval(pollUI);
-              checkTvAuth();
-              log('TV Auth Successful! TVHTML5 774 ready.');
-            }
-          });
-        }, 3000);
-      } else {
-        $('#btnTvLogin').disabled = false;
-        $('#tvAuthStatus').textContent = 'Status: Error - ' + (res?.error || 'Unknown');
-        $('#tvAuthStatus').style.color = 'var(--accent)';
-      }
-    });
-  });
-
-  $('#btnTvLogout')?.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'LOGOUT_TV' }, () => {
-      checkTvAuth();
-      $('#btnTvLogin').disabled = false;
-      log('TV Auth Logged out. TVHTML5 774 unavailable.');
-    });
-  });
-
-  checkTvAuth();
+  // Set up auth for TVHTML5
+  setupAuthControl('TVHTML5', '#tvAuthStatus', '#tvAuthCodeContainer', '#tvAuthCode', '#btnTvLogin', '#btnTvLogout', 'TVHTML5');
 
   // ─── EVENT LISTENERS ──────────────────────────────────────────────
   for (const sel of Object.values(KEYS)) {
     $(sel)?.addEventListener('change', save);
   }
   $('#preferredClient')?.addEventListener('change', save);
+
+  $('#sv')?.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value, 10);
+    if ($('#svVal')) $('#svVal').textContent = `${val}%`;
+    settings.shadowVolume = val / 100;
+    save();
+  });
 
   document.querySelectorAll('.mode').forEach(m => {
     m.addEventListener('click', () => {
@@ -229,6 +254,7 @@
         const d = results?.[0]?.result || {};
 
         // Status badge
+
         const badge = $('#stBadge');
         const text = $('#stText');
         if (d.activeMode) {
@@ -254,9 +280,42 @@
         // Info
         const modeLabels = { aac_only: 'AAC Only (141)', opus_hq: 'Opus HQ (774)', highest: 'Highest Bitrate' };
         $('#iMode').textContent = modeLabels[d.activeMode] || d.activeMode || '—';
-        $('#iMethod').textContent = d.activeMethod ? `${d.activeMethod} (Active)` : 'Original';
         $('#iStreams').textContent = d.injectedStreams ?? 0;
-        $('#iAudio').textContent = d.bestAudioInfo || '—';
+        if (d.fallbackReason) {
+          $('#iMethod').textContent = 'FALLBACK TO ORIGINAL';
+          $('#iMethod').style.color = '#e94560';
+          // Same reasoning as the notes below: page-controlled string, so textContent.
+          $('#iAudio').textContent = d.fallbackReason;
+          $('#iAudio').style.color = '#e94560';
+          $('#iAudio').style.fontSize = '11px';
+        } else {
+          $('#iMethod').style.color = 'var(--gold)';
+          $('#iAudio').style.color = '';
+          $('#iAudio').style.fontSize = '';
+          $('#iMethod').textContent = d.activeMethod ? `${d.activeMethod} (Active)` : 'Original';
+          // Two different reasons the popup can look like it succeeded when it didn't:
+          //   clientFallback — the chosen Spoofing Method returned no HQ, another client
+          //     supplied the stream, so "Active" names a client you didn't pick.
+          //   noUrlDrop — the SW did return 774/141, but as metadata with no url
+          //     (SABR-only), so it could never be injected. The client grid still shows
+          //     ★774 in that case, which reads as success.
+          // Built as DOM nodes, not innerHTML: `d` is parsed out of the *page's*
+          // localStorage, so every string in it is attacker-controllable by any
+          // script running on the tab. textContent makes that unexploitable.
+          const notes = [d.clientFallback, d.noUrlDrop].filter(Boolean);
+          const audioEl = $('#iAudio');
+          audioEl.textContent = d.bestAudioInfo || '—';
+          for (const n of notes) {
+            audioEl.appendChild(document.createElement('br'));
+            const span = document.createElement('span');
+            span.style.color = 'var(--gold)';
+            span.style.fontSize = '10px';
+            span.textContent = n;
+            audioEl.appendChild(span);
+          }
+        }
+
+
 
         // Client Stats Grid
         const grid = $('#statsGrid');
@@ -269,10 +328,29 @@
             const isHQ = stat.includes('★');
             const cls = isCurrentPlaying ? 'hq' : (isHQ ? 'ok' : (isOk ? 'ok' : (isErr ? 'err' : '')));
 
+            const formatName = (name) => {
+              switch (name) {
+                case 'WEB_REMIX': return 'Web Remix (Music)';
+                case 'TVHTML5': return 'TVHTML5 (YouTube TV)';
+                case 'ANDROID': return 'Android (Mobile)';
+                case 'ANDROID_MUSIC': return 'Android Music';
+                case 'ANDROID_VR': return 'Android VR';
+                default: return name;
+              }
+            };
+
             const item = document.createElement('div');
             item.className = `grid-item ${cls}`;
             const activeBadge = isCurrentPlaying ? ' 🎯' : '';
-            item.innerHTML = `<span class="cn">${client}${activeBadge}</span><span class="cs">${stat}</span>`;
+            // `client` and `stat` both come from the page's localStorage — see the
+            // note on #iAudio above. Nodes + textContent, not innerHTML.
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'cn';
+            nameSpan.textContent = `${formatName(client)}${activeBadge}`;
+            const statSpan = document.createElement('span');
+            statSpan.className = 'cs';
+            statSpan.textContent = stat;
+            item.append(nameSpan, statSpan);
             grid.appendChild(item);
           });
         }

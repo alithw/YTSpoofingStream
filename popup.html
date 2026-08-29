@@ -396,9 +396,7 @@
         <option value="AUTO">Auto (Best Available)</option>
         <option value="WEB_REMIX">WEB_REMIX (Music)</option>
         <option value="TVHTML5">TVHTML5 (YouTube TV)</option>
-        <option value="TVHTML5_SIMPLY_EMBEDDED_PLAYER">TVHTML5 Simply (Embedded)</option>
         <option value="ANDROID">ANDROID (Mobile)</option>
-        <option value="IOS">IOS (Apple)</option>
         <option value="ANDROID_MUSIC">ANDROID_MUSIC</option>
         <option value="ANDROID_VR">ANDROID_VR (Quest)</option>
       </select>
@@ -415,6 +413,19 @@
     <label class="row" for="ar"><span>Auto-reload page on change</span>
       <span class="tog"><input type="checkbox" id="ar" checked><span class="sl"></span></span>
     </label>
+    <label class="row" for="ri"><span>Raw ITAG (no disguise)<br><span style="font-size:9px;color:var(--dim);">Experimental — send 774/141 as themselves</span></span>
+      <span class="tog"><input type="checkbox" id="ri"><span class="sl"></span></span>
+    </label>
+    <label class="row" for="sp"><span>Stats for Nerds Override (774 Spoof)<br><span style="font-size:9px;color:var(--dim);">Display Opus 774 in player Stats for Nerds</span></span>
+      <span class="tog"><input type="checkbox" id="sp" checked><span class="sl"></span></span>
+    </label>
+    <div class="row" style="flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 6px;">
+      <div style="display:flex; justify-content:space-between; width:100%;">
+        <span style="font-size: 11px;">Native Audio DSP Gain:</span>
+        <span id="svVal" style="font-size: 11px; font-weight:700; color:var(--accent);">100%</span>
+      </div>
+      <input type="range" id="sv" min="0" max="200" value="100" style="width: 100%; accent-color: var(--accent); cursor: pointer;" />
+    </div>
   </div>
 
   <div class="sec">
@@ -478,13 +489,13 @@
     </div>
   </div>
 
+  <!-- AUTHENTICATION SECTIONS -->
   <div class="sec" id="tvAuthSec">
-    <div class="sec-title">TVHTML5 Login (Premium Audio)</div>
+    <div class="sec-title">TVHTML5 Login</div>
     <div id="tvAuthContent">
       <div id="tvAuthStatus" style="font-size: 11px; margin-bottom: 6px; color: var(--dim);">Status: Checking...</div>
       <div id="tvAuthCodeContainer" style="display: none; text-align: center; margin-bottom: 8px;">
-        <div style="font-size: 10px; color: var(--dim);">Enter this code at <a href="https://youtube.com/activate"
-            target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
+        <div style="font-size: 10px; color: var(--dim);">Enter code at <a href="https://youtube.com/activate" target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
         <div id="tvAuthCode" style="font-size: 16px; font-weight: 700; letter-spacing: 2px; margin-top: 4px;"></div>
       </div>
       <div class="btns">
@@ -493,6 +504,8 @@
       </div>
     </div>
   </div>
+
+
 
   <script src="popup.js"></script>
 </body>

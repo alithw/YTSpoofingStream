@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YTSpoofingStream",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Force high-quality audio on YouTube via Service Worker Resolver (TVHTML5 774 / Android 774 / AAC 141)",
   "icons": {
     "16": "icon16.png",
@@ -15,7 +15,8 @@
     "tabs",
     "cookies",
     "declarativeNetRequest",
-    "alarms"
+    "alarms",
+    "downloads"
   ],
   "host_permissions": [
     "*://*.youtube.com/*",

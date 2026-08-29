@@ -43,6 +43,19 @@ window.addEventListener('message', (event) => {
     });
   }
 
+  // ── Phase 1 (Option D): relay TV streaming context query.
+  //    MAIN world cannot call chrome.runtime directly; bridge forwards.
+  if (event.data.type === 'YTSS_FETCH_TVCTX') {
+    const { videoId, requestId } = event.data;
+    safeSend({ type: 'GET_TVCTX', videoId }, (response) => {
+      window.postMessage({
+        type: 'YTSS_TVCTX_RESULT',
+        requestId,
+        ...(response || { streamingContext: null }),
+      }, '*');
+    });
+  }
+
   if (event.data.type === 'YTSS_PAGE_CONTEXT') {
     safeSend({ type: 'PAGE_CONTEXT_UPDATE', context: event.data.context || {} });
   }
@@ -57,7 +70,14 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// SW → MAIN world: immediate HQ upgrade trigger via chrome.tabs.onActivated
+// SW → MAIN world: immediate HQ upgrade
+// Listen for messages from background/popup to forward to the page
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'YTSS_SW_TRIGGER' || msg.type === 'YTSS_DOWNLOAD_AUDIO') {
+    window.postMessage(msg, '*');
+  }
+});
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'YTSS_TRIGGER_UPGRADE') {
     window.postMessage({ type: 'YTSS_TRIGGER_UPGRADE', videoId: msg.videoId }, '*');
@@ -75,6 +95,9 @@ const EXPOSED_SETTINGS = [
   'autoReload',
   'audioMode',
   'preferredClient',
+  'rawItag',
+  'shadowPlayer',
+  'shadowVolume',
 ];
 
 function pickSettings(data) {

@@ -1,109 +1,169 @@
 <div align="center">
   <img src="logo.svg" alt="YTSpoofingStream Logo" width="128" height="128">
   <h1>YTSpoofingStream</h1>
+  <p><b>Unlock Real High-Bitrate YouTube Audio (256kbps+ Opus & AAC) on Web Player</b></p>
+
+  <p>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/github/v/release/alithw/YTSpoofingStream?color=blue&style=flat-square" alt="Latest Release"></a>
+    <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
+    <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="License MIT">
+    <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
+  </p>
 </div>
 
-> **Warning for Non-Premium Users**
-> This extension is designed **exclusively for users who already have an active YouTube Premium subscription**. If you do not have YouTube Premium, the internal API requests will likely be rejected or rate-limited by YouTube, resulting in significant playback slowdowns, endless buffering, or "Video unavailable" errors. **Please do not use this extension if you are not a Premium member.**
+> [!WARNING]
+> **Requirement: Active YouTube Premium Subscription**
+> This extension is engineered specifically for users with an active **YouTube Premium** subscription. YouTube's internal servers only serve unthrottled high-bitrate Opus (`itag 774`, ~276kbps) and AAC (`itag 141`, ~256kbps) to authenticated Premium sessions. Non-premium requests will seamlessly fall back to standard raw formats (`itag 251` / `140`).
 
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
 
 ---
 
 ## 📑 Table of Contents
-- [Why this extension?](#-why-this-extension)
-- [Key Features](#-key-features)
-- [Technical Architecture & Deep Dive](#-technical-architecture--deep-dive)
-- [Installation](#-installation)
+- [🌟 Why YTSpoofingStream?](#-why-ytspoofingstream)
+- [✨ What's New in v0.1.1](#-whats-new-in-v011)
+- [🔥 Key Features](#-key-features)
+- [🧠 Technical Architecture & Deep Dive](#-technical-architecture--deep-dive)
+  - [1. Multi-Client Spoofing Engine](#1-multi-client-spoofing-engine)
+  - [2. Built-in SignatureCipher Decipherer](#2-built-in-signaturecipher-decipherer)
+  - [3. Dedicated High-Fidelity Audio Engine (SeparateAudioEngine)](#3-dedicated-high-fidelity-audio-engine-separateaudioengine)
+  - [4. Fail-safe Native Stream Protection & Fallback](#4-fail-safe-native-stream-protection--fallback)
+  - [5. Dynamic Stats for Nerds & Dashboard Synchronization](#5-dynamic-stats-for-nerds--dashboard-synchronization)
+- [🚀 Installation](#-installation)
+- [⚙️ Configuration & Controls](#️-configuration--controls)
 - [⚠️ Known Limitations](#️-known-limitations)
-- [Reporting Issues & Troubleshooting](#-reporting-issues--troubleshooting)
-- [Contributing](#-contributing)
-- [License](#-license)
+- [🐞 Reporting Issues & Troubleshooting](#-reporting-issues--troubleshooting)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
 
 ---
 
-A powerful and lightweight Chrome extension that forces YouTube's web player to serve high-fidelity Premium audio streams (like 256kbps AAC or 300+ kbps Opus) by spoofing client requests to YouTube's internal APIs (Android, iOS, TVHTML5, and Web Remix).
+## 🌟 Why YTSpoofingStream?
 
-## 🌟 Why this extension?
+Modern YouTube Web Player artificially restricts audio playback to low-bitrate streams (**ITAG 251** Opus at ~145-160kbps with high-frequency cutoff at 15-16kHz, or **ITAG 140** AAC at ~128kbps), even for paying YouTube Premium subscribers. Premium-grade unclipped audio (**ITAG 774** Opus at ~276kbps up to 22kHz, and **ITAG 141** AAC at 256kbps) is restricted to selected client ecosystems (YouTube Music, Android/iOS apps, and Smart TVs).
 
-Recently, YouTube has restricted high-quality audio streams (like ITAG 141 for 256kbps AAC and ITAG 774 for high-bitrate Opus) to Premium users on specific clients only. The standard web player often falls back to lower quality audio (ITAG 251 at 160kbps or ITAG 140 at 128kbps) even if you are a paying Premium member. 
+**YTSpoofingStream** bridges this gap. It acts as an intelligent client proxy directly within your browser, fetching authentic high-bitrate streams through authenticated internal endpoints and rendering full-spectrum sound seamlessly alongside native video.
 
-YTSpoofingStream acts as a transparent bridge. It securely requests the premium formats using spoofed user agents in the background, bypassing the web player's artificial limitations, and injects the high-fidelity audio streams directly into your current video session.
+---
 
-## ✨ Key Features
+## ✨ What's New in v0.1.1
 
-- **Unlock Premium Audio**: Enjoy crystal-clear audio by forcing YouTube to serve high-bitrate audio formats (ITAG 141, 774) normally hidden from the web player.
-- **Multi-Client Spoofing Engine**: Seamlessly switches between various YouTube internal clients (WEB_REMIX, ANDROID, IOS, TVHTML5) to hunt down the best available audio format for every video.
-- **BotGuard & poToken Bypass**: Automatically extracts and injects `poToken` and `visitorData` from the live webpage to pass YouTube's strict anti-bot mechanisms, eliminating "Video unavailable" errors on modern clients.
-- **Vevo & Official Music Video Support**: Seamlessly processes encrypted `signatureCipher` streams. Premium audio works perfectly even on copyrighted music videos.
-- **Manifest V3 Native**: Built entirely on Manifest V3. Intercepts API requests and modifies headers (`Origin`, `User-Agent`) silently using Chrome's native `declarativeNetRequest` API. Zero performance penalty.
-- **Intelligent Pre-warm & Sync**: Caches HQ formats asynchronously during Single Page Application (SPA) navigation (like clicking a video in the sidebar) and auto-reloads the player precisely when ready. Zero network delays.
-- **Stats for Nerds Dashboard**: A live, beautiful popup dashboard displaying detailed logs, injected streams, active audio methods, and real-time spoofing status.
+- 🔓 **Built-in `SignatureCipherDecipherer`**: Fully autonomous on-the-fly decipher engine for copyrighted music videos (Vevo, official music tracks). Parses YouTube's live player script (`base.js`), resolves transformations (`reverse`, `splice`, `swap`), and unlocks encrypted streams in real time with zero external server dependencies.
+- 🔊 **Dedicated `SeparateAudioEngine`**: Autonomous secondary audio pipeline that streams genuine ITAG 774/141 streams at full frequency response, synchronized perfectly with the native video player.
+- 🛡️ **Fail-Safe Intelligent Audio Sync**: Only mutes native video audio once the HQ audio stream is verified playing. Automatically restores native audio (`mainVideo.muted = false`) instantly if network drops occur.
+- 🎚️ **Native Audio DSP Gain Booster**: Integrated Web Audio API Gain Node allowing 0% to 200% volume amplification directly in the browser.
+- 🎯 **Dynamic Stats for Nerds & Raw Fallback**: Displays real-time measured bitrates (e.g. `opus (774) 276k`) when HQ is playing, and seamlessly displays genuine raw codec identifiers (e.g. `opus (251)`) when in fallback mode.
+
+---
+
+## 🔥 Key Features
+
+- **True Unclipped Audio Spectrum**: Restores frequencies above 16kHz up to full 22kHz Hi-Fi audio.
+- **Multi-Client Query Pipeline**: Queries `WEB_REMIX`, `TVHTML5`, `ANDROID`, and `IOS` in parallel via background Service Worker.
+- **Client Session Tunneling**: Relays live `poToken`, `visitorData`, and `SAPISIDHASH` session credentials to pass BotGuard anti-bot checks.
+- **Zero Video Playback Interruption**: Native video tracks (`SABR`, `1080p`, `4K`, `AV1/VP9`) remain 100% untouched and uncorrupted.
+- **Comprehensive Popup Dashboard**: Real-time status monitor showing active itags, source clients, exact bitrates, and client availability matrices.
+
+---
 
 ## 🧠 Technical Architecture & Deep Dive
 
-Building this extension required bypassing several complex security and state-management mechanisms within YouTube's modern Single Page Application (SPA).
+```mermaid
+flowchart TD
+    A["YouTube Web Page"] -->|"SPA Navigation / Boot"| B["Content Script (inject.js)"]
+    B -->|"Extracts Session & poToken"| C["Service Worker (background.js)"]
+    C -->|"Parallel Authenticated Queries"| D["InnerTube Clients (WEB_REMIX, TVHTML5)"]
+    D -->|"Returns Encrypted 774 / 141 Formats"| C
+    C -->|"Relays HQ Formats"| B
+    B --> E["SignatureCipherDecipherer"]
+    E -->|"Extracts p-table from base.js & Deciphers s"| F["Deciphered HTTPS Stream URL"]
+    F --> G["SeparateAudioEngine (<audio> + AudioContext)"]
+    G -->|"Playing & Synced"| H["Mutes Main Video Audio"]
+    G -.->|"On Network Error / Unavailable"| I["Unmutes Native Player (Raw ITAG 251)"]
+```
 
-### 1. The Interception Layer
-YouTube delivers its video data (`streamingData`) through three different avenues depending on the navigation state:
-- `window.ytInitialPlayerResponse` (embedded in HTML for direct visits).
-- `window.ytplayer.config.args.raw_player_response` (legacy/fallback configuration).
-- `window.fetch` (used by the SPA router when navigating between videos).
+### 1. Multi-Client Spoofing Engine
+The extension’s Service Worker performs parallel background queries to `/youtubei/v1/player` mimicking `WEB_REMIX` (YouTube Music Web) and `TVHTML5` (Living Room/Smart TV) clients. By forwarding the active browser session (`SAPISIDHASH`, `VISITOR_DATA`, `DELEGATED_SESSION_ID`), the server recognizes the user's Premium subscription and returns high-tier formats.
 
-This extension injects a content script (`inject.js`) at `document_start` to intercept all three. We use `Object.defineProperty` to hook into global variables before YouTube's own scripts even boot up. When the SPA router fetches data, we intercept the Promise, parse the JSON, inject our custom formats, and repackage it into a `new Response()`.
+### 2. Built-in SignatureCipher Decipherer
+Encrypted music formats provide parameters `s`, `sp`, and `url` instead of direct URLs. `SignatureCipherDecipherer` dynamically fetches the active `base.js` player script, extracts the obfuscated string array `p`, builds the transformation mapping `Cy`, and evaluates the decipher algorithm:
+$$\text{sig} = wU(8, 2934, wU(2, 8414, \text{decodeURIComponent}(s)))$$
+The deciphered signature is appended to the stream URL, yielding direct unthrottled streaming access.
 
-### 2. Multi-Client Spoofing & BotGuard Bypass
-To get the high-quality formats, the Content Script delegates network requests to the Background Service Worker via Message Passing. The SW then queries the `/youtubei/v1/player` endpoint using multiple custom payloads representing different clients.
-- **BotGuard Bypass:** YouTube recently enforced `poToken` (Proof of Origin) verification for API requests. We actively intercept the web player's outgoing requests to extract the live `poToken`, `signatureTimestamp`, and `visitorData`, and tunnel them into our SW payload to perfectly mimic the authorized session.
-- **Header Spoofing:** We dynamically register `declarativeNetRequest` session rules to spoof `User-Agent`, `Origin`, and `Referer` headers for background requests.
+### 3. Dedicated High-Fidelity Audio Engine (`SeparateAudioEngine`)
+Rather than forcing modified audio streams into the native Media Source Extensions (MSE) pipeline which can cause SABR desynchronization, `SeparateAudioEngine` loads the unthrottled audio into a dedicated, low-latency HTML5 audio element driven by Web Audio API (`AudioContext` $\rightarrow$ `GainNode` $\rightarrow$ `Destination`). It attaches drift-correction listeners to the main video player:
+- Synchronizes `play`, `pause`, `seeking`, `seeked`, and `playbackRate`.
+- Corrects clock drift exceeding 80ms.
+- Provides dynamic volume boosting (0% – 200%).
 
-### 3. Overcoming "The Stubborn Player" (State Corruption & Auto-play policies)
-One of the biggest challenges was making the YouTube HTML5 player accept the injected formats smoothly:
-- **ITAG Disguise (Format Spoofing):** The standard web player will crash ("Format Error") if it receives an unknown ITAG like `774`. To bypass this, we "disguise" the 774 stream's ITAG to `251` (and adjust its `mimeType`), tricking the player into thinking it's playing standard Opus, while actually streaming the 300+ kbps Premium source.
-- **Vevo & signatureCipher:** Copyrighted music videos don't use direct URLs; they use a heavily encrypted `signatureCipher`. Our injection logic deliberately preserves the cipher intact, allowing the web player's native `base.js` to automatically decrypt our injected premium formats alongside original ones.
-- **SPA Autoplay Freezes & Pre-warming:** Instead of blindly reloading the player on SPA navigation (which triggers Chrome's strict Autoplay block policies), we listen to `yt-navigate-start` to "pre-warm" the HQ formats in the background. Once the formats are secured, we trigger an immediate targeted player upgrade (`loadVideoById` / `updateVideoData`), completely avoiding page reloads and ensuring seamless playback.
+### 4. Fail-safe Native Stream Protection & Fallback
+The native video player's `streamingData.adaptiveFormats` and manifest endpoints (`serverAbrStreamingUrl`, `dashManifestUrl`, `hlsManifestUrl`) are kept fully intact. If a video lacks an ITAG 774 track, or if decryption fails, `SeparateAudioEngine.stopAndUnmute()` ensures `mainVideo.muted = false`, delivering smooth, uninterrupted playback using the best available raw original stream (ITAG 251 / 140).
+
+### 5. Dynamic Stats for Nerds & Dashboard Synchronization
+When *Stats for Nerds Override* is enabled, the codec line dynamically calculates and renders real measured bitrates (`opus (774) 276k [HQ Spoofed]`). When playing fallback streams, it preserves 100% authentic raw telemetry (`av01... / opus (251)`).
+
+---
 
 ## 🚀 Installation
 
-Since this extension interacts with internal YouTube APIs, it is currently not available on the Chrome Web Store. You can install it easily via Developer Mode:
+1. Download the latest `v0.1.1` release zip from [Releases](https://github.com/alithw/YTSpoofingStream/releases) or clone the repository:
+   ```bash
+   git clone https://github.com/alithw/YTSpoofingStream.git
+   ```
+2. Open Google Chrome and navigate to `chrome://extensions/`.
+3. Enable **Developer mode** in the top-right corner.
+4. Click **Load unpacked** and select the `YTSpoofingStream` folder (containing `manifest.json`).
+5. Open YouTube, verify your Premium login, and enjoy Hi-Fi audio streaming!
 
-1. Download the latest release from the repository or clone it using `git clone`.
-2. Extract the files to a folder on your computer.
-3. Open Google Chrome and navigate to `chrome://extensions/`.
-4. Enable **Developer mode** using the toggle in the top right corner.
-5. Click **Load unpacked** and select the folder containing this extension's files (where `manifest.json` is located).
-6. Open YouTube, ensure you are logged into your Premium account, and enjoy the high-fidelity sound!
+---
+
+## ⚙️ Configuration & Controls
+
+| Option | Default | Description |
+|---|---|---|
+| **Enable Extension** | `ON` | Master switch to enable/disable background fetching and injection. |
+| **Fetch HQ Audio (Multi-client)** | `ON` | Queries multiple internal clients for high-bitrate streams. |
+| **Force Override** | `ON` | Prioritizes ITAG 774/141 over standard web streams. |
+| **Auto-reload page on change** | `ON` | Reloads the active tab automatically when settings change. |
+| **Raw ITAG (no disguise)** | `OFF` | Passes raw itag numbers without disguise mapping. |
+| **Stats for Nerds Override** | `ON` | Formats and displays HQ Opus 774 in YouTube's Stats for Nerds overlay. |
+| **Native Audio DSP Gain** | `100%` | Hardware-accelerated audio amplifier slider (0% to 200%). |
+
+---
 
 ## ⚠️ Known Limitations
 
 > [!CAUTION]
-> **YouTube Music (`music.youtube.com`) is not supported.**
-> When this extension is active, `music.youtube.com` may behave erratically — songs in the playback queue can skip or jump unexpectedly due to the extension intercepting background pre-fetch requests. If you want to use YouTube Music normally, **please disable the extension first**.
+> **YouTube Music (`music.youtube.com`) Compatibility**
+> When this extension is enabled, `music.youtube.com` background pre-fetching may conflict with queue management. If using YouTube Music, please temporarily toggle the extension off via the popup.
 
-| Platform | Status |
+| Service | Compatibility |
 |---|---|
-| `youtube.com` | ✅ Fully supported |
-| `music.youtube.com` | ❌ Disable the extension before use |
+| `youtube.com` | ✅ Full Support (Videos, Vevo MV, Streams, Premieres) |
+| `music.youtube.com` | ⚠️ Disable extension for native YT Music experience |
 
 ---
 
 ## 🐞 Reporting Issues & Troubleshooting
 
-If you encounter any bugs, such as "Video unavailable" errors, infinite buffering, or missing audio, please open an issue in the GitHub repository. To help us debug faster, please provide:
-- The Video URL.
-- A screenshot of the extension's Popup (showing the `Active Audio` and `Client Stats` logs).
-- Confirmation that you are logged into an active YouTube Premium account.
+If you experience playback anomalies:
+1. Open the extension popup and take a screenshot of the **Status** section.
+2. Open Chrome DevTools (`F12` $\rightarrow$ Console) and filter by `[YTSS]`.
+3. File an issue on GitHub with your video URL, screenshots, and logs.
+
+---
 
 ## 🤝 Contributing
 
-We welcome contributions from the community! If you have ideas to improve spoofing methods, bypass new restrictions, or optimize the caching engine:
-
-1. Fork the project.
-2. Create a new branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
+Contributions, bug reports, and optimizations are welcome!
+1. Fork the Project (`https://github.com/alithw/YTSpoofingStream/fork`).
+2. Create your Feature Branch (`git checkout -b feature/NewFeature`).
+3. Commit your Changes (`git commit -m 'Add NewFeature'`).
+4. Push to the Branch (`git push origin feature/NewFeature`).
 5. Open a Pull Request.
+
+---
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for complete details.
