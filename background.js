@@ -377,6 +377,24 @@ async function setupStaticRules() {
       });
     });
 
+    // 3b. Origin & Referer spoofing for WEB_REMIX media streams (prevents 403 on googlevideo.com)
+    const WEB_REMIX_MEDIA_RULE_ID = 9199;
+    rulesToRemove.push(WEB_REMIX_MEDIA_RULE_ID);
+    rulesToAdd.push({
+      id: WEB_REMIX_MEDIA_RULE_ID,
+      priority: 15,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          { header: 'Referer', operation: 'set', value: 'https://music.youtube.com/' },
+          { header: 'Origin', operation: 'set', value: 'https://music.youtube.com' },
+        ],
+      },
+      condition: {
+        regexFilter: '^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]c=|/c/)WEB_REMIX(?:[&/]|.*)',
+        resourceTypes: ['media', 'xmlhttprequest', 'other'],
+      },
+    });
 
     // SABR block rule removed. We rely on parameter rewriting instead.
     // CRITICAL: We must explicitly remove it, otherwise it persists in the browser.
@@ -501,8 +519,17 @@ async function fetchFromClient(videoId, client) {
   // Build context — TVHTML5 needs user + request blocks to pass validation
   const context = { client: clientObj };
   if (isTVClient) {
-    context.user = { lockedSafetyMode: false };
-    context.request = { useSsl: true, internalExperimentFlags: [] };
+    context.user = {
+      lockedSafetyMode: false,
+      audioQuality: 'AUDIO_QUALITY_HIGH'
+    };
+    context.request = {
+      useSsl: true,
+      internalExperimentFlags: [
+        { key: 'tv_high_quality_audio', value: 'true' },
+        { key: 'html5_audio_quality', value: 'high' }
+      ]
+    };
   }
 
   const payload = {
@@ -510,9 +537,11 @@ async function fetchFromClient(videoId, client) {
     videoId,
     contentCheckOk: true,
     racyCheckOk: true,
+    audioQualityPreference: 'AUDIO_QUALITY_HIGH',
     playbackContext: {
       contentPlaybackContext: {
         signatureTimestamp: pageContext.sts || 19900,
+        audioQualityPreference: 'AUDIO_QUALITY_HIGH',
       },
     },
   };
@@ -520,9 +549,6 @@ async function fetchFromClient(videoId, client) {
   if (!isMobileClient || client.name === 'ANDROID_VR') {
     payload.playbackContext.contentPlaybackContext.html5Preference = 'HTML5_PREF_WANTS';
   }
-  
-  // Ask for high quality if possible.
-  payload.playbackContext.contentPlaybackContext.audioQualityPreference = 'AUDIO_QUALITY_HIGH';
 
   if (client.name === 'WEB_REMIX' && pageContext.poToken) {
     payload.serviceIntegrityDimensions = {
@@ -540,7 +566,7 @@ async function fetchFromClient(videoId, client) {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-      credentials: (client.name === 'WEB_REMIX' || client.name === 'TVHTML5') ? 'include' : 'omit',
+      credentials: bearerToken ? 'omit' : 'include',
     });
 
     if (!resp.ok) {

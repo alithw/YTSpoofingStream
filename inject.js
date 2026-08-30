@@ -20,9 +20,8 @@
   // itag and client on the outgoing videoplayback request.
   const ITAG_DISGUISE = {
     774: { as: 251, mimeType: 'audio/webm; codecs="opus"' },        // Opus 256-300kbps → Opus 160kbps slot
-    141: { as: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"' },    // AAC 256kbps → AAC 128kbps slot
   };
-  const HQ_ITAGS = Object.keys(ITAG_DISGUISE).map(Number);
+  const HQ_ITAGS = [774];
 
   // ─── SETTINGS ────────────────────────────────────────────────────
   let S = {
@@ -125,6 +124,9 @@
   function report() {
     status.activeMode = S.audioMode;
     try { localStorage.setItem('ytSpoofingStream_status', JSON.stringify(status)); } catch (e) { }
+    if (typeof window.__ytssUpdateBadge === 'function') {
+      try { window.__ytssUpdateBadge(); } catch (e) { }
+    }
   }
 
   // ─── HQ FORMAT CACHE (per videoId, 25s TTL) ─────────────────────
@@ -377,6 +379,9 @@
   // Also pre-warm on YouTube SPA navigation (yt-navigate-start fires before new page renders)
   window.addEventListener('yt-navigate-start', (e) => {
     isInitialPageLoad = false; // We are now in SPA territory, never reload page
+    if (typeof SeparateAudioEngine !== 'undefined') {
+      SeparateAudioEngine.stopAndUnmute();
+    }
     const incomingVid = e?.detail?.endpoint?.watchEndpoint?.videoId
       || e?.detail?.params?.videoId
       || null;
@@ -389,6 +394,20 @@
       }, 0);
     }
   });
+
+  function getAll774Candidates(list) {
+    if (!list || !Array.isArray(list)) return [];
+    // Only fetch/match Opus 774 formats (dropping 141 as 251 is already equivalent)
+    const candidates = list.filter(f => (f.itag === 774 || f._origItag === 774) && (f.url || f.signatureCipher));
+    // Sort by highest bitrate / quality
+    candidates.sort((a, b) => (b.bitrate || b.averageBitrate || 0) - (a.bitrate || a.averageBitrate || 0));
+    return candidates;
+  }
+
+  function findBestReal774(list) {
+    const cands = getAll774Candidates(list);
+    return cands.length > 0 ? cands[0] : null;
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // HQ FILTER & MERGE ENGINE (Option D TV SABR Transplant + Direct Fallback)
@@ -566,11 +585,11 @@
       report();
     }
 
-    // Check if we have a real playable HQ format (774 or 141)
-    const realHqFormat = pool.find(f => (f.itag === 774 || f.itag === 141 || f._origItag === 774 || f._origItag === 141) && (f.url || f.signatureCipher));
+    // Check if we have real playable 774 formats
+    const real774Candidates = getAll774Candidates(pool);
     const vid = json.videoDetails?.videoId || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
-    if (realHqFormat) {
-      SeparateAudioEngine.loadReal774(vid, realHqFormat);
+    if (real774Candidates.length > 0) {
+      SeparateAudioEngine.loadReal774(vid, real774Candidates);
     } else {
       SeparateAudioEngine.stopAndUnmute();
     }
@@ -1112,10 +1131,7 @@
       // If we are in fallback mode (not playing real 774), keep the raw original ITAG (251, 140, etc.)
       const isReal774 = status.activeAudioItag === 774 && !status.fallbackReason;
       if (!isReal774) return null;
-
-      const match = (status.bestAudioInfo || '').match(/(\d+)kbps/);
-      const kbps = match ? match[1] : '276';
-      return `/ opus (774) ${kbps}k [HQ Spoofed]`;
+      return '/ opus (774)';
     },
 
     init() {
@@ -1169,8 +1185,16 @@
         });
       };
 
-      const obs = new MutationObserver(() => overrideLeafNodes());
-      obs.observe(document.body, { childList: true, subtree: true });
+      const start = () => {
+        const target = document.body || document.documentElement;
+        if (target) {
+          const obs = new MutationObserver(() => overrideLeafNodes());
+          obs.observe(target, { childList: true, subtree: true });
+        } else {
+          document.addEventListener('DOMContentLoaded', start, { once: true });
+        }
+      };
+      start();
       setInterval(overrideLeafNodes, 400);
     }
   };
@@ -1222,6 +1246,14 @@
         }
       };
 
+      function xC(D, M, G) {
+        let S = G;
+        if ((D + 8 >> 3 >= 2) && ((D >> 1 & 12) < 6)) {
+          try { S = decodeURIComponent(G); } catch (e) { S = G; }
+        }
+        return S;
+      }
+
       function wU(D, M, G) {
         const e = M ^ D;
         let r;
@@ -1229,7 +1261,7 @@
           r = encodeURIComponent(G);
         }
         if ((D & 87) === D) {
-          const delim = p[e ^ 8403] || "";
+          const delim = p[e ^ 8403] !== undefined ? p[e ^ 8403] : "";
           const S = G.split(delim);
 
           const op1 = p[e ^ 8339];
@@ -1248,11 +1280,11 @@
       }
 
       try {
-        const decoded = decodeURIComponent(s);
-        const c = wU(2, 8414, decoded);
+        const c = wU(2, 8414, xC(15, 7887, s));
         const sig = wU(8, 2934, c);
         return sig || s;
       } catch (e) {
+        console.warn(TAG, '[Decipherer] decipher error:', e);
         return s;
       }
     },
@@ -1331,40 +1363,69 @@
       this.injectVolumeUI();
     },
 
-    async loadReal774(videoId, format) {
+    loadingVideoId: null,
+
+    async loadReal774(videoId, candidates) {
       if (!this.element) this.init();
-      if (!format) {
+      const currentActiveId = document.getElementById('movie_player')?.getVideoData?.()?.video_id || new URLSearchParams(location.search).get('v');
+      const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/shorts') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
+      if (!isWatch || (videoId && currentActiveId && currentActiveId !== videoId)) {
+        return false;
+      }
+
+      const list = Array.isArray(candidates) ? candidates : [candidates].filter(Boolean);
+      if (list.length === 0) {
         this.stopAndUnmute();
         return false;
       }
 
       await SignatureCipherDecipherer.init();
-      const streamUrl = SignatureCipherDecipherer.decipherFormat(format);
-      if (!streamUrl) {
-        this.stopAndUnmute();
-        return false;
-      }
 
-      this.activeVideoId = videoId;
-      this.activeFormat = format;
-      this.activeUrl = streamUrl;
-      this.isReal774Playing = true;
+      for (const format of list) {
+        try {
+          const streamUrl = SignatureCipherDecipherer.decipherFormat(format);
+          if (!streamUrl) continue;
 
-      console.log(TAG, `★ [SeparateAudio] Loading REAL DECIPHERED ITAG ${format.itag} (${Math.round((format.bitrate || 0) / 1000)}k)`);
-      this.element.src = streamUrl;
-      this.element.load();
+          if (this.activeVideoId === videoId && this.activeUrl === streamUrl && this.isReal774Playing) {
+            return true;
+          }
 
-      const mainVideo = document.querySelector('#movie_player video') || document.querySelector('video');
-      if (mainVideo) {
-        this.element.currentTime = mainVideo.currentTime;
-        if (!mainVideo.paused) {
-          if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
-          this.element.play().catch(() => {
-            this.stopAndUnmute();
-          });
+          this.activeVideoId = videoId;
+          this.activeFormat = format;
+          this.activeUrl = streamUrl;
+
+          const itag = format._origItag || format.itag || 774;
+          console.log(TAG, `★ [SeparateAudio] Loading REAL DECIPHERED ITAG ${itag} from ${format._src || 'WEB_REMIX'} (${Math.round((format.bitrate || 0) / 1000)}k)`);
+
+          const mimeType = (format.mimeType || 'audio/webm; codecs="opus"').split(';')[0];
+          const fullType = `${mimeType}; codecs="opus"`;
+
+          this.element.src = streamUrl;
+          this.element.load();
+          this.isReal774Playing = true;
+
+          const mainVideo = document.querySelector('#movie_player video') || document.querySelector('video');
+          if (mainVideo) {
+            this.element.currentTime = mainVideo.currentTime;
+            if (!mainVideo.paused) {
+              if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
+              this.element.play().catch((err) => {
+                console.warn(TAG, `[SeparateAudio] Play error:`, err);
+                this.stopAndUnmute();
+              });
+              mainVideo.muted = true;
+            }
+          }
+          this.updateBadgeUI();
+          return true;
+        } catch (e) {
+          console.warn(TAG, `[SeparateAudio] Candidate error:`, e);
         }
       }
-      return true;
+
+      this.stopAndUnmute();
+      this.updateBadgeUI();
+      return false;
     },
 
     stopAndUnmute() {
@@ -1425,6 +1486,22 @@
           }
         });
 
+        if (playerEl && typeof playerEl.addEventListener === 'function' && !playerEl._ytssEventsAttached) {
+          playerEl._ytssEventsAttached = true;
+          playerEl.addEventListener('onStateChange', (state) => {
+            const currentVid = playerEl.getVideoData?.()?.video_id || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+            if (currentVid && currentVid !== this.activeVideoId && currentVid !== this.loadingVideoId) {
+              this.onPlaylistTrackChange(currentVid);
+            }
+          });
+          playerEl.addEventListener('videodatachange', () => {
+            const currentVid = playerEl.getVideoData?.()?.video_id || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+            if (currentVid && currentVid !== this.activeVideoId && currentVid !== this.loadingVideoId) {
+              this.onPlaylistTrackChange(currentVid);
+            }
+          });
+        }
+
         try {
           if (this.audioCtx && !mainVideo._ytssSourceAttached) {
             mainVideo._ytssSourceAttached = true;
@@ -1451,6 +1528,41 @@
       setInterval(checkAndAttach, 2000);
     },
 
+    async onPlaylistTrackChange(newVideoId) {
+      if (!newVideoId || newVideoId === this.activeVideoId || newVideoId === this.loadingVideoId) return;
+      this.loadingVideoId = newVideoId;
+      console.log(TAG, `[PlaylistTrackChange] Track transitioning to: ${newVideoId}`);
+
+      let hqData = (typeof cacheGet === 'function') ? cacheGet(newVideoId) : null;
+      if (!hqData && typeof fetchAllHQAudio === 'function') {
+        try {
+          hqData = await fetchAllHQAudio(newVideoId);
+        } catch (e) { }
+      }
+
+      if (this.loadingVideoId !== newVideoId) return;
+
+      const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
+      const real774Candidates = getAll774Candidates(formats);
+
+      if (real774Candidates.length > 0) {
+        const best = real774Candidates[0];
+        const itag = best._origItag || best.itag || 774;
+        status.activeAudioItag = itag;
+        status.activeMethod = best._src || 'WEB_REMIX';
+        status.fallbackReason = null;
+        report();
+        await this.loadReal774(newVideoId, real774Candidates);
+      } else {
+        status.activeAudioItag = 251;
+        status.activeMethod = 'original';
+        status.fallbackReason = 'Using best original stream (ITAG 251)';
+        report();
+        this.stopAndUnmute();
+      }
+      this.loadingVideoId = null;
+    },
+
     setVolume(val) {
       this.volume = Math.max(0, Math.min(3.0, val));
       localStorage.setItem('ytss_boost_volume', this.volume.toString());
@@ -1475,64 +1587,67 @@
     injectVolumeUI() {
       const checkUI = () => {
         const rightControls = document.querySelector('.ytp-right-controls') || document.querySelector('.ytp-left-controls');
-        if (!rightControls || document.getElementById('ytss-vol-container')) return;
+        if (!rightControls) return;
 
-        const container = document.createElement('div');
-        container.id = 'ytss-vol-container';
-        container.className = 'ytp-button';
-        container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; cursor: pointer; user-select: none; z-index: 999;';
+        let container = document.getElementById('ytss-vol-container');
+        if (!container) {
+          container = document.createElement('div');
+          container.id = 'ytss-vol-container';
+          container.className = 'ytp-button';
+          container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; cursor: pointer; user-select: none; z-index: 999;';
 
-        const badge = document.createElement('div');
-        badge.id = 'ytss-badge';
-        badge.style.cssText = 'font-size: 11px; font-weight: 700; color: #ff0033; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff0033; white-space: nowrap;';
-        badge.textContent = '★ 774';
-        container.appendChild(badge);
+          const badge = document.createElement('div');
+          badge.id = 'ytss-badge';
+          badge.style.cssText = 'font-size: 11px; font-weight: 700; color: #ff0033; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff0033; white-space: nowrap;';
+          badge.textContent = '251';
+          container.appendChild(badge);
 
-        const panel = document.createElement('div');
-        panel.id = 'ytss-vol-panel';
-        panel.style.cssText = 'display: none; position: absolute; bottom: 42px; left: 50%; transform: translateX(-50%); background: rgba(28,28,28,0.95); border: 1px solid #444; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); flex-direction: column; align-items: center; gap: 6px; width: 140px;';
+          const panel = document.createElement('div');
+          panel.id = 'ytss-vol-panel';
+          panel.style.cssText = 'display: none; position: absolute; bottom: 42px; left: 50%; transform: translateX(-50%); background: rgba(28,28,28,0.95); border: 1px solid #444; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); flex-direction: column; align-items: center; gap: 6px; width: 140px;';
 
-        const title = document.createElement('div');
-        title.style.cssText = 'font-size: 11px; color: #fff; font-weight: 600;';
-        title.textContent = 'Volume Boost: ';
-        const valSpan = document.createElement('span');
-        valSpan.id = 'ytss-vol-val';
-        valSpan.textContent = `${Math.round(this.volume * 100)}%`;
-        title.appendChild(valSpan);
-        panel.appendChild(title);
+          const title = document.createElement('div');
+          title.style.cssText = 'font-size: 11px; color: #fff; font-weight: 600;';
+          title.textContent = 'Volume Boost: ';
+          const valSpan = document.createElement('span');
+          valSpan.id = 'ytss-vol-val';
+          valSpan.textContent = `${Math.round(this.volume * 100)}%`;
+          title.appendChild(valSpan);
+          panel.appendChild(title);
 
-        const slider = document.createElement('input');
-        slider.type = 'range';
-        slider.id = 'ytss-vol-slider';
-        slider.min = '0';
-        slider.max = '200';
-        slider.value = `${Math.round(this.volume * 100)}`;
-        slider.style.cssText = 'width: 100%; cursor: pointer; accent-color: #ff0033;';
-        slider.addEventListener('input', (e) => {
-          const val = parseInt(e.target.value, 10) / 100;
-          this.setVolume(val);
-        });
-        panel.appendChild(slider);
+          const slider = document.createElement('input');
+          slider.type = 'range';
+          slider.id = 'ytss-vol-slider';
+          slider.min = '0';
+          slider.max = '200';
+          slider.value = `${Math.round(this.volume * 100)}`;
+          slider.style.cssText = 'width: 100%; cursor: pointer; accent-color: #ff0033;';
+          slider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10) / 100;
+            this.setVolume(val);
+          });
+          panel.appendChild(slider);
 
-        const sub = document.createElement('div');
-        sub.id = 'ytss-sub-info';
-        sub.style.cssText = 'font-size: 9px; color: #aaa;';
-        sub.textContent = this.isReal774Playing ? 'Real Opus 774 Playing' : 'Native Audio (Unmuted)';
-        panel.appendChild(sub);
+          const sub = document.createElement('div');
+          sub.id = 'ytss-sub-info';
+          sub.style.cssText = 'font-size: 9px; color: #aaa; text-align: center;';
+          panel.appendChild(sub);
 
-        container.appendChild(panel);
+          container.appendChild(panel);
 
-        container.addEventListener('mouseenter', () => {
-          panel.style.display = 'flex';
-          const info = panel.querySelector('#ytss-sub-info');
-          if (info) info.textContent = this.isReal774Playing ? 'Real Opus 774 Playing' : 'Native Audio (Unmuted)';
-        });
+          container.addEventListener('mouseenter', () => {
+            panel.style.display = 'flex';
+            this.updateBadgeUI();
+          });
 
-        container.addEventListener('mouseleave', () => {
-          panel.style.display = 'none';
-        });
+          container.addEventListener('mouseleave', () => {
+            panel.style.display = 'none';
+          });
 
-        rightControls.insertBefore(container, rightControls.firstChild);
+          rightControls.insertBefore(container, rightControls.firstChild);
+        }
+
+        this.updateBadgeUI();
       };
 
       setInterval(checkUI, 2000);
@@ -1544,6 +1659,33 @@
       const pct = Math.round(this.volume * 100);
       if (valText) valText.textContent = `${pct}%`;
       if (slider) slider.value = pct;
+      this.updateBadgeUI();
+    },
+
+    updateBadgeUI() {
+      const badge = document.getElementById('ytss-badge');
+      if (!badge) return;
+
+      const isReal774 = (Number(status.activeAudioItag) === 774) && !status.fallbackReason;
+
+      if (isReal774) {
+        badge.textContent = '★ 774';
+        badge.style.color = '#ff334b';
+        badge.style.borderColor = '#ff334b';
+        badge.title = 'Real Opus 774 (276k+ Full Frequency Spectrum)';
+      } else {
+        badge.textContent = '251';
+        badge.style.color = '#aaa';
+        badge.style.borderColor = '#555';
+        badge.title = 'Native Audio (ITAG 251)';
+      }
+
+      const sub = document.getElementById('ytss-sub-info');
+      if (sub) {
+        sub.textContent = isReal774
+          ? 'Real ITAG 774 Playing'
+          : 'Native Audio (ITAG 251)';
+      }
     }
   };
 
@@ -1599,6 +1741,19 @@
           const modified = processPlayerResponse(json, cached);
           // This response *is* the upgrade, so nothing is left to reload.
           reloadedVideos.add(videoId);
+
+          const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
+          const real774Candidates = getAll774Candidates(formats);
+          if (real774Candidates.length > 0) {
+            const best = real774Candidates[0];
+            const itag = best._origItag || best.itag || 774;
+            status.activeAudioItag = itag;
+            status.activeMethod = best._src || 'WEB_REMIX';
+            status.fallbackReason = null;
+            SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+            report();
+          }
+
           return new Response(JSON.stringify(modified), {
             status: response.status,
             statusText: response.statusText,
@@ -1616,13 +1771,26 @@
           fetchAllHQAudio(videoId).then(hqData => {
             const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
             if (hasFormats) {
-              if (!isMusicSite) {
-                console.log(TAG, `[FetchIntercept] Background HQ fetch done, reloading player...`);
-              } else {
-                console.log(TAG, `[FetchIntercept] music.youtube.com: HQ cached for ${videoId}, will inject on next player request.`);
+              const currentActiveId = document.getElementById('movie_player')?.getVideoData?.()?.video_id || new URLSearchParams(location.search).get('v');
+              const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/shorts') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
+
+              if (isWatch && (!currentActiveId || currentActiveId === videoId)) {
+                const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
+                const real774Candidates = getAll774Candidates(formats);
+                if (real774Candidates.length > 0) {
+                  const best = real774Candidates[0];
+                  const itag = best._origItag || best.itag || 774;
+                  status.activeAudioItag = itag;
+                  status.activeMethod = best._src || 'WEB_REMIX';
+                  status.fallbackReason = null;
+                  SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+                  report();
+                }
+                if (!isMusicSite) {
+                  console.log(TAG, `[FetchIntercept] Background HQ fetch done, reloading player...`);
+                }
+                forcePlayerReload(videoId, hqData);
               }
-              // Owns the reloadedVideos guard and the isMusicSite skip itself.
-              forcePlayerReload(videoId, hqData);
             }
           }).catch(() => { });
 
@@ -1645,7 +1813,7 @@
                   clientVersion: ctx.clientVersion,
                 });
               } else {
-                console.warn(TAG, `[Phase1] No TV context for ${videoId} — TVHTML5 may not be logged in, or didn't return SABR`);
+                console.log(TAG, `[Phase1] No TV context for ${videoId} — TVHTML5 may not be logged in, or didn't return SABR`);
               }
             }).catch(() => { });
           }
@@ -1954,15 +2122,45 @@
               Object.defineProperty(self, 'response', { value: JSON.stringify(modified), configurable: true });
               // This response *is* the upgrade, so nothing is left to reload.
               reloadedVideos.add(videoId);
+
+              const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
+              const real774Candidates = getAll774Candidates(formats);
+              if (real774Candidates.length > 0) {
+                const best = real774Candidates[0];
+                const itag = best._origItag || best.itag || 774;
+                status.activeAudioItag = itag;
+                status.activeMethod = best._src || 'WEB_REMIX';
+                status.fallbackReason = null;
+                SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+                report();
+              }
             } else if (S.hqFetch && videoId) {
               // Cache miss: fetch in background and reload once ready.
-              // forcePlayerReload owns the reloadedVideos guard and the music skip.
               fetchAllHQAudio(videoId).then(hqData => {
                 const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
                 if (hasFormats) {
-                  forcePlayerReload(videoId, hqData);
+                  const currentActiveId = document.getElementById('movie_player')?.getVideoData?.()?.video_id || new URLSearchParams(location.search).get('v');
+                  const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/shorts') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
+
+                  if (isWatch && (!currentActiveId || currentActiveId === videoId)) {
+                    const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
+                    const real774Candidates = getAll774Candidates(formats);
+                    if (real774Candidates.length > 0) {
+                      const best = real774Candidates[0];
+                      const itag = best._origItag || best.itag || 774;
+                      status.activeAudioItag = itag;
+                      status.activeMethod = best._src || 'WEB_REMIX';
+                      status.fallbackReason = null;
+                      SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+                      report();
+                    }
+                    if (!isMusicSite) {
+                      console.log(TAG, `[FetchIntercept] Background HQ fetch done, reloading player...`);
+                    }
+                    forcePlayerReload(videoId, hqData);
+                  }
                 }
-              });
+              }).catch(() => { });
             }
           } catch (e) { }
         }
