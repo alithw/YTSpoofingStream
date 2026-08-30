@@ -397,6 +397,14 @@
     if (typeof SeparateAudioEngine !== 'undefined') {
       SeparateAudioEngine.stopAndUnmute();
     }
+
+    // Reset status immediately so previous video's 774 doesn't linger on new video
+    status.activeAudioItag = 251;
+    status.activeMethod = 'original';
+    status.fallbackReason = 'Loading...';
+    status.bestAudioInfo = 'Native Audio (ITAG 251)';
+    report();
+
     const incomingVid = e?.detail?.endpoint?.watchEndpoint?.videoId
       || e?.detail?.params?.videoId
       || null;
