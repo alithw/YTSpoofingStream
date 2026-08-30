@@ -124,6 +124,9 @@
   function report() {
     status.activeMode = S.audioMode;
     try { localStorage.setItem('ytSpoofingStream_status', JSON.stringify(status)); } catch (e) { }
+    const stk = new Error().stack || '';
+    const caller = stk.split('\n')[2] || stk;
+    console.warn(TAG, `[REPORT_CALL] itag=${status.activeAudioItag} method=${status.activeMethod} reason=${status.fallbackReason} caller=${caller.trim()}`);
     if (typeof window.__ytssUpdateBadge === 'function') {
       try { window.__ytssUpdateBadge(); } catch (e) { }
     }
@@ -143,6 +146,17 @@
   let isInitialPageLoad = true;     // guard: only allow page reload on very first visit
   const isMusicSite = location.hostname === 'music.youtube.com'; // YouTube Music needs special handling
 
+  function isCurrentWatchVideo(vid) {
+    if (!vid) return true;
+    const urlVid = new URLSearchParams(window.location.search).get('v')
+      || (window.location.pathname.startsWith('/shorts/') ? window.location.pathname.split('/')[2] : null)
+      || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+    const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+    const activeVid = urlVid || playerVid;
+    if (!activeVid) return true;
+    return activeVid === vid;
+  }
+
   // A cache hit used to overwrite status.clientStats wholesale with a single CACHE
   // entry. The popup's client grid is the only place that reports which clients
   // returned 774/141 and why the rest failed, and cacheGet runs on every interception
@@ -152,7 +166,6 @@
     if (!status.clientStats || Object.keys(status.clientStats).length === 0) {
       status.clientStats = { CACHE: 'Loaded from Session Cache (Instant)' };
     }
-    report();
   }
 
   // Cache key prefix. Bumped to v2 when the `_ytss_*` URL-marker layer was removed:
@@ -506,7 +519,7 @@
       }
     } else if (mode === MODES.OPUS_HQ) {
       const opus = byBitrate(filteredPool.filter(f => (f.mimeType || '').includes('opus')));
-      const target = opus.find(f => f.itag === 774);
+      const target = opus.find(f => f.itag === 774 || f._origItag === 774);
       if (target) {
         selectedAudio = [target];
         console.log(TAG, `★ ITAG 774 (Opus 256kbps+) [${target._src}]`);
@@ -518,7 +531,7 @@
       }
     } else {
       // HIGHEST: prefer 774 if present
-      const target774 = filteredPool.find(f => f.itag === 774);
+      const target774 = filteredPool.find(f => f.itag === 774 || f._origItag === 774);
       if (target774) {
         selectedAudio = [target774];
         console.log(TAG, `★ ITAG 774 (Opus 256kbps+) [${target774._src}]`);
@@ -566,23 +579,28 @@
 
     json.streamingData.adaptiveFormats = json._origFormats;
 
-    const active = selectedAudio[0];
-    if (active) {
+    const target774InPool = pool.find(f => f.itag === 774 || f._origItag === 774);
+    const active = target774InPool || selectedAudio.find(f => HQ_ITAGS.includes(f.itag || f._origItag)) || selectedAudio[0];
+    const isCurrent = isCurrentWatchVideo(json.videoDetails?.videoId);
+    if (active && isCurrent) {
       const isRealHq = HQ_ITAGS.includes(active._origItag || active.itag);
       const displayItag = isRealHq ? (active._origItag || active.itag) : (active.itag || 251);
       const codec = (active.mimeType || '').includes('opus') ? 'Opus' : 'AAC';
       const kbps = Math.round((active.bitrate || 0) / 1000) || (displayItag === 774 ? 256 : 145);
       const src = isRealHq ? (active._src || 'TVHTML5') : 'original';
 
-      status.activeMethod = src;
-      status.activeAudioItag = displayItag;
-      status.bestAudioInfo = `ITAG ${displayItag}${isRealHq ? ' [HQ ★]' : ''} | ${codec} ${kbps}kbps | Method: ${src}`;
-      status.injectedStreams = Math.max(pool.length, 6);
-      status.videoTitle = json.videoDetails?.title || document.title || 'audio';
-      status.contentLength = active.contentLength || null;
-      status.noUrlDrop = null;
-      status.fallbackReason = isRealHq ? null : 'Using best original stream (ITAG ' + displayItag + ')';
-      report();
+      // Don't downgrade if we are already actively on 774
+      if (isRealHq || Number(status.activeAudioItag) !== 774) {
+        status.activeMethod = src;
+        status.activeAudioItag = displayItag;
+        status.bestAudioInfo = `ITAG ${displayItag}${isRealHq ? ' [HQ ★]' : ''} | ${codec} ${kbps}kbps | Method: ${src}`;
+        status.injectedStreams = Math.max(pool.length, 6);
+        status.videoTitle = json.videoDetails?.title || document.title || 'audio';
+        status.contentLength = active.contentLength || null;
+        status.noUrlDrop = null;
+        status.fallbackReason = isRealHq ? null : 'Using best original stream (ITAG ' + displayItag + ')';
+        report();
+      }
     }
 
     // Check if we have real playable 774 formats
@@ -868,20 +886,12 @@
           console.log(TAG, `[PlayerReload] loadVideoById called at t=${currentTime} (hidden=${document.hidden})`);
         } catch (e) {
           console.warn(TAG, '[PlayerReload] loadVideoById failed:', e);
-          reloadedVideos.delete(videoId);
-          pendingReloads.delete(videoId);
-          if (isInitialPageLoad) window.location.reload();
+          release('loadVideoById threw error');
         }
       } else if (attempts < MAX_ATTEMPTS) {
         setTimeout(tryReload, 200);
       } else {
-        if (isInitialPageLoad) {
-          console.warn(TAG, '[PlayerReload] Player not found, doing page reload (initial load only)');
-          pendingReloads.delete(videoId);
-          window.location.reload();
-        } else {
-          release('player not found on SPA');
-        }
+        release('player element not ready after retries');
       }
     };
 
@@ -1401,19 +1411,23 @@
           const fullType = `${mimeType}; codecs="opus"`;
 
           this.element.src = streamUrl;
-          this.element.load();
           this.isReal774Playing = true;
 
           const mainVideo = document.querySelector('#movie_player video') || document.querySelector('video');
           if (mainVideo) {
             this.element.currentTime = mainVideo.currentTime;
-            if (!mainVideo.paused) {
-              if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
-              this.element.play().catch((err) => {
-                console.warn(TAG, `[SeparateAudio] Play error:`, err);
-                this.stopAndUnmute();
-              });
-              mainVideo.muted = true;
+            const tryPlay = () => {
+              if (!mainVideo.paused && this.isReal774Playing) {
+                if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
+                this.element.play().then(() => {
+                  mainVideo.muted = true;
+                }).catch(() => {});
+              }
+            };
+            if (this.element.readyState >= 2) {
+              tryPlay();
+            } else {
+              this.element.addEventListener('canplay', tryPlay, { once: true });
             }
           }
           this.updateBadgeUI();
@@ -1544,6 +1558,7 @@
 
       const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
       const real774Candidates = getAll774Candidates(formats);
+      const tv774 = formats.find(f => (f.itag === 774 || f._origItag === 774));
 
       if (real774Candidates.length > 0) {
         const best = real774Candidates[0];
@@ -1551,15 +1566,29 @@
         status.activeAudioItag = itag;
         status.activeMethod = best._src || 'WEB_REMIX';
         status.fallbackReason = null;
+        status.bestAudioInfo = `ITAG ${itag} [HQ ★] | Opus ${Math.round((best.bitrate || 280000) / 1000)}kbps | Method: ${status.activeMethod}`;
         report();
         await this.loadReal774(newVideoId, real774Candidates);
-      } else {
-        status.activeAudioItag = 251;
-        status.activeMethod = 'original';
-        status.fallbackReason = 'Using best original stream (ITAG 251)';
-        report();
+      } else if (tv774) {
+        status.activeAudioItag = 774;
+        status.activeMethod = tv774._src || 'TVHTML5';
+        status.fallbackReason = null;
+        status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
+        this.activeVideoId = newVideoId;
         this.stopAndUnmute();
+        report();
+      } else {
+        if (Number(status.activeAudioItag) !== 774) {
+          status.activeAudioItag = 251;
+          status.activeMethod = 'original';
+          status.fallbackReason = 'Using best original stream (ITAG 251)';
+          status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
+          this.activeVideoId = newVideoId;
+          this.stopAndUnmute();
+          report();
+        }
       }
+      this.activeVideoId = newVideoId;
       this.loadingVideoId = null;
     },
 
@@ -1590,59 +1619,61 @@
         if (!rightControls) return;
 
         let container = document.getElementById('ytss-vol-container');
-        if (!container) {
-          container = document.createElement('div');
-          container.id = 'ytss-vol-container';
-          container.className = 'ytp-button';
-          container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; cursor: pointer; user-select: none; z-index: 999;';
+        if (!container || !rightControls.contains(container)) {
+          if (!container) {
+            container = document.createElement('div');
+            container.id = 'ytss-vol-container';
+            container.className = 'ytp-button';
+            container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; cursor: pointer; user-select: none; z-index: 999;';
 
-          const badge = document.createElement('div');
-          badge.id = 'ytss-badge';
-          badge.style.cssText = 'font-size: 11px; font-weight: 700; color: #ff0033; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff0033; white-space: nowrap;';
-          badge.textContent = '251';
-          container.appendChild(badge);
+            const badge = document.createElement('div');
+            badge.id = 'ytss-badge';
+            badge.style.cssText = 'font-size: 11px; font-weight: 700; color: #ff334b; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff334b; white-space: nowrap;';
+            badge.textContent = '251';
+            container.appendChild(badge);
 
-          const panel = document.createElement('div');
-          panel.id = 'ytss-vol-panel';
-          panel.style.cssText = 'display: none; position: absolute; bottom: 42px; left: 50%; transform: translateX(-50%); background: rgba(28,28,28,0.95); border: 1px solid #444; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); flex-direction: column; align-items: center; gap: 6px; width: 140px;';
+            const panel = document.createElement('div');
+            panel.id = 'ytss-vol-panel';
+            panel.style.cssText = 'display: none; position: absolute; bottom: 42px; left: 50%; transform: translateX(-50%); background: rgba(28,28,28,0.95); border: 1px solid #444; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); flex-direction: column; align-items: center; gap: 6px; width: 140px;';
 
-          const title = document.createElement('div');
-          title.style.cssText = 'font-size: 11px; color: #fff; font-weight: 600;';
-          title.textContent = 'Volume Boost: ';
-          const valSpan = document.createElement('span');
-          valSpan.id = 'ytss-vol-val';
-          valSpan.textContent = `${Math.round(this.volume * 100)}%`;
-          title.appendChild(valSpan);
-          panel.appendChild(title);
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size: 11px; color: #fff; font-weight: 600;';
+            title.textContent = 'Volume Boost: ';
+            const valSpan = document.createElement('span');
+            valSpan.id = 'ytss-vol-val';
+            valSpan.textContent = `${Math.round(this.volume * 100)}%`;
+            title.appendChild(valSpan);
+            panel.appendChild(title);
 
-          const slider = document.createElement('input');
-          slider.type = 'range';
-          slider.id = 'ytss-vol-slider';
-          slider.min = '0';
-          slider.max = '200';
-          slider.value = `${Math.round(this.volume * 100)}`;
-          slider.style.cssText = 'width: 100%; cursor: pointer; accent-color: #ff0033;';
-          slider.addEventListener('input', (e) => {
-            const val = parseInt(e.target.value, 10) / 100;
-            this.setVolume(val);
-          });
-          panel.appendChild(slider);
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.id = 'ytss-vol-slider';
+            slider.min = '0';
+            slider.max = '200';
+            slider.value = `${Math.round(this.volume * 100)}`;
+            slider.style.cssText = 'width: 100%; cursor: pointer; accent-color: #ff0033;';
+            slider.addEventListener('input', (e) => {
+              const val = parseInt(e.target.value, 10) / 100;
+              this.setVolume(val);
+            });
+            panel.appendChild(slider);
 
-          const sub = document.createElement('div');
-          sub.id = 'ytss-sub-info';
-          sub.style.cssText = 'font-size: 9px; color: #aaa; text-align: center;';
-          panel.appendChild(sub);
+            const sub = document.createElement('div');
+            sub.id = 'ytss-sub-info';
+            sub.style.cssText = 'font-size: 9px; color: #aaa; text-align: center;';
+            panel.appendChild(sub);
 
-          container.appendChild(panel);
+            container.appendChild(panel);
 
-          container.addEventListener('mouseenter', () => {
-            panel.style.display = 'flex';
-            this.updateBadgeUI();
-          });
+            container.addEventListener('mouseenter', () => {
+              panel.style.display = 'flex';
+              this.updateBadgeUI();
+            });
 
-          container.addEventListener('mouseleave', () => {
-            panel.style.display = 'none';
-          });
+            container.addEventListener('mouseleave', () => {
+              panel.style.display = 'none';
+            });
+          }
 
           rightControls.insertBefore(container, rightControls.firstChild);
         }
@@ -1650,7 +1681,8 @@
         this.updateBadgeUI();
       };
 
-      setInterval(checkUI, 2000);
+      setInterval(checkUI, 1000);
+      checkUI();
     },
 
     updateVolumeUI() {
@@ -1689,14 +1721,23 @@
     }
   };
 
-  // Initialize Engines
-  document.addEventListener('DOMContentLoaded', () => {
-    StatsForNerdsSpoofer.init();
-    SeparateAudioEngine.init();
+  // Initialize Engines & UI Hooks
+  StatsForNerdsSpoofer.init();
+  SeparateAudioEngine.injectVolumeUI();
+  window.__ytssUpdateBadge = () => SeparateAudioEngine.updateBadgeUI();
+
+  ['DOMContentLoaded', 'yt-navigate-finish', 'yt-page-data-updated', 'yt-player-updated'].forEach(evt => {
+    document.addEventListener(evt, () => {
+      StatsForNerdsSpoofer.init();
+      SeparateAudioEngine.init();
+      SeparateAudioEngine.injectVolumeUI();
+      SeparateAudioEngine.updateBadgeUI();
+    });
   });
-  setTimeout(() => {
-    StatsForNerdsSpoofer.init();
-    SeparateAudioEngine.init();
+
+  setInterval(() => {
+    SeparateAudioEngine.injectVolumeUI();
+    SeparateAudioEngine.updateBadgeUI();
   }, 1000);
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1732,9 +1773,8 @@
         const clone = response.clone();
         const json = await clone.json();
         const videoId = json.videoDetails?.videoId;
-
-        // Check cache first → sync merge (no wait)
         const cached = videoId ? cacheGet(videoId) : null;
+        const isCurrentActive = isCurrentWatchVideo(videoId);
 
         if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
           // Cache HIT: inject HQ immediately, zero latency
@@ -1742,16 +1782,27 @@
           // This response *is* the upgrade, so nothing is left to reload.
           reloadedVideos.add(videoId);
 
-          const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
-          const real774Candidates = getAll774Candidates(formats);
-          if (real774Candidates.length > 0) {
-            const best = real774Candidates[0];
-            const itag = best._origItag || best.itag || 774;
-            status.activeAudioItag = itag;
-            status.activeMethod = best._src || 'WEB_REMIX';
-            status.fallbackReason = null;
-            SeparateAudioEngine.loadReal774(videoId, real774Candidates);
-            report();
+          if (isCurrentActive) {
+            const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
+            const real774Candidates = getAll774Candidates(formats);
+            const tv774 = formats.find(f => (f.itag === 774 || f._origItag === 774));
+            if (real774Candidates.length > 0) {
+              const best = real774Candidates[0];
+              const itag = best._origItag || best.itag || 774;
+              status.activeAudioItag = itag;
+              status.activeMethod = best._src || 'WEB_REMIX';
+              status.fallbackReason = null;
+              status.bestAudioInfo = `ITAG ${itag} [HQ ★] | Opus ${Math.round((best.bitrate || 280000) / 1000)}kbps | Method: ${status.activeMethod}`;
+              SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+              report();
+            } else if (tv774) {
+              status.activeAudioItag = 774;
+              status.activeMethod = tv774._src || 'TVHTML5';
+              status.fallbackReason = null;
+              status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
+              SeparateAudioEngine.stopAndUnmute();
+              report();
+            }
           }
 
           return new Response(JSON.stringify(modified), {
@@ -1771,19 +1822,27 @@
           fetchAllHQAudio(videoId).then(hqData => {
             const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
             if (hasFormats) {
-              const currentActiveId = document.getElementById('movie_player')?.getVideoData?.()?.video_id || new URLSearchParams(location.search).get('v');
               const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/shorts') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
 
-              if (isWatch && (!currentActiveId || currentActiveId === videoId)) {
+              if (isWatch && isCurrentWatchVideo(videoId)) {
                 const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
                 const real774Candidates = getAll774Candidates(formats);
+                const tv774 = formats.find(f => (f.itag === 774 || f._origItag === 774));
                 if (real774Candidates.length > 0) {
                   const best = real774Candidates[0];
                   const itag = best._origItag || best.itag || 774;
                   status.activeAudioItag = itag;
                   status.activeMethod = best._src || 'WEB_REMIX';
                   status.fallbackReason = null;
+                  status.bestAudioInfo = `ITAG ${itag} [HQ ★] | Opus ${Math.round((best.bitrate || 280000) / 1000)}kbps | Method: ${status.activeMethod}`;
                   SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+                  report();
+                } else if (tv774) {
+                  status.activeAudioItag = 774;
+                  status.activeMethod = tv774._src || 'TVHTML5';
+                  status.fallbackReason = null;
+                  status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
+                  SeparateAudioEngine.stopAndUnmute();
                   report();
                 }
                 if (!isMusicSite) {
@@ -1917,9 +1976,7 @@
     //   • f5 is the SIGNED region (ECDSA P-256). We must NOT touch anything inside
     //     f5. f16 and f2 sit outside it.
     //   • If the parse fails at ANY point, pass the body through untouched.
-    //   • Only run when status.activeAudioItag === 774 (the user selected HQ).
     if (url.includes('googlevideo.com/videoplayback')
-      && Number(status.activeAudioItag) === 774
       && (args[1]?.method === 'POST' || args[0]?.method === 'POST')) {
       try {
         // Resolve the body bytes. We must NOT consume the original Request body
@@ -1951,12 +2008,10 @@
         let targetLastModified = null;
         const vid = typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null;
         if (vid) {
-          // Use cacheGet (respects TTL) rather than hqCache.get directly.
           const cached = cacheGet(vid);
-          if (cached && Array.isArray(cached)) {
-            const f774 = cached.find(f => Number(f.itag) === 774);
-            if (f774 && f774.lastModified) targetLastModified = String(f774.lastModified);
-          }
+          const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
+          const f774 = formats.find(f => Number(f.itag) === 774 || Number(f._origItag) === 774);
+          if (f774 && f774.lastModified) targetLastModified = String(f774.lastModified);
         }
 
         if (bodyBytes && targetLastModified) {
@@ -1982,6 +2037,12 @@
                 integrity: origReq.integrity,
               });
             }
+            status.activeAudioItag = 774;
+            status.activeMethod = 'TVHTML5';
+            status.fallbackReason = null;
+            status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus 274kbps | Method: TVHTML5 (SABR)`;
+            report();
+            SeparateAudioEngine.updateBadgeUI();
             console.log(TAG, `[OptionC] Rewrote SABR f16/f2: 251→774, lastModified=${targetLastModified}`);
           }
         }
@@ -2047,7 +2108,7 @@
         if (match) failedItag = match[1];
       }
       if (failedItag && Number(failedItag) === Number(status.activeAudioItag)) {
-        console.warn(TAG, `[Fallback] Player got HTTP ${finalResponse.status} for injected ITAG ${failedItag}. Player is falling back to original!`);
+        console.warn(TAG, `[REASON_4] [Fallback] Player got HTTP ${finalResponse.status} for injected ITAG ${failedItag}. Player is falling back to original!`);
         status.fallbackReason = `Player fallback (HTTP ${finalResponse.status})`;
         report();
       }
@@ -2115,43 +2176,62 @@
             const json = JSON.parse(self.responseText);
             const videoId = json.videoDetails?.videoId;
             const cached = videoId ? cacheGet(videoId) : null;
+            const isCurrentActive = isCurrentWatchVideo(videoId);
 
             if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
-              const modified = processPlayerResponse(json, cached);
+              const modified = isCurrentActive ? processPlayerResponse(json, cached) : json;
               Object.defineProperty(self, 'responseText', { value: JSON.stringify(modified), configurable: true });
               Object.defineProperty(self, 'response', { value: JSON.stringify(modified), configurable: true });
-              // This response *is* the upgrade, so nothing is left to reload.
               reloadedVideos.add(videoId);
 
-              const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
-              const real774Candidates = getAll774Candidates(formats);
-              if (real774Candidates.length > 0) {
-                const best = real774Candidates[0];
-                const itag = best._origItag || best.itag || 774;
-                status.activeAudioItag = itag;
-                status.activeMethod = best._src || 'WEB_REMIX';
-                status.fallbackReason = null;
-                SeparateAudioEngine.loadReal774(videoId, real774Candidates);
-                report();
+              if (isCurrentActive) {
+                const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
+                const real774Candidates = getAll774Candidates(formats);
+                const tv774 = formats.find(f => (f.itag === 774 || f._origItag === 774));
+                if (real774Candidates.length > 0) {
+                  const best = real774Candidates[0];
+                  const itag = best._origItag || best.itag || 774;
+                  status.activeAudioItag = itag;
+                  status.activeMethod = best._src || 'WEB_REMIX';
+                  status.fallbackReason = null;
+                  status.bestAudioInfo = `ITAG ${itag} [HQ ★] | Opus ${Math.round((best.bitrate || 280000) / 1000)}kbps | Method: ${status.activeMethod}`;
+                  SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+                  report();
+                } else if (tv774) {
+                  status.activeAudioItag = 774;
+                  status.activeMethod = tv774._src || 'TVHTML5';
+                  status.fallbackReason = null;
+                  status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
+                  SeparateAudioEngine.stopAndUnmute();
+                  report();
+                }
               }
             } else if (S.hqFetch && videoId) {
               // Cache miss: fetch in background and reload once ready.
               fetchAllHQAudio(videoId).then(hqData => {
                 const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
                 if (hasFormats) {
-                  const currentActiveId = document.getElementById('movie_player')?.getVideoData?.()?.video_id || new URLSearchParams(location.search).get('v');
                   const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/shorts') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
 
-                  if (isWatch && (!currentActiveId || currentActiveId === videoId)) {
+                  if (isWatch && isCurrentWatchVideo(videoId)) {
                     const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
                     const real774Candidates = getAll774Candidates(formats);
+                    const tv774 = formats.find(f => (f.itag === 774 || f._origItag === 774));
                     if (real774Candidates.length > 0) {
                       const best = real774Candidates[0];
                       const itag = best._origItag || best.itag || 774;
                       status.activeAudioItag = itag;
                       status.activeMethod = best._src || 'WEB_REMIX';
                       status.fallbackReason = null;
+                      status.bestAudioInfo = `ITAG ${itag} [HQ ★] | Opus ${Math.round((best.bitrate || 280000) / 1000)}kbps | Method: ${status.activeMethod}`;
                       SeparateAudioEngine.loadReal774(videoId, real774Candidates);
+                      report();
+                    } else if (tv774) {
+                      status.activeAudioItag = 774;
+                      status.activeMethod = tv774._src || 'TVHTML5';
+                      status.fallbackReason = null;
+                      status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
+                      SeparateAudioEngine.stopAndUnmute();
                       report();
                     }
                     if (!isMusicSite) {

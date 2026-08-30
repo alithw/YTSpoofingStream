@@ -15,6 +15,13 @@
 > **Requirement: Active YouTube Premium Subscription**
 > This extension is engineered specifically for users with an active **YouTube Premium** subscription. YouTube's internal servers only serve unthrottled high-bitrate Opus (`itag 774`, ~276kbps) and AAC (`itag 141`, ~256kbps) to authenticated Premium sessions. Non-premium requests will seamlessly fall back to standard raw formats (`itag 251` / `140`).
 
+> [!IMPORTANT]
+> **Full Opus 774 Stream Support (TVHTML5 Authentication)**:
+> To unlock and stream full-spectrum Opus 774 audio across all video types, please log in via the **TVHTML5** section in the extension:
+> 1. Open the extension popup and click the **TVHTML5** login button.
+> 2. Ensure you sign in with the correct Google account that has an active YouTube Premium subscription.
+> 3. Once logged in and the popup displays a successful status $\rightarrow$ **Enjoy highest quality!**
+
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
 
 ---

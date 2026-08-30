@@ -15,6 +15,13 @@
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
 > Tiện ích mở rộng này được thiết kế chuyên biệt cho người dùng sở hữu tài khoản **YouTube Premium**. Các máy chủ nội bộ của YouTube chỉ cung cấp luồng Opus bitrate cao (`itag 774`, ~276kbps) và AAC (`itag 141`, ~256kbps) cho các phiên đăng nhập Premium đã xác thực. Các phiên không có Premium sẽ tự động chuyển về định dạng tiêu chuẩn gốc (`itag 251` / `140`).
 
+> [!IMPORTANT]
+> **Hỗ trợ đầy đủ luồng Opus 774 (Xác thực TVHTML5)**:
+> Để mở khóa và phát toàn diện luồng Opus 774 trên mọi video, bạn hãy đăng nhập vào phần **TVHTML5** trên extension:
+> 1. Mở popup extension và nhấn vào nút đăng nhập **TVHTML5**.
+> 2. Đảm bảo đăng nhập đúng tài khoản Google có YouTube Premium.
+> 3. Sau khi login xong và hệ thống hiển thị status là thành công $\rightarrow$ **Enjoy highest quality!**
+
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 
 ---

@@ -537,7 +537,6 @@ async function fetchFromClient(videoId, client) {
     videoId,
     contentCheckOk: true,
     racyCheckOk: true,
-    audioQualityPreference: 'AUDIO_QUALITY_HIGH',
     playbackContext: {
       contentPlaybackContext: {
         signatureTimestamp: pageContext.sts || 19900,
