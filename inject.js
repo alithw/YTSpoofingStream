@@ -121,12 +121,14 @@
     prewarmStatus: '—',
   };
 
+  let lastReportJson = '';
   function report() {
     status.activeMode = S.audioMode;
-    try { localStorage.setItem('ytSpoofingStream_status', JSON.stringify(status)); } catch (e) { }
-    const stk = new Error().stack || '';
-    const caller = stk.split('\n')[2] || stk;
-    console.warn(TAG, `[REPORT_CALL] itag=${status.activeAudioItag} method=${status.activeMethod} reason=${status.fallbackReason} caller=${caller.trim()}`);
+    const currentJson = JSON.stringify(status);
+    if (currentJson === lastReportJson) return;
+    lastReportJson = currentJson;
+
+    try { localStorage.setItem('ytSpoofingStream_status', currentJson); } catch (e) { }
     if (typeof window.__ytssUpdateBadge === 'function') {
       try { window.__ytssUpdateBadge(); } catch (e) { }
     }
@@ -1137,6 +1139,9 @@
   // NATIVE STATS FOR NERDS (THỐNG KÊ CHI TIẾT) OVERRIDE & SPOOFER
   // ═══════════════════════════════════════════════════════════════════
   const StatsForNerdsSpoofer = {
+    initialized: false,
+    timer: null,
+
     getCodecText() {
       // If we are in fallback mode (not playing real 774), keep the raw original ITAG (251, 140, etc.)
       const isReal774 = status.activeAudioItag === 774 && !status.fallbackReason;
@@ -1145,8 +1150,10 @@
     },
 
     init() {
+      if (this.initialized) return;
+      this.initialized = true;
       this.hookPlayerAPI();
-      this.startDOMObserver();
+      this.startDOMCheck();
       console.log(TAG, '[StatsForNerds] Override & Spoofing Engine Active (Conditional on Real 774)');
     },
 
@@ -1171,41 +1178,28 @@
       };
 
       tryHook();
-      setInterval(tryHook, 1500);
+      setInterval(tryHook, 2000);
     },
 
-    startDOMObserver() {
-      const overrideLeafNodes = () => {
+    startDOMCheck() {
+      if (this.timer) return;
+      this.timer = setInterval(() => {
         if (!S.shadowPlayer && !S.sfnSpoof) return;
         const override = this.getCodecText();
-        if (!override) return; // Keep raw format in Stats for Nerds
+        if (!override) return;
 
-        const panels = document.querySelectorAll('.html5-video-info-panel-content, .ytp-sfn-content');
-        if (!panels || panels.length === 0) return;
+        const panel = document.querySelector('.html5-video-info-panel-content, .ytp-sfn-content');
+        if (!panel) return;
 
-        panels.forEach(panel => {
-          const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT, null, false);
-          let node;
-          while ((node = walker.nextNode())) {
-            const txt = node.nodeValue || '';
-            if (txt.includes('/') && (txt.includes('opus (') || txt.includes('mp4a.') || txt.includes('251') || txt.includes('140')) && !txt.includes('774')) {
-              node.nodeValue = txt.replace(/\/\s*[\w.-]+\s*\(\d+\)/, override);
-            }
+        const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+          const txt = node.nodeValue || '';
+          if (txt.includes('/') && (txt.includes('opus (') || txt.includes('mp4a.') || txt.includes('251') || txt.includes('140')) && !txt.includes('774')) {
+            node.nodeValue = txt.replace(/\/\s*[\w.-]+\s*\(\d+\)/, override);
           }
-        });
-      };
-
-      const start = () => {
-        const target = document.body || document.documentElement;
-        if (target) {
-          const obs = new MutationObserver(() => overrideLeafNodes());
-          obs.observe(target, { childList: true, subtree: true });
-        } else {
-          document.addEventListener('DOMContentLoaded', start, { once: true });
         }
-      };
-      start();
-      setInterval(overrideLeafNodes, 400);
+      }, 1000);
     }
   };
 
@@ -1516,18 +1510,6 @@
           });
         }
 
-        try {
-          if (this.audioCtx && !mainVideo._ytssSourceAttached) {
-            mainVideo._ytssSourceAttached = true;
-            const vSource = this.audioCtx.createMediaElementSource(mainVideo);
-            const vGain = this.audioCtx.createGain();
-            vGain.gain.value = this.volume;
-            vSource.connect(vGain);
-            vGain.connect(this.audioCtx.destination);
-            this.videoGainNode = vGain;
-          }
-        } catch (e) { }
-
         if (this.syncInterval) clearInterval(this.syncInterval);
         this.syncInterval = setInterval(() => {
           if (!this.isReal774Playing || !mainVideo || mainVideo.paused || !this.element || !this.element.src) return;
@@ -1539,7 +1521,9 @@
       };
 
       checkAndAttach();
-      setInterval(checkAndAttach, 2000);
+      if (!this.attachInterval) {
+        this.attachInterval = setInterval(checkAndAttach, 2000);
+      }
     },
 
     async onPlaylistTrackChange(newVideoId) {
@@ -1598,9 +1582,6 @@
       if (this.gainNode) {
         this.gainNode.gain.value = this.volume;
       }
-      if (this.videoGainNode) {
-        this.videoGainNode.gain.value = this.volume;
-      }
       if (this.element) {
         this.element.volume = Math.min(1.0, this.volume);
       }
@@ -1614,75 +1595,70 @@
     },
 
     injectVolumeUI() {
-      const checkUI = () => {
-        const rightControls = document.querySelector('.ytp-right-controls') || document.querySelector('.ytp-left-controls');
-        if (!rightControls) return;
+      const rightControls = document.querySelector('.ytp-right-controls') || document.querySelector('.ytp-left-controls');
+      if (!rightControls) return;
 
-        let container = document.getElementById('ytss-vol-container');
-        if (!container || !rightControls.contains(container)) {
-          if (!container) {
-            container = document.createElement('div');
-            container.id = 'ytss-vol-container';
-            container.className = 'ytp-button';
-            container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; cursor: pointer; user-select: none; z-index: 999;';
+      let container = document.getElementById('ytss-vol-container');
+      if (!container || !rightControls.contains(container)) {
+        if (!container) {
+          container = document.createElement('div');
+          container.id = 'ytss-vol-container';
+          container.className = 'ytp-button';
+          container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; cursor: pointer; user-select: none; z-index: 999;';
 
-            const badge = document.createElement('div');
-            badge.id = 'ytss-badge';
-            badge.style.cssText = 'font-size: 11px; font-weight: 700; color: #ff334b; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff334b; white-space: nowrap;';
-            badge.textContent = '251';
-            container.appendChild(badge);
+          const badge = document.createElement('div');
+          badge.id = 'ytss-badge';
+          badge.style.cssText = 'font-size: 11px; font-weight: 700; color: #ff334b; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff334b; white-space: nowrap;';
+          badge.textContent = '251';
+          container.appendChild(badge);
 
-            const panel = document.createElement('div');
-            panel.id = 'ytss-vol-panel';
-            panel.style.cssText = 'display: none; position: absolute; bottom: 42px; left: 50%; transform: translateX(-50%); background: rgba(28,28,28,0.95); border: 1px solid #444; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); flex-direction: column; align-items: center; gap: 6px; width: 140px;';
+          const panel = document.createElement('div');
+          panel.id = 'ytss-vol-panel';
+          panel.style.cssText = 'display: none; position: absolute; bottom: 42px; left: 50%; transform: translateX(-50%); background: rgba(28,28,28,0.95); border: 1px solid #444; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); flex-direction: column; align-items: center; gap: 6px; width: 140px;';
 
-            const title = document.createElement('div');
-            title.style.cssText = 'font-size: 11px; color: #fff; font-weight: 600;';
-            title.textContent = 'Volume Boost: ';
-            const valSpan = document.createElement('span');
-            valSpan.id = 'ytss-vol-val';
-            valSpan.textContent = `${Math.round(this.volume * 100)}%`;
-            title.appendChild(valSpan);
-            panel.appendChild(title);
+          const title = document.createElement('div');
+          title.style.cssText = 'font-size: 11px; color: #fff; font-weight: 600;';
+          title.textContent = 'Volume Boost: ';
+          const valSpan = document.createElement('span');
+          valSpan.id = 'ytss-vol-val';
+          valSpan.textContent = `${Math.round(this.volume * 100)}%`;
+          title.appendChild(valSpan);
+          panel.appendChild(title);
 
-            const slider = document.createElement('input');
-            slider.type = 'range';
-            slider.id = 'ytss-vol-slider';
-            slider.min = '0';
-            slider.max = '200';
-            slider.value = `${Math.round(this.volume * 100)}`;
-            slider.style.cssText = 'width: 100%; cursor: pointer; accent-color: #ff0033;';
-            slider.addEventListener('input', (e) => {
-              const val = parseInt(e.target.value, 10) / 100;
-              this.setVolume(val);
-            });
-            panel.appendChild(slider);
+          const slider = document.createElement('input');
+          slider.type = 'range';
+          slider.id = 'ytss-vol-slider';
+          slider.min = '0';
+          slider.max = '200';
+          slider.value = `${Math.round(this.volume * 100)}`;
+          slider.style.cssText = 'width: 100%; cursor: pointer; accent-color: #ff0033;';
+          slider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10) / 100;
+            this.setVolume(val);
+          });
+          panel.appendChild(slider);
 
-            const sub = document.createElement('div');
-            sub.id = 'ytss-sub-info';
-            sub.style.cssText = 'font-size: 9px; color: #aaa; text-align: center;';
-            panel.appendChild(sub);
+          const sub = document.createElement('div');
+          sub.id = 'ytss-sub-info';
+          sub.style.cssText = 'font-size: 9px; color: #aaa; text-align: center;';
+          panel.appendChild(sub);
 
-            container.appendChild(panel);
+          container.appendChild(panel);
 
-            container.addEventListener('mouseenter', () => {
-              panel.style.display = 'flex';
-              this.updateBadgeUI();
-            });
+          container.addEventListener('mouseenter', () => {
+            panel.style.display = 'flex';
+            this.updateBadgeUI();
+          });
 
-            container.addEventListener('mouseleave', () => {
-              panel.style.display = 'none';
-            });
-          }
-
-          rightControls.insertBefore(container, rightControls.firstChild);
+          container.addEventListener('mouseleave', () => {
+            panel.style.display = 'none';
+          });
         }
 
-        this.updateBadgeUI();
-      };
+        rightControls.insertBefore(container, rightControls.firstChild);
+      }
 
-      setInterval(checkUI, 1000);
-      checkUI();
+      this.updateBadgeUI();
     },
 
     updateVolumeUI() {
@@ -1726,19 +1702,17 @@
   SeparateAudioEngine.injectVolumeUI();
   window.__ytssUpdateBadge = () => SeparateAudioEngine.updateBadgeUI();
 
-  ['DOMContentLoaded', 'yt-navigate-finish', 'yt-page-data-updated', 'yt-player-updated'].forEach(evt => {
+  ['DOMContentLoaded', 'yt-navigate-finish', 'yt-page-data-updated'].forEach(evt => {
     document.addEventListener(evt, () => {
       StatsForNerdsSpoofer.init();
       SeparateAudioEngine.init();
       SeparateAudioEngine.injectVolumeUI();
-      SeparateAudioEngine.updateBadgeUI();
     });
   });
 
   setInterval(() => {
     SeparateAudioEngine.injectVolumeUI();
-    SeparateAudioEngine.updateBadgeUI();
-  }, 1000);
+  }, 1500);
 
   // ═══════════════════════════════════════════════════════════════════
   // INTERCEPTORS — fetch & XHR (response-only, no request modification)
@@ -1903,87 +1877,12 @@
     // whether it tracks status.activeAudioItag. 251 encodes as a varint to FB 01,
     // 774 to 86 06, 140 to 8C 01, 141 to 8D 01 — so a hex dump plus a scan for those
     // pairs answers "does the player ask for what we injected?" directly.
-    if (url.includes('googlevideo.com/videoplayback') && window.__ytssSabrProbes < 3) {
-      // The body can arrive three different ways, and the first version of this probe
-      // only looked at one of them (`args[1].body`) so it never fired at all:
-      //   fetch(url, {body})        → args[1].body
-      //   fetch(new Request(url,…)) → the body lives on args[0], readable only by
-      //                               cloning: consuming the original would break
-      //                               playback outright.
-      // Line 993 above already assumes args[0] may be a Request, which is the shape
-      // that was being missed.
-      (async () => {
-        try {
-          let bytes = null;
-          const init = args[1];
-          const rawBody = init && init.body;
-          if (rawBody instanceof ArrayBuffer) {
-            bytes = new Uint8Array(rawBody.slice(0));
-          } else if (ArrayBuffer.isView(rawBody)) {
-            bytes = new Uint8Array(rawBody.buffer.slice(
-              rawBody.byteOffset, rawBody.byteOffset + rawBody.byteLength));
-          } else if (typeof rawBody === 'string') {
-            bytes = new TextEncoder().encode(rawBody);
-          } else if (args[0] && typeof args[0] === 'object' && typeof args[0].clone === 'function') {
-            // Clone first — reading args[0] directly would consume the real request.
-            const buf = await args[0].clone().arrayBuffer();
-            bytes = new Uint8Array(buf);
-          }
-          if (!bytes || bytes.length === 0) {
-            if (window.__ytssSabrProbes === 0) {
-              window.__ytssSabrProbes++;
-              console.warn(TAG, `[SABRProbe] no readable body`
-                + ` | args[0]=${typeof args[0] === 'string' ? 'string' : (args[0]?.constructor?.name || 'none')}`
-                + ` method=${init?.method || args[0]?.method || '?'}`
-                + ` bodyType=${rawBody?.constructor?.name || 'none'}`);
-            }
-            return;
-          }
-          window.__ytssSabrProbes++;
-          const find = (a, b) => {
-            const hits = [];
-            for (let i = 0; i < bytes.length - 1; i++) {
-              if (bytes[i] === a && bytes[i + 1] === b) hits.push(i);
-            }
-            return hits;
-          };
-          const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join(' ');
-          console.log(TAG, `[SABRProbe] ${bytes.length} bytes | activeItag=${status.activeAudioItag}`
-            + ` | 251(fb01)@[${find(0xfb, 0x01)}] 774(8606)@[${find(0x86, 0x06)}]`
-            + ` 140(8c01)@[${find(0x8c, 0x01)}] 141(8d01)@[${find(0x8d, 0x01)}]`
-            + ` 249(f901)@[${find(0xf9, 0x01)}] 250(fa01)@[${find(0xfa, 0x01)}]`);
-          console.log(TAG, `[SABRProbe] hex:\n${hex}`);
-        } catch (e) {
-          console.warn(TAG, '[SABRProbe] error:', e);
-        }
-      })();
-    }
-
     // ── Option C: SABR body field-16 rewrite (251 → 774) ─────────────────
-    // See prompt.txt §5 Option C. The desktop WEB client is not entitled to 774:
-    // the signed format table at f5.f1.f6 omits it, so the player never asks for
-    // it. We rewrite the *unsigned* preferred-audio field (f16.f1) and the matching
-    // selected-format entry (f2) from 251 → 774 before the POST leaves.
-    //
-    // Hard constraints (from prompt.txt §5 Option C):
-    //   • Parse the wire format STRUCTURALLY. No indexOf(bytes) — a blind scan
-    //     corrupted unrelated data formerly (inject.js:1099).
-    //   • 774 (86 06) and 251 (fb 01) are both 2-byte varints, so the enclosing
-    //     message length prefix is unchanged — no cascading length fixups.
-    //   • f2.f2 (lastModified) is a row id. 774's real value must come from the
-    //     WEB_REMIX response (hqCache); sending 774 with 251's timestamp will be
-    //     rejected. If we don't have it, do not patch.
-    //   • f5 is the SIGNED region (ECDSA P-256). We must NOT touch anything inside
-    //     f5. f16 and f2 sit outside it.
-    //   • If the parse fails at ANY point, pass the body through untouched.
     if (url.includes('googlevideo.com/videoplayback')
       && (args[1]?.method === 'POST' || args[0]?.method === 'POST')) {
       try {
-        // Resolve the body bytes. We must NOT consume the original Request body
-        // (that breaks playback). For args[1].body (ArrayBuffer/View/string) we
-        // can read directly; for a Request object we clone first.
         let bodyBytes = null;
-        let attachTo = null;       // 'init' = args[1], 'request' = args[0]
+        let attachTo = null;
         const init = args[1];
         const rawBody = init && init.body;
         if (rawBody instanceof ArrayBuffer) {
@@ -1996,15 +1895,11 @@
           bodyBytes = new TextEncoder().encode(rawBody);
           attachTo = 'init';
         } else if (args[0] && typeof args[0] === 'object' && typeof args[0].clone === 'function') {
-          // Request object — clone, read, then rebuild a new Request with patched body.
-          // We can't mutate a Request in place; we'll replace args[0] after patching.
           const buf = await args[0].clone().arrayBuffer();
           bodyBytes = new Uint8Array(buf);
           attachTo = 'request';
         }
 
-        // Look up 774's real lastModified from the HQ cache (WEB_REMIX supplies it).
-        // hqCache entries are arrays of format objects with {itag, lastModified, _src}.
         let targetLastModified = null;
         const vid = typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null;
         if (vid) {
@@ -2017,12 +1912,10 @@
         if (bodyBytes && targetLastModified) {
           const patched = sabrRewritePreferredAudio(bodyBytes, 251, 774, targetLastModified);
           if (patched) {
-            // Re-attach the patched body as a fresh ArrayBuffer.
             const patchedBuffer = patched.buffer.slice(patched.byteOffset, patched.byteOffset + patched.byteLength);
             if (attachTo === 'init') {
               args[1].body = patchedBuffer;
             } else if (attachTo === 'request') {
-              // Rebuild the Request with the patched body, preserving method/headers/etc.
               const origReq = args[0];
               args[0] = new Request(origReq.url, {
                 method: origReq.method,
@@ -2037,13 +1930,14 @@
                 integrity: origReq.integrity,
               });
             }
-            status.activeAudioItag = 774;
-            status.activeMethod = 'TVHTML5';
-            status.fallbackReason = null;
-            status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus 274kbps | Method: TVHTML5 (SABR)`;
-            report();
-            SeparateAudioEngine.updateBadgeUI();
-            console.log(TAG, `[OptionC] Rewrote SABR f16/f2: 251→774, lastModified=${targetLastModified}`);
+            if (status.activeAudioItag !== 774) {
+              status.activeAudioItag = 774;
+              status.activeMethod = 'TVHTML5';
+              status.fallbackReason = null;
+              status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus 274kbps | Method: TVHTML5 (SABR)`;
+              report();
+              console.log(TAG, `[OptionC] Rewrote SABR f16/f2: 251→774, lastModified=${targetLastModified}`);
+            }
           }
         }
       } catch (e) { }
