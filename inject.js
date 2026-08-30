@@ -591,18 +591,15 @@
       const kbps = Math.round((active.bitrate || 0) / 1000) || (displayItag === 774 ? 256 : 145);
       const src = isRealHq ? (active._src || 'TVHTML5') : 'original';
 
-      // Don't downgrade if we are already actively on 774
-      if (isRealHq || Number(status.activeAudioItag) !== 774) {
-        status.activeMethod = src;
-        status.activeAudioItag = displayItag;
-        status.bestAudioInfo = `ITAG ${displayItag}${isRealHq ? ' [HQ ★]' : ''} | ${codec} ${kbps}kbps | Method: ${src}`;
-        status.injectedStreams = Math.max(pool.length, 6);
-        status.videoTitle = json.videoDetails?.title || document.title || 'audio';
-        status.contentLength = active.contentLength || null;
-        status.noUrlDrop = null;
-        status.fallbackReason = isRealHq ? null : 'Using best original stream (ITAG ' + displayItag + ')';
-        report();
-      }
+      status.activeMethod = src;
+      status.activeAudioItag = displayItag;
+      status.bestAudioInfo = `ITAG ${displayItag}${isRealHq ? ' [HQ ★]' : ''} | ${codec} ${kbps}kbps | Method: ${src}`;
+      status.injectedStreams = Math.max(pool.length, 6);
+      status.videoTitle = json.videoDetails?.title || document.title || 'audio';
+      status.contentLength = active.contentLength || null;
+      status.noUrlDrop = null;
+      status.fallbackReason = isRealHq ? null : 'Using best original stream (ITAG ' + displayItag + ')';
+      report();
     }
 
     // Check if we have real playable 774 formats
@@ -1562,15 +1559,13 @@
         this.stopAndUnmute();
         report();
       } else {
-        if (Number(status.activeAudioItag) !== 774) {
-          status.activeAudioItag = 251;
-          status.activeMethod = 'original';
-          status.fallbackReason = 'Using best original stream (ITAG 251)';
-          status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
-          this.activeVideoId = newVideoId;
-          this.stopAndUnmute();
-          report();
-        }
+        status.activeAudioItag = 251;
+        status.activeMethod = 'original';
+        status.fallbackReason = 'Using best original stream (ITAG 251)';
+        status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
+        this.activeVideoId = newVideoId;
+        this.stopAndUnmute();
+        report();
       }
       this.activeVideoId = newVideoId;
       this.loadingVideoId = null;
@@ -1776,6 +1771,13 @@
               status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
               SeparateAudioEngine.stopAndUnmute();
               report();
+            } else {
+              status.activeAudioItag = 251;
+              status.activeMethod = 'original';
+              status.fallbackReason = 'Using best original stream (ITAG 251)';
+              status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
+              SeparateAudioEngine.stopAndUnmute();
+              report();
             }
           }
 
@@ -1816,6 +1818,13 @@
                   status.activeMethod = tv774._src || 'TVHTML5';
                   status.fallbackReason = null;
                   status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
+                  SeparateAudioEngine.stopAndUnmute();
+                  report();
+                } else {
+                  status.activeAudioItag = 251;
+                  status.activeMethod = 'original';
+                  status.fallbackReason = 'Using best original stream (ITAG 251)';
+                  status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
                   SeparateAudioEngine.stopAndUnmute();
                   report();
                 }
@@ -2098,6 +2107,13 @@
                   status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
                   SeparateAudioEngine.stopAndUnmute();
                   report();
+                } else {
+                  status.activeAudioItag = 251;
+                  status.activeMethod = 'original';
+                  status.fallbackReason = 'Using best original stream (ITAG 251)';
+                  status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
+                  SeparateAudioEngine.stopAndUnmute();
+                  report();
                 }
               }
             } else if (S.hqFetch && videoId) {
@@ -2125,6 +2141,13 @@
                       status.activeMethod = tv774._src || 'TVHTML5';
                       status.fallbackReason = null;
                       status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((tv774.bitrate || 274000) / 1000)}kbps | Method: ${status.activeMethod} (SABR)`;
+                      SeparateAudioEngine.stopAndUnmute();
+                      report();
+                    } else {
+                      status.activeAudioItag = 251;
+                      status.activeMethod = 'original';
+                      status.fallbackReason = 'Using best original stream (ITAG 251)';
+                      status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
                       SeparateAudioEngine.stopAndUnmute();
                       report();
                     }
