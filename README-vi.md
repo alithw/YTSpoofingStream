@@ -4,7 +4,7 @@
   <p><b>Mở khóa Âm thanh YouTube Bitrate Cao Thực Thụ (256kbps+ Opus & AAC) trên Trình duyệt Web</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.1-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.2-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="Giấy phép MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -28,7 +28,7 @@
 
 ## 📑 Mục lục
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
-- [✨ Điểm mới trong bản v0.1.1](#-điểm-mới-trong-bản-v011)
+- [✨ Điểm mới trong bản v0.1.2](#-điểm-mới-trong-bản-v012)
 - [🔥 Tính năng Nổi bật](#-tính-năng-nổi-bật)
 - [🧠 Kiến trúc Kỹ thuật & Phân tích Chuyên sâu](#-kiến-trúc-kỹ-thuật--phân-tích-chuyên-sâu)
   - [1. Động cơ Giả mạo Đa nền tảng (Multi-Client)](#1-động-cơ-giả-mạo-đa-nền-tảng-multi-client)
@@ -53,13 +53,12 @@ Trình phát YouTube trên Web hiện nay giới hạn âm thanh ở mức bitra
 
 ---
 
-## ✨ Điểm mới trong bản v0.1.1
+## ✨ Điểm mới trong bản v0.1.2
 
-- 🔓 **Tích hợp Bộ giải mã `SignatureCipherDecipherer`**: Tự động giải mã chữ ký cho các video ca nhạc bản quyền (Vevo, MV chính thức). Phân tích mã nguồn `base.js` đang chạy, trích xuất bảng chuỗi `p` và các phép biến đổi (`reverse`, `splice`, `swap`) để mở khóa luồng mã hóa theo thời gian thực mà không cần server trung gian.
-- 🔊 **Trình phát Riêng biệt `SeparateAudioEngine`**: Nạp luồng ITAG 774/141 thực thụ qua thẻ âm thanh riêng biệt kết nối AudioContext, đồng bộ hoàn hảo dải tần âm thanh với video.
-- 🛡️ **Đồng bộ Âm thanh Thông minh & Chống Mất tiếng**: Chỉ MUTE trình phát chính khi luồng âm thanh chất lượng cao đã phát ra tiếng thành công. Tự động mở lại tiếng gốc (`mainVideo.muted = false`) ngay lập tức nếu gặp lỗi mạng.
-- 🎚️ **Bộ Khuếch đại Âm thanh DSP**: Tích hợp thanh trượt tăng âm lượng Web Audio Gain Node từ 0% đến 200% không làm vỡ tiếng.
-- 🎯 **Hiển thị Bitrate Thực & Giữ Raw ITAG khi Fallback**: Hiển thị chính xác bitrate thực tế (ví dụ `opus (774) 276k`) khi phát HQ, và giữ nguyên định dạng raw gốc (`opus (251)`) trong Stats for Nerds khi ở chế độ fallback.
+- 🛑 **Khối Master Bật/Tắt Toàn Hệ thống**: Tách riêng công tắc Master Switch kèm hiệu ứng làm mờ giao diện (`opacity: 0.35`, `pointer-events: none`). Khi tắt, tiện ích lập tức xóa sạch các quy tắc Declarative Net Request (DNR) và ngắt toàn bộ can thiệp mạng, trả về trình phát gốc 100%.
+- 🎵 **Cách ly Hoàn toàn YouTube Music (`music.youtube.com`)**: Thêm rule loại trừ tường minh giúp YouTube Music chạy hoàn toàn nguyên bản, giữ nguyên vẹn Service Worker và hàng chờ phát nhạc.
+- 🚫 **Loại bỏ Hoàn toàn ITAG Âm thanh Bitrate Thấp**: Tự động thanh lọc các ITAG `[250, 249, 140, 139]` ra khỏi danh sách `adaptiveFormats`, ngăn chặn triệt để thuật toán ABR của YouTube tự hạ chất lượng xuống Opus 250 (50kbps) khi xem ở độ phân giải thấp.
+- 🛡️ **Khắc phục Lỗi 403 Forbidden & Ngăn Chặn Fallback**: Bộ lọc ứng viên stream ưu tiên direct URL hợp lệ, loại bỏ các chuỗi decipher lỗi thời để đảm bảo không bao giờ bị rơi vào fallback.
 
 ---
 

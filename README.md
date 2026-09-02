@@ -4,7 +4,7 @@
   <p><b>Unlock Real High-Bitrate YouTube Audio (256kbps+ Opus & AAC) on Web Player</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.1-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.2-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="License MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -28,7 +28,7 @@
 
 ## 📑 Table of Contents
 - [🌟 Why YTSpoofingStream?](#-why-ytspoofingstream)
-- [✨ What's New in v0.1.1](#-whats-new-in-v011)
+- [✨ What's New in v0.1.2](#-whats-new-in-v012)
 - [🔥 Key Features](#-key-features)
 - [🧠 Technical Architecture & Deep Dive](#-technical-architecture--deep-dive)
   - [1. Multi-Client Spoofing Engine](#1-multi-client-spoofing-engine)
@@ -53,13 +53,12 @@ Modern YouTube Web Player artificially restricts audio playback to low-bitrate s
 
 ---
 
-## ✨ What's New in v0.1.1
+## ✨ What's New in v0.1.2
 
-- 🔓 **Built-in `SignatureCipherDecipherer`**: Fully autonomous on-the-fly decipher engine for copyrighted music videos (Vevo, official music tracks). Parses YouTube's live player script (`base.js`), resolves transformations (`reverse`, `splice`, `swap`), and unlocks encrypted streams in real time with zero external server dependencies.
-- 🔊 **Dedicated `SeparateAudioEngine`**: Autonomous secondary audio pipeline that streams genuine ITAG 774/141 streams at full frequency response, synchronized perfectly with the native video player.
-- 🛡️ **Fail-Safe Intelligent Audio Sync**: Only mutes native video audio once the HQ audio stream is verified playing. Automatically restores native audio (`mainVideo.muted = false`) instantly if network drops occur.
-- 🎚️ **Native Audio DSP Gain Booster**: Integrated Web Audio API Gain Node allowing 0% to 200% volume amplification directly in the browser.
-- 🎯 **Dynamic Stats for Nerds & Raw Fallback**: Displays real-time measured bitrates (e.g. `opus (774) 276k`) when HQ is playing, and seamlessly displays genuine raw codec identifiers (e.g. `opus (251)`) when in fallback mode.
+- 🛑 **Master Enable/Disable Subsystem**: Standalone Master toggle with visual dimming (`opacity: 0.35`, `pointer-events: none`). Switching off instantly clears all Declarative Net Request (DNR) session rules and unhooks all network interceptors, returning browser playback to 100% native.
+- 🎵 **Full YouTube Music (`music.youtube.com`) Isolation**: Added explicit exclusion matches so YouTube Music runs completely untouched with its native Service Worker and queue intact.
+- 🚫 **Strict Low-Bitrate ITAG Stripping**: Automatically purges `[250, 249, 140, 139]` from `adaptiveFormats`, permanently blocking YouTube ABR from dropping audio quality down to 50kbps (Opus 250) on low video resolutions.
+- 🛡️ **Eliminated 403 Forbidden Stream Fallbacks**: Stream candidates strictly prioritize valid direct URLs, preventing signature decipher failures and unwanted fallbacks.
 
 ---
 
@@ -113,7 +112,7 @@ When *Stats for Nerds Override* is enabled, the codec line dynamically calculate
 
 ## 🚀 Installation
 
-1. Download the latest `v0.1.1` release zip from [Releases](https://github.com/alithw/YTSpoofingStream/releases) or clone the repository:
+1. Download the latest `v0.1.2` release zip from [Releases](https://github.com/alithw/YTSpoofingStream/releases) or clone the repository:
    ```bash
    git clone https://github.com/alithw/YTSpoofingStream.git
    ```
