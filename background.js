@@ -302,13 +302,25 @@ function reEscape(s) {
 //    played on Desktop.
 async function setupStaticRules() {
   try {
+    const storage = await chrome.storage.local.get('enabled');
+    const existingRules = await chrome.declarativeNetRequest.getSessionRules();
+    const existingIds = existingRules.map(r => r.id);
+
+    if (storage.enabled === false) {
+      if (existingIds.length > 0) {
+        await chrome.declarativeNetRequest.updateSessionRules({
+          removeRuleIds: existingIds,
+          addRules: [],
+        });
+      }
+      console.log(TAG, 'Extension is DISABLED: Wiped all declarativeNetRequest rules.');
+      return;
+    }
+
     const rulesToAdd = [];
-    const rulesToRemove = [ORIGIN_RULE_ID];
+    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
 
     // 1. Origin spoofing for API requests.
-    //    resourceTypes MUST include 'other': fetch() issued from a service worker
-    //    is frequently classified as 'other' rather than 'xmlhttprequest', and those
-    //    are exactly the requests that need the spoofed Origin.
     rulesToAdd.push({
       id: ORIGIN_RULE_ID,
       priority: 1,
@@ -327,12 +339,6 @@ async function setupStaticRules() {
       },
     });
 
-    // 2. Per-client User-Agent for the player API request.
-    //    One permanent rule per client, keyed on the `_ytss_c=<idx>` marker that
-    //    fetchFromClient() appends to its URL. This replaces the old approach of
-    //    toggling a single shared rule around each fetch, which raced badly: all
-    //    clients resolve concurrently via Promise.all, so they overwrote each
-    //    other's User-Agent and removed the rule while others were still in flight.
     // 2. Per-client User-Agent for the player API request.
     CLIENTS.forEach((c) => {
       const ruleId = API_UA_RULE_ID_BASE + c.idx;
@@ -396,13 +402,7 @@ async function setupStaticRules() {
       },
     });
 
-    // SABR block rule removed. We rely on parameter rewriting instead.
-    // CRITICAL: We must explicitly remove it, otherwise it persists in the browser.
-    rulesToRemove.push(SABR_BLOCK_RULE_ID);
-
-    // 4. Block the streaming_data_emergency_itag_blacklist endpoint.
-    // YouTube dynamically blacklists itags (like 774) via this endpoint.
-    // Block it so our injected itags remain available to the player.
+    // 4. Block the streaming_data_emergency_itag_blacklist endpoint on www.youtube.com.
     rulesToRemove.push(BLACKLIST_BLOCK_RULE_ID);
     rulesToAdd.push({
       id: BLACKLIST_BLOCK_RULE_ID,
@@ -414,14 +414,14 @@ async function setupStaticRules() {
       },
     });
 
-    // 5. Block YouTube Service Worker (sw.js) to ensure all media fetches go through main thread.
+    // 5. Block YouTube Service Worker on www.youtube.com ONLY (Never block music.youtube.com)
     rulesToRemove.push(SW_BLOCK_RULE_ID);
     rulesToAdd.push({
       id: SW_BLOCK_RULE_ID,
       priority: 6,
       action: { type: 'block' },
       condition: {
-        urlFilter: '*youtube.com/sw.js*',
+        regexFilter: '^https?://www\\.youtube\\.com/sw\\.js',
         resourceTypes: ['script', 'other', 'xmlhttprequest'],
       },
     });
@@ -435,6 +435,12 @@ async function setupStaticRules() {
     console.error(TAG, 'Failed to setup static rules:', e);
   }
 }
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.enabled !== undefined) {
+    setupStaticRules();
+  }
+});
 
 // (setupStaticRules is called at the end of the file)
 
@@ -642,7 +648,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.context) setPageContext(msg.context);
 
     (async () => {
-      const storage = await chrome.storage.local.get('preferredClient');
+      const storage = await chrome.storage.local.get(['preferredClient', 'enabled']);
+      if (storage.enabled === false) {
+        sendResponse({ success: false, results: [], error: 'disabled' });
+        return;
+      }
       const pref = storage.preferredClient || 'AUTO';
 
       let targetClients = [...CLIENTS];

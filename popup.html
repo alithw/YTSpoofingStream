@@ -372,6 +372,12 @@
       color: var(--dim);
       line-height: 1.4;
     }
+    .disabled-ui {
+      opacity: 0.35 !important;
+      pointer-events: none !important;
+      filter: grayscale(0.85) !important;
+      transition: opacity 0.25s ease, filter 0.25s ease;
+    }
   </style>
 </head>
 
@@ -383,50 +389,55 @@
     </svg>
     <div>
       <h1>YTSpoofingStream</h1>
-      <div class="ver">v0.1.0 &bull; Deep Sync Client Spoofing</div>
+      <div class="ver">v0.1.1 &bull; Deep Sync Client Spoofing</div>
     </div>
   </div>
 
-
-  <div class="sec">
-    <div class="sec-title">Controls</div>
-    <div class="row">
-      <label for="preferredClient">Spoofing Method</label>
-      <select id="preferredClient" class="sel-method">
-        <option value="AUTO">Auto (Best Available)</option>
-        <option value="WEB_REMIX">WEB_REMIX (Music)</option>
-        <option value="TVHTML5">TVHTML5 (YouTube TV)</option>
-        <option value="ANDROID">ANDROID (Mobile)</option>
-        <option value="ANDROID_MUSIC">ANDROID_MUSIC</option>
-        <option value="ANDROID_VR">ANDROID_VR (Quest)</option>
-      </select>
-    </div>
-    <label class="row" for="en"><span>Enable Extension</span>
+  <!-- MASTER ENABLE / DISABLE SECTION -->
+  <div class="sec" style="border: 1px solid rgba(233, 69, 96, 0.3); background: rgba(233, 69, 96, 0.08);">
+    <label class="row" for="en" style="cursor: pointer; margin: 0;">
+      <span style="font-weight: 700; font-size: 13px; color: #fff;">Enable Extension</span>
       <span class="tog"><input type="checkbox" id="en" checked><span class="sl"></span></span>
     </label>
-    <label class="row" for="hq"><span>Fetch HQ Audio (Multi-client)</span>
-      <span class="tog"><input type="checkbox" id="hq" checked><span class="sl"></span></span>
-    </label>
-    <label class="row" for="fo"><span>Force Override</span>
-      <span class="tog"><input type="checkbox" id="fo" checked><span class="sl"></span></span>
-    </label>
-    <label class="row" for="ar"><span>Auto-reload page on change</span>
-      <span class="tog"><input type="checkbox" id="ar" checked><span class="sl"></span></span>
-    </label>
-    <label class="row" for="ri"><span>Raw ITAG (no disguise)<br><span style="font-size:9px;color:var(--dim);">Experimental — send 774/141 as themselves</span></span>
-      <span class="tog"><input type="checkbox" id="ri"><span class="sl"></span></span>
-    </label>
-    <label class="row" for="sp"><span>Stats for Nerds Override (774 Spoof)<br><span style="font-size:9px;color:var(--dim);">Display Opus 774 in player Stats for Nerds</span></span>
-      <span class="tog"><input type="checkbox" id="sp" checked><span class="sl"></span></span>
-    </label>
-    <div class="row" style="flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 6px;">
-      <div style="display:flex; justify-content:space-between; width:100%;">
-        <span style="font-size: 11px;">Native Audio DSP Gain:</span>
-        <span id="svVal" style="font-size: 11px; font-weight:700; color:var(--accent);">100%</span>
-      </div>
-      <input type="range" id="sv" min="0" max="200" value="100" style="width: 100%; accent-color: var(--accent); cursor: pointer;" />
-    </div>
   </div>
+
+  <div id="mainContentWrapper">
+    <div class="sec">
+      <div class="sec-title">Controls</div>
+      <div class="row">
+        <label for="preferredClient">Spoofing Method</label>
+        <select id="preferredClient" class="sel-method">
+          <option value="AUTO">Auto (Best Available)</option>
+          <option value="WEB_REMIX">WEB_REMIX (Music)</option>
+          <option value="TVHTML5">TVHTML5 (YouTube TV)</option>
+          <option value="ANDROID">ANDROID (Mobile)</option>
+          <option value="ANDROID_MUSIC">ANDROID_MUSIC</option>
+          <option value="ANDROID_VR">ANDROID_VR (Quest)</option>
+        </select>
+      </div>
+      <label class="row" for="hq"><span>Fetch HQ Audio (Multi-client)</span>
+        <span class="tog"><input type="checkbox" id="hq" checked><span class="sl"></span></span>
+      </label>
+      <label class="row" for="fo"><span>Force Override</span>
+        <span class="tog"><input type="checkbox" id="fo" checked><span class="sl"></span></span>
+      </label>
+      <label class="row" for="ar"><span>Auto-reload page on change</span>
+        <span class="tog"><input type="checkbox" id="ar" checked><span class="sl"></span></span>
+      </label>
+      <label class="row" for="ri"><span>Raw ITAG (no disguise)<br><span style="font-size:9px;color:var(--dim);">Experimental — send 774/141 as themselves</span></span>
+        <span class="tog"><input type="checkbox" id="ri"><span class="sl"></span></span>
+      </label>
+      <label class="row" for="sp"><span>Stats for Nerds Override (774 Spoof)<br><span style="font-size:9px;color:var(--dim);">Display Opus 774 in player Stats for Nerds</span></span>
+        <span class="tog"><input type="checkbox" id="sp" checked><span class="sl"></span></span>
+      </label>
+      <div class="row" style="flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 6px;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span style="font-size: 11px;">Native Audio DSP Gain:</span>
+          <span id="svVal" style="font-size: 11px; font-weight:700; color:var(--accent);">100%</span>
+        </div>
+        <input type="range" id="sv" min="0" max="200" value="100" style="width: 100%; accent-color: var(--accent); cursor: pointer;" />
+      </div>
+    </div>
 
   <div class="sec">
     <div class="sec-title">Status</div>
@@ -506,6 +517,8 @@
   </div>
 
 
+
+  </div>
 
   <script src="popup.js"></script>
 </body>

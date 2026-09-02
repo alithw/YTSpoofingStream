@@ -3,6 +3,10 @@
 // ║  Relays messages between MAIN world and Service Worker.         ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
+if (location.hostname === 'music.youtube.com') {
+  // Do not touch YouTube Music
+} else {
+
 // MAIN world → Service Worker
 // Retries once after 600ms if the SW was killed and is restarting.
 function safeSend(msg, callback, retryCount = 0) {
@@ -123,3 +127,4 @@ chrome.storage.onChanged.addListener(pushSettings);
 
 // On load, push current settings to MAIN world
 pushSettings();
+}

@@ -5,6 +5,10 @@
 (function () {
   'use strict';
 
+  if (location.hostname === 'music.youtube.com') {
+    return; // YouTube Music has its own native high-quality engine; do not hook
+  }
+
   const TAG = '[YTSS]';
   const ORIGINAL_FETCH = window.fetch;
   const ORIGINAL_XHR_OPEN = XMLHttpRequest.prototype.open;
@@ -70,6 +74,24 @@
     }
   } catch (e) { }
 
+  function handleSettingsChange() {
+    if (!S.enabled) {
+      if (typeof SeparateAudioEngine !== 'undefined') {
+        SeparateAudioEngine.stopAndUnmute();
+      }
+      const container = document.getElementById('ytss-vol-container');
+      if (container) container.style.display = 'none';
+      status.activeMethod = 'original';
+      status.activeAudioItag = 251;
+      status.fallbackReason = 'Extension Disabled';
+      status.bestAudioInfo = 'Extension Disabled';
+      report();
+    } else {
+      const container = document.getElementById('ytss-vol-container');
+      if (container) container.style.display = 'inline-flex';
+    }
+  }
+
   window.addEventListener('message', (e) => {
     // Only trust messages this page posted to itself — otherwise any embedded
     // iframe on the page could push arbitrary settings into the extension.
@@ -77,6 +99,7 @@
     if ((e.data?.type === 'YTSS_SETTINGS_UPDATE' || e.data?.type === 'YTSpoofingStream_settingsUpdate') && e.data.settings) {
       Object.assign(S, pickSettings(e.data.settings));
       persistSettings();
+      handleSettingsChange();
     }
   });
 
@@ -420,11 +443,10 @@
 
   function getAll774Candidates(list) {
     if (!list || !Array.isArray(list)) return [];
-    // Only fetch/match Opus 774 formats (dropping 141 as 251 is already equivalent)
-    const candidates = list.filter(f => (f.itag === 774 || f._origItag === 774) && (f.url || f.signatureCipher));
-    // Sort by highest bitrate / quality
-    candidates.sort((a, b) => (b.bitrate || b.averageBitrate || 0) - (a.bitrate || a.averageBitrate || 0));
-    return candidates;
+    // Only return Opus 774 formats with valid direct URLs (avoids ciphered 403 stream failures)
+    const directUrls = list.filter(f => (f.itag === 774 || f._origItag === 774) && f.url);
+    directUrls.sort((a, b) => (b.bitrate || b.averageBitrate || 0) - (a.bitrate || a.averageBitrate || 0));
+    return directUrls;
   }
 
   function findBestReal774(list) {
@@ -587,7 +609,19 @@
     }
     selectedAudio = [...byItag.values()];
 
-    json.streamingData.adaptiveFormats = json._origFormats;
+    // Strip out low-bitrate audio formats (250, 249, 140, 139) so YouTube's player
+    // is FORCED to always pick at least ITAG 251 (160kbps Opus) or ITAG 774, never downgrading to 250 (50kbps).
+    const hasHQOr251 = json._origFormats.some(f => (f.itag === 251 || f._origItag === 251 || f.itag === 774 || f._origItag === 774));
+    if (hasHQOr251) {
+      json.streamingData.adaptiveFormats = json._origFormats.filter(f => {
+        if ((f.mimeType || '').includes('audio/')) {
+          return ![250, 249, 140, 139].includes(f.itag);
+        }
+        return true;
+      });
+    } else {
+      json.streamingData.adaptiveFormats = json._origFormats;
+    }
 
     const target774InPool = pool.find(f => f.itag === 774 || f._origItag === 774);
     const active = target774InPool || selectedAudio.find(f => HQ_ITAGS.includes(f.itag || f._origItag)) || selectedAudio[0];
@@ -1057,11 +1091,13 @@
   }
 
   // Main rewriter. Returns a *new* Uint8Array with patches applied, or null.
-  function sabrRewritePreferredAudio(bytes, oldItag, newItag, newLastModified) {
+  function sabrRewritePreferredAudio(bytes, targetItags, newItag, newLastModified) {
     if (!bytes || bytes.length === 0) return null;
     try {
       const topFields = pbParseMessage(bytes, 0, bytes.length);
       if (!topFields) return null;
+
+      const itagList = Array.isArray(targetItags) ? targetItags : [targetItags];
 
       // ── Patch f16 (preferred audio): rewrite f16.f1 (itag) and f16.f2 (lastModified)
       const f16Entries = topFields.get(16);
@@ -1070,7 +1106,9 @@
       const f16Fields = pbParseMessage(bytes, f16.valueOff, f16.valueOff + f16.valueLen);
       if (!f16Fields) return null;
       const f16f1 = f16Fields.get(1)?.[0]; // itag varint
-      if (!f16f1 || f16f1.wireType !== 0 || f16f1.value !== oldItag) return null;
+      if (!f16f1 || f16f1.wireType !== 0 || !itagList.includes(f16f1.value)) return null;
+
+      const oldItag = f16f1.value;
 
       // ── Patch f2 (selected format): find the entry whose f1 === oldItag
       const f2Entries = topFields.get(2);
@@ -1148,6 +1186,7 @@
     timer: null,
 
     getCodecText() {
+      if (!S.enabled) return null;
       // If we are in fallback mode (not playing real 774), keep the raw original ITAG (251, 140, etc.)
       const isReal774 = status.activeAudioItag === 774 && !status.fallbackReason;
       if (!isReal774) return null;
@@ -1375,6 +1414,10 @@
     loadingVideoId: null,
 
     async loadReal774(videoId, candidates) {
+      if (!S.enabled) {
+        this.stopAndUnmute();
+        return false;
+      }
       if (!this.element) this.init();
       const currentActiveId = document.getElementById('movie_player')?.getVideoData?.()?.video_id || new URLSearchParams(location.search).get('v');
       const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/shorts') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
@@ -1602,6 +1645,10 @@
       if (!rightControls) return;
 
       let container = document.getElementById('ytss-vol-container');
+      if (!S.enabled) {
+        if (container) container.style.display = 'none';
+        return;
+      }
       if (!container || !rightControls.contains(container)) {
         if (!container) {
           container = document.createElement('div');
@@ -1843,30 +1890,6 @@
               }
             }
           }).catch(() => { });
-
-          // ── Phase 1 (Option D) probe: query TV streaming context in parallel.
-          //    This is read-only — just logs what TVHTML5 returned so we can
-          //    confirm serverAbrStreamingUrl + ustreamerConfig are captured
-          //    before investing in Phase 2 (SABR POST against TV URL).
-          if (window.__ytssTvCtxProbes === undefined) window.__ytssTvCtxProbes = 0;
-          if (window.__ytssTvCtxProbes < 3) {
-            window.__ytssTvCtxProbes++;
-            getTvContext(videoId).then(ctx => {
-              if (ctx) {
-                console.log(TAG, `[Phase1] TV context for ${videoId}:`, {
-                  sabrUrl: ctx.serverAbrStreamingUrl ? ctx.serverAbrStreamingUrl.slice(0, 100) + '...' : null,
-                  ustreamerConfig: ctx.ustreamerConfig ? (typeof ctx.ustreamerConfig === 'string' ? `str(${ctx.ustreamerConfig.length} chars)` : `obj(${Object.keys(ctx.ustreamerConfig).join(',')})`) : null,
-                  poToken: ctx.poToken ? 'present' : 'absent',
-                  visitorData: ctx.visitorData ? `${ctx.visitorData.slice(0, 16)}...` : null,
-                  sts: ctx.sts,
-                  source: ctx.source,
-                  clientVersion: ctx.clientVersion,
-                });
-              } else {
-                console.log(TAG, `[Phase1] No TV context for ${videoId} — TVHTML5 may not be logged in, or didn't return SABR`);
-              }
-            }).catch(() => { });
-          }
         }
 
         return new Response(JSON.stringify(json), {
@@ -1895,7 +1918,7 @@
     // 774 to 86 06, 140 to 8C 01, 141 to 8D 01 — so a hex dump plus a scan for those
     // pairs answers "does the player ask for what we injected?" directly.
     // ── Option C: SABR body field-16 rewrite (251 → 774) ─────────────────
-    if (url.includes('googlevideo.com/videoplayback')
+    if (S.enabled && url.includes('googlevideo.com/videoplayback')
       && (args[1]?.method === 'POST' || args[0]?.method === 'POST')) {
       try {
         let bodyBytes = null;
@@ -1927,7 +1950,7 @@
         }
 
         if (bodyBytes && targetLastModified) {
-          const patched = sabrRewritePreferredAudio(bodyBytes, 251, 774, targetLastModified);
+          const patched = sabrRewritePreferredAudio(bodyBytes, [251, 250, 249, 140, 139], 774, targetLastModified);
           if (patched) {
             const patchedBuffer = patched.buffer.slice(patched.byteOffset, patched.byteOffset + patched.byteLength);
             if (attachTo === 'init') {
@@ -2204,6 +2227,7 @@
     applySettings: (newSettings) => {
       Object.assign(S, pickSettings(newSettings));
       persistSettings();
+      handleSettingsChange();
       if (newSettings.shadowVolume !== undefined) {
         NativeAudioBooster.setVolume(newSettings.shadowVolume);
       }

@@ -92,6 +92,21 @@
       const radio = m.querySelector('input');
       if (radio) radio.checked = m.dataset.mode === settings.audioMode;
     });
+
+    const isEnabled = !!settings.enabled;
+    const wrapper = $('#mainContentWrapper');
+    if (wrapper) {
+      wrapper.classList.toggle('disabled-ui', !isEnabled);
+    }
+    const stText = $('#stText');
+    const stBadge = $('#stBadge');
+    if (!isEnabled) {
+      if (stText) stText.textContent = 'Disabled';
+      if (stBadge) {
+        stBadge.style.background = 'rgba(120, 120, 120, 0.2)';
+        stBadge.style.color = '#aaa';
+      }
+    }
   }
 
   function save() {
@@ -106,6 +121,7 @@
       settings.preferredClient = $('#preferredClient').value;
     }
 
+    applyUI();
     chrome.storage.local.set(settings);
     log(`Settings saved. Method: ${settings.preferredClient}, Mode: ${settings.audioMode}`
       + `${settings.rawItag ? ', RAW ITAG' : ''}`

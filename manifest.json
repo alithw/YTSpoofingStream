@@ -40,6 +40,9 @@
       "matches": [
         "*://*.youtube.com/*"
       ],
+      "exclude_matches": [
+        "*://music.youtube.com/*"
+      ],
       "js": [
         "inject.js"
       ],
@@ -49,6 +52,9 @@
     {
       "matches": [
         "*://*.youtube.com/*"
+      ],
+      "exclude_matches": [
+        "*://music.youtube.com/*"
       ],
       "js": [
         "bridge.js"
