@@ -56,7 +56,7 @@ Modern YouTube Web Player artificially restricts audio playback to low-bitrate s
 ## ✨ What's New in v0.1.2
 
 - 🛑 **Master Enable/Disable Subsystem**: Standalone Master toggle with visual dimming (`opacity: 0.35`, `pointer-events: none`). Switching off instantly clears all Declarative Net Request (DNR) session rules and unhooks all network interceptors, returning browser playback to 100% native.
-- 🎵 **Full YouTube Music (`music.youtube.com`) Isolation**: Added explicit exclusion matches so YouTube Music runs completely untouched with its native Service Worker and queue intact.
+- 🎵 **One-Click YouTube Music (`music.youtube.com`) Compatibility**: You no longer have to disable the extension in `chrome://extensions` to use YouTube Music. Simply toggle `Enable Extension: OFF` in the popup interface to listen to YouTube Music completely natively without interference.
 - 🚫 **Strict Low-Bitrate ITAG Stripping**: Automatically purges `[250, 249, 140, 139]` from `adaptiveFormats`, permanently blocking YouTube ABR from dropping audio quality down to 50kbps (Opus 250) on low video resolutions.
 - 🛡️ **Eliminated 403 Forbidden Stream Fallbacks**: Stream candidates strictly prioritize valid direct URLs, preventing signature decipher failures and unwanted fallbacks.
 
@@ -137,11 +137,11 @@ When *Stats for Nerds Override* is enabled, the codec line dynamically calculate
 
 ---
 
-## ⚠️ Known Limitations
+## ⚠️ Known Limitations & Compatibility Notes
 
-> [!CAUTION]
-> **YouTube Music (`music.youtube.com`) Compatibility**
-> When this extension is enabled, `music.youtube.com` background pre-fetching may conflict with queue management. If using YouTube Music, please temporarily toggle the extension off via the popup.
+> [!TIP]
+> **Seamless YouTube Music (`music.youtube.com`) Compatibility**
+> You no longer need to disable the extension in Chrome's settings (`chrome://extensions`)! To use **[music.youtube.com](https://music.youtube.com)**, simply toggle **`Enable Extension: OFF`** directly inside the extension popup UI. This instantly releases all network hooks and Declarative Net Request rules, allowing YouTube Music to initialize its internal Service Worker and play tracks 100% natively. Switch it back **`ON`** whenever you return to standard YouTube (`www.youtube.com`) to stream high-fidelity Opus 774 audio!
 
 | Service | Compatibility |
 |---|---|

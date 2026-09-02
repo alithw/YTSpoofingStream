@@ -56,7 +56,7 @@ Trình phát YouTube trên Web hiện nay giới hạn âm thanh ở mức bitra
 ## ✨ Điểm mới trong bản v0.1.2
 
 - 🛑 **Khối Master Bật/Tắt Toàn Hệ thống**: Tách riêng công tắc Master Switch kèm hiệu ứng làm mờ giao diện (`opacity: 0.35`, `pointer-events: none`). Khi tắt, tiện ích lập tức xóa sạch các quy tắc Declarative Net Request (DNR) và ngắt toàn bộ can thiệp mạng, trả về trình phát gốc 100%.
-- 🎵 **Cách ly Hoàn toàn YouTube Music (`music.youtube.com`)**: Thêm rule loại trừ tường minh giúp YouTube Music chạy hoàn toàn nguyên bản, giữ nguyên vẹn Service Worker và hàng chờ phát nhạc.
+- 🎵 **Sử dụng YouTube Music (`music.youtube.com`) Chỉ Với 1 Click**: Bạn không còn phải vào trang quản lý `chrome://extensions` để gỡ hay tắt tiện ích mỗi khi nghe YouTube Music. Giờ đây chỉ cần gạt `Enable Extension: OFF` ngay trên giao diện popup là có thể nghe YouTube Music hoàn toàn bình thường không hề bị chặn.
 - 🚫 **Loại bỏ Hoàn toàn ITAG Âm thanh Bitrate Thấp**: Tự động thanh lọc các ITAG `[250, 249, 140, 139]` ra khỏi danh sách `adaptiveFormats`, ngăn chặn triệt để thuật toán ABR của YouTube tự hạ chất lượng xuống Opus 250 (50kbps) khi xem ở độ phân giải thấp.
 - 🛡️ **Khắc phục Lỗi 403 Forbidden & Ngăn Chặn Fallback**: Bộ lọc ứng viên stream ưu tiên direct URL hợp lệ, loại bỏ các chuỗi decipher lỗi thời để đảm bảo không bao giờ bị rơi vào fallback.
 
@@ -137,11 +137,11 @@ Khi bật tùy chọn *Stats for Nerds Override*, dòng Codecs hiển thị bitr
 
 ---
 
-## ⚠️ Giới hạn đã biết
+## ⚠️ Giới hạn đã biết & Lưu ý Tương thích
 
-> [!CAUTION]
-> **Khả năng tương thích với YouTube Music (`music.youtube.com`)**
-> Khi tiện ích hoạt động, cơ chế nạp trước nền của `music.youtube.com` có thể gây xung đột với hàng đợi phát nhạc. Nếu sử dụng YouTube Music, vui lòng tạm thời tắt tiện ích trên popup.
+> [!TIP]
+> **Tương thích Mượt mà với YouTube Music (`music.youtube.com`)**
+> Bạn **không cần phải vào cài đặt Chrome (`chrome://extensions`) để tắt tiện ích**! Khi muốn nghe nhạc trên **[music.youtube.com](https://music.youtube.com)**, bạn chỉ cần gạt **`Enable Extension: OFF`** ngay trên giao diện Popup của extension. Thao tác này sẽ giải phóng toàn bộ các hook can thiệp mạng và quy tắc DNR, cho phép Service Worker nội bộ của YouTube Music khởi tạo và phát nhạc nguyên bản 100%. Gạt bật lại **`ON`** bất cứ khi nào bạn quay trở lại YouTube thường (`www.youtube.com`) để tiếp tục thưởng thức âm thanh Opus 774 chất lượng cao!
 
 | Dịch vụ | Mức độ tương thích |
 |---|---|
