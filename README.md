@@ -8,6 +8,7 @@
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="License MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
+    <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
 
@@ -40,6 +41,7 @@
 - [🚀 Installation](#-installation)
 - [⚙️ Configuration & Controls](#️-configuration--controls)
 - [🐞 Troubleshooting & FAQ](#-troubleshooting--faq)
+- [💖 Support / Buy Me a Coffee](#-support--buy-me-a-coffee)
 - [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
 
@@ -180,6 +182,20 @@ A: **Yes, you must turn off this extension when using YouTube Music (`music.yout
 - You do not need to visit `chrome://extensions` to disable or remove the extension: simply open the popup and switch **`Enable Extension: OFF`**.  
 - **Reason**: YTSpoofingStream uses deep network routing (DNR rules, cookie routing, header spoofing) to harvest streams for standard YouTube, which can conflict with the Service Worker and playback queue of `music.youtube.com`.  
 - **Key Technical Note**: The **YouTube Music Web client (`music.youtube.com`) only supports AAC 141 (~256kbps)** and **does not serve Opus 774** in desktop browsers. If you want to experience authentic **Opus 774** studio audio, simply enjoy music directly on **standard YouTube (`www.youtube.com`)** with YTSpoofingStream enabled!
+
+---
+
+## 💖 Support / Buy Me a Coffee
+
+If **YTSpoofingStream** enhances your music listening experience on YouTube, consider supporting its active development and maintenance:
+
+<p align="center">
+  <a href="https://ko-fi.com/alithw" target="_blank">
+    <img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" height="40" alt="Buy Me a Coffee at ko-fi.com" />
+  </a>
+</p>
+
+You can support the project on **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Every coffee helps keep the engine updated against YouTube's frequent backend changes! ☕✨
 
 ---
 

@@ -8,6 +8,7 @@
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="Giấy phép MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
+    <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
 
@@ -40,6 +41,7 @@
 - [🚀 Hướng dẫn Cài đặt](#-hướng-dẫn-cài-đặt)
 - [⚙️ Cấu hình & Điều khiển](#️-cấu-hình--điều-khiển)
 - [🐞 Xử lý Sự cố & Câu hỏi Thường gặp](#-xử-lý-sự-cố--câu-hỏi-thường-gặp)
+- [💖 Ủng hộ Dự án (Buy Me a Coffee)](#-ủng-hộ-dự-án-buy-me-a-coffee)
 - [🤝 Đóng góp vào Dự án (Contributing)](#-đóng-góp-vào-dự-án-contributing)
 - [📄 Giấy phép (License)](#-giấy-phép-license)
 
@@ -180,6 +182,20 @@ Kết quả kiểm thử thực tế thời gian thực 100% thời lượng tr�
 - Bạn không cần phải vào `chrome://extensions` để gỡ hay tắt tiện ích: chỉ cần mở popup và gạt công tắc **`Enable Extension: OFF`**.  
 - **Lý do**: YTSpoofingStream can thiệp sâu vào tầng mạng (DNR rules, cookie routing, header spoofing) để trích xuất luồng cho YouTube máy tính, việc này có thể gây xung đột với Service Worker và hàng đợi phát nhạc của trang web `music.youtube.com`.  
 - **Lưu ý quan trọng**: Bản thân **YouTube Music Web (`music.youtube.com`) chỉ hỗ trợ luồng AAC 141 (~256kbps)** và **không hỗ trợ luồng Opus 774** trên trình duyệt máy tính. Nếu bạn muốn thưởng thức âm thanh **Opus 774** chuẩn phòng thu đỉnh cao nhất, hãy nghe nhạc trực tiếp trên **YouTube thường (`www.youtube.com`)** với YTSpoofingStream đang bật!
+
+---
+
+## 💖 Ủng hộ Dự án (Buy Me a Coffee)
+
+Nếu **YTSpoofingStream** mang lại trải nghiệm nghe nhạc tuyệt vời hơn cho bạn trên YouTube, bạn có thể ủng hộ tác giả một ly cà phê để tiếp thêm động lực nghiên cứu và cập nhật tiện ích:
+
+<p align="center">
+  <a href="https://ko-fi.com/alithw" target="_blank">
+    <img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" height="40" alt="Buy Me a Coffee at ko-fi.com" />
+  </a>
+</p>
+
+Bạn có thể ủng hộ dự án qua **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Mọi sự ủng hộ và đồng hành của bạn đều là nguồn động lực rất lớn! ☕✨
 
 ---
 
