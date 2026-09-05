@@ -12,7 +12,7 @@ const CLIENTS = [
   {
     name: 'WEB_REMIX',
     clientName: 'WEB_REMIX',
-    clientVersion: '1.20250720.01.00',
+    clientVersion: '1.20260901.12.00',
     clientId: '67',
     apiKey: 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
     ua: null,
@@ -104,9 +104,8 @@ async function sha1Hex(input) {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function getSapisidHash() {
+async function getSapisidHash(origin = 'https://www.youtube.com') {
   try {
-    const origin = 'https://www.youtube.com';
     const ts = Math.floor(Date.now() / 1000);
     const parts = [];
 
@@ -286,6 +285,7 @@ const SABR_BLOCK_RULE_ID   = 9200;
 const BLACKLIST_BLOCK_RULE_ID = 9201;
 const SW_BLOCK_RULE_ID     = 9300;
 const API_UA_RULE_ID_BASE  = 9400;
+const CORS_RULE_ID         = 9500;
 
 // Escape a string for safe embedding in a DNR regexFilter.
 function reEscape(s) {
@@ -317,10 +317,13 @@ async function setupStaticRules() {
       return;
     }
 
+    const YTM_FRAME_RULE_ID = 9197;
+    const YTM_API_RULE_ID = 9198;
+    const WEB_REMIX_MEDIA_RULE_ID = 9199;
     const rulesToAdd = [];
-    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
+    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
 
-    // 1. Origin spoofing for API requests.
+    // 1. Origin spoofing for www.youtube.com API requests.
     rulesToAdd.push({
       id: ORIGIN_RULE_ID,
       priority: 1,
@@ -335,7 +338,44 @@ async function setupStaticRules() {
       },
       condition: {
         urlFilter: '*youtubei/v1/player*',
+        excludedRequestDomains: ['music.youtube.com'],
         resourceTypes: ['xmlhttprequest', 'other'],
+      },
+    });
+
+    // 1b. Dedicated Origin & Referer for music.youtube.com API requests
+    rulesToAdd.push({
+      id: YTM_API_RULE_ID,
+      priority: 10,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          { header: 'Origin', operation: 'set', value: 'https://music.youtube.com' },
+          { header: 'Referer', operation: 'set', value: 'https://music.youtube.com/' },
+          { header: 'Sec-Fetch-Site', operation: 'set', value: 'same-origin' },
+          { header: 'Sec-Fetch-Mode', operation: 'set', value: 'cors' },
+        ],
+      },
+      condition: {
+        urlFilter: '*music.youtube.com/youtubei/v1/*',
+        resourceTypes: ['xmlhttprequest', 'other'],
+      },
+    });
+
+    // 1c. Remove frame restrictions for music.youtube.com in offscreen/subframes
+    rulesToAdd.push({
+      id: YTM_FRAME_RULE_ID,
+      priority: 25,
+      action: {
+        type: 'modifyHeaders',
+        responseHeaders: [
+          { header: 'X-Frame-Options', operation: 'remove' },
+          { header: 'Content-Security-Policy', operation: 'remove' },
+        ],
+      },
+      condition: {
+        urlFilter: '*music.youtube.com/*',
+        resourceTypes: ['sub_frame'],
       },
     });
 
@@ -375,6 +415,10 @@ async function setupStaticRules() {
           requestHeaders: [
             { header: 'User-Agent', operation: 'set', value: c.ua }
           ],
+          responseHeaders: [
+            { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
+            { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
+          ],
         },
         condition: {
           regexFilter: `^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]c=|/c/)${c.clientName}(?:[&/]|$)`,
@@ -384,8 +428,6 @@ async function setupStaticRules() {
     });
 
     // 3b. Origin & Referer spoofing for WEB_REMIX media streams (prevents 403 on googlevideo.com)
-    const WEB_REMIX_MEDIA_RULE_ID = 9199;
-    rulesToRemove.push(WEB_REMIX_MEDIA_RULE_ID);
     rulesToAdd.push({
       id: WEB_REMIX_MEDIA_RULE_ID,
       priority: 15,
@@ -394,6 +436,10 @@ async function setupStaticRules() {
         requestHeaders: [
           { header: 'Referer', operation: 'set', value: 'https://music.youtube.com/' },
           { header: 'Origin', operation: 'set', value: 'https://music.youtube.com' },
+        ],
+        responseHeaders: [
+          { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
+          { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
         ],
       },
       condition: {
@@ -426,11 +472,32 @@ async function setupStaticRules() {
       },
     });
 
+    // 6. Enable CORS headers for googlevideo.com so Web Audio API FFT analyser can measure full spectrum
+    rulesToRemove.push(CORS_RULE_ID);
+    rulesToAdd.push({
+      id: CORS_RULE_ID,
+      priority: 10,
+      action: {
+        type: 'modifyHeaders',
+        responseHeaders: [
+          { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
+          { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
+          { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+          { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' },
+          { header: 'Access-Control-Expose-Headers', operation: 'set', value: 'Content-Length, Content-Range, Accept-Ranges' }
+        ]
+      },
+      condition: {
+        urlFilter: '||googlevideo.com',
+        resourceTypes: ['xmlhttprequest', 'media', 'other']
+      }
+    });
+
     await chrome.declarativeNetRequest.updateSessionRules({
       removeRuleIds: rulesToRemove,
       addRules: rulesToAdd,
     });
-    console.log(TAG, `Static DNR rules enabled (${rulesToAdd.length} rules: Origin + per-client API UA + Media UA + Blacklist/SW Block).`);
+    console.log(TAG, `Static DNR rules enabled (${rulesToAdd.length} rules: Origin + per-client API UA + Media UA + Blacklist/SW Block + CORS).`);
   } catch (e) {
     console.error(TAG, 'Failed to setup static rules:', e);
   }
@@ -459,12 +526,16 @@ async function fetchFromClient(videoId, client) {
   const isTVClient = client.name.startsWith('TVHTML5');
 
   // Auth strategy:
-  // TVHTML5: try Bearer OAuth first (Premium 774), fallback SAPISIDHASH
+  // TVHTML5: Check login TV trước khi fetch! Không có login -> Premium thì nghỉ
   // WEB_REMIX / TVHTML5_SIMPLY: SAPISIDHASH
   // Mobile clients (ANDROID, IOS, etc.): No web SAPISIDHASH (causes HTTP 400 Bad Request)
   if (isTVClient) {
     bearerToken = await getClientAccessToken('TVHTML5');
-    if (bearerToken) auth = `Bearer ${bearerToken}`;
+    if (!bearerToken) {
+      console.warn(TAG, `[${client.name}] TV client requires login (Premium) -> Skipping fetch.`);
+      return { source: client.name, error: 'NO_TV_LOGIN', audioFormats: [] };
+    }
+    auth = `Bearer ${bearerToken}`;
   } else if (client.name === 'ANDROID_MUSIC') {
     bearerToken = await getClientAccessToken('ANDROID_MUSIC');
     if (bearerToken) auth = `Bearer ${bearerToken}`;
@@ -474,7 +545,7 @@ async function fetchFromClient(videoId, client) {
   }
 
   if (!auth && !isMobileClient) {
-    auth = await getSapisidHash();
+    auth = await getSapisidHash(origin);
   }
 
   // Headers — when using Bearer token or Mobile, omit web-only AuthUser/VisitorId
@@ -545,7 +616,7 @@ async function fetchFromClient(videoId, client) {
     racyCheckOk: true,
     playbackContext: {
       contentPlaybackContext: {
-        signatureTimestamp: pageContext.sts || 19900,
+        ...(client.name !== 'WEB_REMIX' && { signatureTimestamp: pageContext.sts || 20696 }),
         audioQualityPreference: 'AUDIO_QUALITY_HIGH',
       },
     },
@@ -615,7 +686,7 @@ async function fetchFromClient(videoId, client) {
           poToken: pageContext.poToken || null,
           visitorData: data.responseContext?.visitorData || clientObj.visitorData || null,
           // Signature timestamp the TV player was signed under.
-          sts: pageContext.sts || 19900,
+          sts: pageContext.sts || 20696,
           ts: Date.now(),
         };
         console.log(TAG, `[${client.name}] captured streamingContext: sabrUrl=${data.streamingData.serverAbrStreamingUrl.slice(0, 80)}... ustreamerConfig=${data.streamingData.ustreamerConfig ? 'present' : 'absent'}`);
@@ -631,30 +702,285 @@ async function fetchFromClient(videoId, client) {
   }
 }
 
+// ─── OFFSCREEN HARVESTER & WEBREQUEST LISTENER ───────────────────────
+async function ensureOffscreenDocument() {
+  if (chrome.offscreen) {
+    if (await chrome.offscreen.hasDocument?.()) {
+      return;
+    }
+    try {
+      await chrome.offscreen.createDocument({
+        url: 'harvester.html',
+        reasons: ['IFRAME_SCRIPTING', 'DOM_PARSER'],
+        justification: 'Harvest HQ audio streams from YouTube Music and TV',
+      });
+      console.log(TAG, '[Harvester] Offscreen document created');
+    } catch (err) {
+      if (!err.message?.includes('Only a single offscreen document may be created')) {
+        console.warn(TAG, '[Harvester] Offscreen creation error:', err);
+      }
+    }
+  }
+}
+
+let activeHarvestSession = null;
+
+if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
+  chrome.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      const url = details.url;
+      if (!url || !url.includes('videoplayback')) return;
+
+      // STRICT: ONLY intercept genuine ITAG 774 Opus ~280kbps
+      const is774 = url.includes('itag=774');
+      if (!is774) return;
+
+      // CRITICAL: Only intercept requests originating from offscreen harvester document (tabId === -1).
+      // Normal browser tabs (such as the active YouTube player tab) have tabId >= 0.
+      // We must NEVER intercept playback requests from the user's active YouTube tab!
+      if (details.tabId !== -1) return;
+
+      // Ensure initiator is NOT www.youtube.com
+      if (details.initiator && details.initiator.includes('www.youtube.com')) return;
+
+      if (activeHarvestSession) {
+        console.log(TAG, `[WebRequest] Intercepted deciphered ITAG 774 stream for ${activeHarvestSession.videoId}`);
+
+        // Strip range and chunking params to get full base stream URL
+        let cleanUrl = url.split('&range=')[0];
+        cleanUrl = cleanUrl.replace(/&rn=\d+/, '').replace(/&rbuf=\d+/, '');
+
+        const fmt = {
+          itag: 774,
+          _origItag: 774,
+          url: cleanUrl,
+          _directUrl: cleanUrl,
+          mimeType: 'audio/webm; codecs="opus"',
+          bitrate: 280000,
+          audioQuality: 'AUDIO_QUALITY_HIGH',
+          _src: activeHarvestSession.opMode === 'TV_HEADLESS' ? 'TV_HEADLESS' : 'YTM_HARVESTER',
+        };
+
+        const resolve = activeHarvestSession.resolve;
+        activeHarvestSession = null;
+
+        // Reset harvester frame to avoid background playback load
+        chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+
+        resolve([fmt]);
+      }
+    },
+    { urls: ["*://*.googlevideo.com/videoplayback*"] }
+  );
+}
+
+const pendingHarvests = new Map(); // videoId -> Promise
+let harvestQueue = Promise.resolve();
+
+async function harvestViaYtm(videoId, title = null, author = null) {
+  if (pendingHarvests.has(videoId)) {
+    console.log(TAG, `[YTM_HARVEST] Joining existing harvest session for ${videoId}`);
+    return pendingHarvests.get(videoId);
+  }
+
+  const p = new Promise((resolve) => {
+    harvestQueue = harvestQueue.then(async () => {
+      try {
+        const res = await _doHarvest(videoId, title, author);
+        resolve(res);
+      } catch (e) {
+        console.warn(TAG, `[YTM_HARVEST] Error harvesting ${videoId}:`, e);
+        resolve([]);
+      }
+    });
+  }).finally(() => {
+    pendingHarvests.delete(videoId);
+  });
+
+  pendingHarvests.set(videoId, p);
+  return p;
+}
+
+async function _doHarvest(videoId, title = null, author = null) {
+  await ensureOffscreenDocument();
+
+  // Always harvest the exact requested videoId in the offscreen iframe
+  // NEVER substitute an arbitrary different video from search!
+  const targetId = videoId;
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (activeHarvestSession && activeHarvestSession.videoId === videoId) {
+        activeHarvestSession = null;
+        console.log(TAG, `[YTM_HARVEST] Timeout for ${videoId}, falling back to native`);
+        chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+        resolve([]);
+      }
+    }, 8000);
+
+    activeHarvestSession = {
+      videoId,
+      targetId,
+      resolve: (formats) => {
+        clearTimeout(timer);
+        resolve(formats);
+      }
+    };
+
+    chrome.runtime.sendMessage({
+      type: 'OFFSCREEN_HARVEST_YTM',
+      videoId: targetId
+    }).catch(err => {
+      console.warn(TAG, '[YTM_HARVEST] Offscreen message error:', err);
+      resolve([]);
+    });
+  });
+}
+
 // ─── MESSAGE HANDLER ─────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'OFFSCREEN_HARVEST_ABORT') {
+    if (activeHarvestSession && activeHarvestSession.videoId === msg.videoId) {
+      console.log(TAG, `[YTM_HARVEST] Harvest aborted for ${msg.videoId}: ${msg.reason}`);
+      const resolve = activeHarvestSession.resolve;
+      activeHarvestSession = null;
+      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      resolve([]);
+    }
+    sendResponse({ received: true });
+    return true;
+  }
+
   if (msg.type === 'FETCH_HQ') {
-    const { videoId } = msg;
-    // Ignore anything that isn't a real 11-char YouTube ID. Player-URL parsing
-    // occasionally hands us fragments like "ux", and those burn a 7-client fan-out
-    // and cache a permanently-empty result under a junk key.
+    const { videoId, title, author } = msg;
+    // Ignore anything that isn't a real 11-char YouTube ID.
     if (!/^[\w-]{11}$/.test(videoId || '')) {
       sendResponse({ success: false, results: [], error: 'invalid videoId' });
       return true;
     }
-    // The page ships its session identity with every request, so an evicted worker
-    // is re-primed by the very message that woke it rather than depending on the
-    // page noticing that its one-shot context push needs repeating.
     if (msg.context) setPageContext(msg.context);
 
     (async () => {
-      const storage = await chrome.storage.local.get(['preferredClient', 'enabled']);
+      const storage = await chrome.storage.local.get(['preferredClient', 'enabled', 'operationMode']);
       if (storage.enabled === false) {
         sendResponse({ success: false, results: [], error: 'disabled' });
         return;
       }
-      const pref = storage.preferredClient || 'AUTO';
 
+      const opMode = msg.opMode || storage.operationMode || 'HYBRID_HQ';
+
+      // ── HYBRID MODE: HYBRID_HQ (Full 774 Support: YTM Harvester -> TV Headless -> Cancel)
+      if (opMode === 'HYBRID_HQ') {
+        console.log(TAG, `[FETCH_HQ] Mode: HYBRID_HQ hunting for 774 on exact video ${videoId}...`);
+
+        // Step 1: Harvest from YTM for the EXACT video (strict 774 only)
+        const ytmFormats = await harvestViaYtm(videoId, title, author);
+        if (ytmFormats && ytmFormats.length > 0) {
+          const has774 = ytmFormats.some(f => f.itag === 774);
+          if (has774) {
+            console.log(TAG, `[FETCH_HQ] HYBRID_HQ successfully harvested 774 for exact video ${videoId}`);
+            const results = [{ source: 'HYBRID_774', audioFormats: ytmFormats }];
+            chrome.storage.session.set({
+              [`hq_${videoId}`]: { formats: ytmFormats, streamingContext: null, ts: Date.now() }
+            }).catch(() => {});
+            sendResponse({ success: true, results, streamingContext: null, opMode: 'HYBRID_HQ' });
+            return;
+          }
+        }
+
+        // Step 2: Fallback to TV Headless (Mode 1) ONLY if user is logged into TV with Premium!
+        // "check login tv trước khi fetch, k có login -> premium thì nghỉ"
+        const tvToken = await getClientAccessToken('TVHTML5');
+        if (tvToken) {
+          console.log(TAG, `[FETCH_HQ] HYBRID_HQ: Checking TV client for ${videoId} with Premium login...`);
+          const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
+          const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
+          const tvHas774 = tvRes?.audioFormats?.some(f => f.itag === 774);
+          if (tvHas774) {
+            console.log(TAG, `[FETCH_HQ] HYBRID_HQ: TV confirmed 774 for exact video ${videoId}`);
+            const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
+            chrome.storage.session.set({
+              [`hq_${videoId}`]: { formats: tvRes.audioFormats, streamingContext: tvRes?.streamingContext || null, ts: Date.now() }
+            }).catch(() => {});
+            sendResponse({ success: true, results, streamingContext: tvRes?.streamingContext || null, opMode: 'HYBRID_HQ' });
+            return;
+          }
+        }
+
+        // Exact video has no 774 stream -> HỦY ĐI! Cancel spoofing, let native play as requested!
+        console.log(TAG, `[FETCH_HQ] HYBRID_HQ: No genuine 774 stream found for ${videoId} -> Cancelled.`);
+        sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'HYBRID_HQ' });
+        return;
+      }
+
+      // ── MODE 4: YTM_HARVESTER (Direct 774 Opus from YouTube Music)
+      if (opMode === 'YTM_HARVESTER') {
+        console.log(TAG, `[FETCH_HQ] Mode 4 (YTM_HARVESTER) harvesting for exact video ${videoId}...`);
+        const formats = await harvestViaYtm(videoId, title, author);
+        const has774 = formats && formats.some(f => f.itag === 774);
+        if (has774) {
+          console.log(TAG, `[FETCH_HQ] Mode 4 successfully harvested 774 for exact video ${videoId}!`);
+          const results = [{ source: 'YTM_HARVESTER', audioFormats: formats }];
+          chrome.storage.session.set({
+            [`hq_${videoId}`]: { formats, streamingContext: null, ts: Date.now() }
+          }).catch(() => {});
+          sendResponse({ success: true, results, streamingContext: null, opMode: 'YTM_HARVESTER' });
+          return;
+        }
+        console.log(TAG, `[FETCH_HQ] Mode 4: No 774 stream found for ${videoId} -> Cancelled.`);
+        sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'YTM_HARVESTER' });
+        return;
+      }
+
+      // ── MODE 1: TV_HEADLESS (TV SABR 774 Relay)
+      if (opMode === 'TV_HEADLESS') {
+        console.log(TAG, `[FETCH_HQ] Mode 1 (TV_HEADLESS) resolving for ${videoId}...`);
+        // Check TV login first! "check login tv trước khi fetch, k có login -> premium thì nghỉ"
+        const tvToken = await getClientAccessToken('TVHTML5');
+        if (!tvToken) {
+          console.warn(TAG, `[FETCH_HQ] Mode 1: No TV login (Premium required) -> Stopping.`);
+          sendResponse({ success: false, results: [], error: 'NO_TV_LOGIN', opMode: 'TV_HEADLESS' });
+          return;
+        }
+
+        const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
+        const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
+        const tvHas774 = tvRes?.audioFormats?.some(f => f.itag === 774);
+        const tvCtx = tvRes?.streamingContext || null;
+        if (tvCtx) {
+          chrome.storage.session.set({ [`tvctx_${videoId}`]: tvCtx }).catch(() => {});
+        }
+
+        if (!tvHas774) {
+          console.log(TAG, `[FETCH_HQ] Mode 1: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
+          sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'TV_HEADLESS' });
+          return;
+        }
+
+        // TV confirmed 774 is available!
+        console.log(TAG, `[FETCH_HQ] Mode 1: TV confirmed 774 for ${videoId}`);
+        const harvested = await harvestViaYtm(videoId, title, author);
+        if (harvested && harvested.some(f => f.itag === 774)) {
+          const results = [{ source: 'TV_HEADLESS', audioFormats: harvested.map(f => ({ ...f, _src: 'TV_HEADLESS' })) }];
+          chrome.storage.session.set({
+            [`hq_${videoId}`]: { formats: results[0].audioFormats, streamingContext: tvCtx, ts: Date.now() }
+          }).catch(() => {});
+          sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_HEADLESS' });
+          return;
+        }
+
+        // Direct TVHTML5 774 format
+        console.log(TAG, `[FETCH_HQ] Mode 1: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
+        const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
+        chrome.storage.session.set({
+          [`hq_${videoId}`]: { formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
+        }).catch(() => {});
+        sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_HEADLESS' });
+        return;
+      }
+
+      // ── FALLBACK / AUTO: Multi-client innerTube resolver
+      const pref = storage.preferredClient || 'AUTO';
       let targetClients = [...CLIENTS];
       if (pref !== 'AUTO') {
         const matched = CLIENTS.find(c => c.name === pref);
@@ -665,29 +991,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       const promises = targetClients.map(c => fetchFromClient(videoId, c));
       const rawResults = await Promise.all(promises);
-
       const results = rawResults.filter(r => r !== null);
-
-      // ── Persist HQ results to session storage so inject.js can load them
-      //    instantly on the NEXT page load (avoids the race-condition timing issue)
       const tvCtx = results.find(r => r.streamingContext)?.streamingContext || null;
+
       if (results.some(r => r.audioFormats?.length > 0)) {
         const merged = results.flatMap(r => r.audioFormats || []);
         chrome.storage.session.set({
           [`hq_${videoId}`]: { formats: merged, streamingContext: tvCtx, ts: Date.now() }
-        }).catch(() => { });
+        }).catch(() => {});
       }
 
-      // ── Phase 1 (Option D): persist TVHTML5 streaming context.
-      if (tvCtx) {
-        chrome.storage.session.set({ [`tvctx_${videoId}`]: tvCtx })
-          .catch(() => { });
-        console.log(TAG, `[OptionD] persisted tvctx_${videoId}`);
-      }
-
-      sendResponse({ success: results.length > 0, results, streamingContext: tvCtx });
+      sendResponse({ success: results.length > 0, results, streamingContext: tvCtx, opMode: 'AUTO' });
     })();
 
+    return true;
+  }
+
+  if (msg.type === 'OFFSCREEN_HARVEST_ABORT') {
+    if (activeHarvestSession && (!msg.videoId || activeHarvestSession.videoId === msg.videoId)) {
+      console.log(TAG, `[YTM_HARVEST] Aborted harvest for ${activeHarvestSession.videoId} (reason: ${msg.reason})`);
+      const resolve = activeHarvestSession.resolve;
+      activeHarvestSession = null;
+      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      resolve([]);
+    }
+    sendResponse({ success: true });
     return true;
   }
 

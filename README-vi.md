@@ -1,10 +1,10 @@
 <div align="center">
   <img src="logo.svg" alt="YTSpoofingStream Logo" width="128" height="128">
   <h1>YTSpoofingStream</h1>
-  <p><b>Mở khóa Âm thanh YouTube Bitrate Cao Thực Thụ (256kbps+ Opus & AAC) trên Trình duyệt Web</b></p>
+  <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.2-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.3-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="Giấy phép MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -13,14 +13,14 @@
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
-> Tiện ích mở rộng này được thiết kế chuyên biệt cho người dùng sở hữu tài khoản **YouTube Premium**. Các máy chủ nội bộ của YouTube chỉ cung cấp luồng Opus bitrate cao (`itag 774`, ~276kbps) và AAC (`itag 141`, ~256kbps) cho các phiên đăng nhập Premium đã xác thực. Các phiên không có Premium sẽ tự động chuyển về định dạng tiêu chuẩn gốc (`itag 251` / `140`).
+> Tiện ích mở rộng này được thiết kế chuyên biệt cho người dùng sở hữu tài khoản **YouTube Premium**. Các máy chủ nội bộ của YouTube chỉ cung cấp luồng Opus bitrate cao chuẩn phòng thu (`ITAG 774`, ~256k-301kbps, dải tần >20.000 Hz) cho các phiên đăng nhập Premium đã xác thực.
 
 > [!IMPORTANT]
-> **Hỗ trợ đầy đủ luồng Opus 774 (Xác thực TVHTML5)**:
-> Để mở khóa và phát toàn diện luồng Opus 774 trên mọi video, bạn hãy đăng nhập vào phần **TVHTML5** trên extension:
-> 1. Mở popup extension và nhấn vào nút đăng nhập **TVHTML5**.
+> **Xác thực Smart TV (TVHTML5)**:
+> Để mở khóa và chuyển tiếp luồng Opus 774 giải mã từ Smart TV trên mọi thể loại video, hãy đăng nhập tại mục **TVHTML5** trong popup:
+> 1. Mở popup extension và nhấn nút đăng nhập **TVHTML5**.
 > 2. Đảm bảo đăng nhập đúng tài khoản Google có YouTube Premium.
-> 3. Sau khi login xong và hệ thống hiển thị status là thành công $\rightarrow$ **Enjoy highest quality!**
+> 3. Sau khi xác thực thành công, extension sẽ hoạt động với độ khả dụng luồng 774 cao nhất!
 
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 
@@ -28,148 +28,173 @@
 
 ## 📑 Mục lục
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
-- [✨ Điểm mới trong bản v0.1.2](#-điểm-mới-trong-bản-v012)
-- [🔥 Tính năng Nổi bật](#-tính-năng-nổi-bật)
-- [🧠 Kiến trúc Kỹ thuật & Phân tích Chuyên sâu](#-kiến-trúc-kỹ-thuật--phân-tích-chuyên-sâu)
-  - [1. Động cơ Giả mạo Đa nền tảng (Multi-Client)](#1-động-cơ-giả-mạo-đa-nền-tảng-multi-client)
-  - [2. Bộ giải mã Tự động SignatureCipherDecipherer](#2-bộ-giải-mã-tự-động-signaturecipherdecipherer)
-  - [3. Trình phát Âm thanh Riêng biệt (SeparateAudioEngine)](#3-trình-phát-âm-thanh-riêng-biệt-separateaudioengine)
-  - [4. Bảo vệ Luồng Video Gốc & Cơ chế Fallback An toàn](#4-bảo-vệ-luồng-video-gốc--cơ-chế-fallback-an-toàn)
-  - [5. Đồng bộ Bảng Thống kê & Dashboard Thời gian thực](#5-đồng-bộ-bảng-thống-kê--dashboard-thời-gian-thực)
+- [✨ Tái cấu trúc Kiến trúc trong bản v0.1.3](#-tái-cấu-trúc-kiến-trúc-trong-bản-v013)
+- [🧠 Phân tích Chuyên sâu](#-phân-tích-chuyên-sâu)
+  - [1. Sự thay đổi nền tảng từ YouTube (SABR / UMP Streaming)](#1-sự-thay-đổi-nền-tảng-từ-youtube-sabr--ump-streaming)
+  - [2. Vì sao phương pháp can thiệp player cũ thất bại (Lỗi `s:80` và `s:49`)](#2-vì-sao-phương-pháp-can-thiệp-player-cũ-thất-bại-lỗi-s80-và-s49)
+  - [3. Giải pháp: Động cơ Luồng Đôi Đồng bộ Studio 774 (Dual-Stream Engine)](#3-giải-pháp-động-cơ-luồng-đôi-đồng-bộ-studio-774-dual-stream-engine)
+  - [4. Tắt tiếng video gốc ở tầng Descriptor Phần cứng](#4-tắt-tiếng-video-gốc-ở-tầng-descriptor-phần-cứng)
+  - [5. Đồng bộ Chuẩn Master Clock Âm thanh Nguyên bản 1.0x](#5-đồng-bộ-chuẩn-master-clock-âm-thanh-nguyên-bản-10x)
+- [🎛️ 3 Chế độ Hoạt động](#️-3-chế-độ-hoạt-động)
+- [📊 Kết quả Đo lường Phổ âm Toàn bài hát (FFT Spectrum)](#-kết-quả-đo-lường-phổ-âm-toàn-bài-hát-fft-spectrum)
 - [🚀 Hướng dẫn Cài đặt](#-hướng-dẫn-cài-đặt)
-- [⚙️ Tùy chọn Cấu hình & Điều khiển](#️-tùy-chọn-cấu-hình--điều-khiển)
-- [⚠️ Giới hạn đã biết](#️-giới-hạn-đã-biết)
-- [🐞 Báo cáo Lỗi & Hỗ trợ](#-báo-cáo-lỗi--hỗ-trợ)
-- [🤝 Đóng góp vào Dự án](#-đóng-góp-vào-dự-án)
+- [⚙️ Cấu hình & Điều khiển](#️-cấu-hình--điều-khiển)
+- [🐞 Xử lý Sự cố & Câu hỏi Thường gặp](#-xử-lý-sự-cố--câu-hỏi-thường-gặp)
+- [🤝 Đóng góp vào Dự án (Contributing)](#-đóng-góp-vào-dự-án-contributing)
 - [📄 Giấy phép (License)](#-giấy-phép-license)
 
 ---
 
 ## 🌟 Tại sao bạn cần YTSpoofingStream?
 
-Trình phát YouTube trên Web hiện nay giới hạn âm thanh ở mức bitrate thấp (**ITAG 251** Opus ~145-160kbps bị vát ngọn dải tần cao ở 15-16kHz, hoặc **ITAG 140** AAC ~128kbps), ngay cả với người dùng trả phí YouTube Premium. Luồng âm thanh cao cấp không nén dải tần (**ITAG 774** Opus ~276kbps lên tới 22kHz, và **ITAG 141** AAC 256kbps) chỉ được mở cho một số client đặc thù (YouTube Music, ứng dụng di động Android/iOS, Smart TV).
+Trên hệ sinh thái YouTube hiện nay, chất lượng âm thanh được phân tầng nghiêm ngặt:
+- **YouTube Web thông thường (`www.youtube.com`)**: Giới hạn âm thanh ở mức bitrate thấp (**ITAG 251** Opus ~145-160kbps bị cắt gọt dải tần cao ở 15-16kHz, hoặc **ITAG 140** AAC ~128kbps), **kể cả đối với tài khoản trả phí YouTube Premium**.
+- **YouTube Music Bản Web (`music.youtube.com`)**: Dù là dịch vụ âm nhạc chuyên dụng, **phiên bản Web của YouTube Music chỉ hỗ trợ tối đa luồng AAC 141 (~256kbps)** và **hoàn toàn không hỗ trợ luồng Opus 774 trên nền web máy tính**.
+- **Nơi duy nhất YouTube phân phối luồng Opus 774**: Luồng âm thanh chuẩn phòng thu cao cấp nhất (**ITAG 774** Opus ~256k-301kbps với phổ âm đầy đủ vượt 20.000 Hz) bị phong tỏa độc quyền, chỉ phục vụ cho ứng dụng YouTube Music di động (Android/iOS) và Smart TV Living Room (`TVHTML5`).
 
-**YTSpoofingStream** giải quyết triệt để rào cản này. Tiện ích hoạt động như một proxy thông minh chạy ngầm trong trình duyệt, truy vấn luồng âm thanh bitrate cao thực thụ từ các client nội bộ và phát song song mượt mà với video gốc.
-
----
-
-## ✨ Điểm mới trong bản v0.1.2
-
-- 🛑 **Khối Master Bật/Tắt Toàn Hệ thống**: Tách riêng công tắc Master Switch kèm hiệu ứng làm mờ giao diện (`opacity: 0.35`, `pointer-events: none`). Khi tắt, tiện ích lập tức xóa sạch các quy tắc Declarative Net Request (DNR) và ngắt toàn bộ can thiệp mạng, trả về trình phát gốc 100%.
-- 🎵 **Sử dụng YouTube Music (`music.youtube.com`) Chỉ Với 1 Click**: Bạn không còn phải vào trang quản lý `chrome://extensions` để gỡ hay tắt tiện ích mỗi khi nghe YouTube Music. Giờ đây chỉ cần gạt `Enable Extension: OFF` ngay trên giao diện popup là có thể nghe YouTube Music hoàn toàn bình thường không hề bị chặn.
-- 🚫 **Loại bỏ Hoàn toàn ITAG Âm thanh Bitrate Thấp**: Tự động thanh lọc các ITAG `[250, 249, 140, 139]` ra khỏi danh sách `adaptiveFormats`, ngăn chặn triệt để thuật toán ABR của YouTube tự hạ chất lượng xuống Opus 250 (50kbps) khi xem ở độ phân giải thấp.
-- 🛡️ **Khắc phục Lỗi 403 Forbidden & Ngăn Chặn Fallback**: Bộ lọc ứng viên stream ưu tiên direct URL hợp lệ, loại bỏ các chuỗi decipher lỗi thời để đảm bảo không bao giờ bị rơi vào fallback.
+### ❓ Vì sao YTSpoofingStream có thể fetch được luồng Opus 774 của YouTube Music?
+Trình duyệt web thông thường khi kết nối YouTube Music sẽ bị gán client web `WEB_REMIX`, vốn chỉ được phân phối luồng AAC 141. **YTSpoofingStream** giải quyết triệt để rào cản này nhờ:
+1. **Giả lập Client Đa nền tảng (Multi-Client Spoofing)**: Định tuyến các yêu cầu ngầm qua Declarative Net Request (DNR) và Service Worker, giả lập các client có thẩm quyền cao nhất như `ANDROID_MUSIC` và `TVHTML5`.
+2. **Khai thác Phiên Xác thực Premium Hợp lệ (YTM Harvester)**: Tận dụng chính cookie Premium đang đăng nhập trên trình duyệt để gửi yêu cầu đến endpoint nội bộ của YouTube Music. Máy chủ YouTube nhận diện đây là client di động/TV hợp lệ và giải phóng URL luồng stream **Opus 774** nguyên bản.
+3. **Động cơ Luồng Đôi (Dual-Stream Engine)**: Đồng bộ luồng Opus 774 chất lượng phòng thu với trình phát video YouTube thông thường với độ chính xác từng khung hình, mang lại trải nghiệm âm thanh đỉnh cao ngay trên máy tính mà không làm gián đoạn phát hình.
 
 ---
 
-## 🔥 Tính năng Nổi bật
+## ✨ Tái cấu trúc Kiến trúc trong bản v0.1.3
 
-- **Khôi phục Trọn vẹn Dải tần Âm thanh**: Mở rộng dải tần âm thanh lên đến 22kHz Hi-Fi chuẩn phòng thu.
-- **Truy vấn Đa Client Song song**: Gọi đồng thời các client `WEB_REMIX`, `TVHTML5`, `ANDROID` và `IOS` qua Service Worker.
-- **Vượt rào BotGuard**: Tự động trích xuất và đính kèm `poToken`, `visitorData` và `SAPISIDHASH` từ phiên duyệt web thực tế.
-- **Không Gián đoạn Phát Video**: Giữ nguyên vẹn 100% luồng video gốc (`SABR`, `1080p`, `4K`, `AV1/VP9`).
-- **Giao diện Bảng điều khiển Trực quan**: Theo dõi thời gian thực ITAG đang hoạt động, bitrate đo lường, và trạng thái của từng client.
+Do YouTube thay đổi sâu sắc cơ chế phát video và mã hóa luồng trên toàn hệ thống máy chủ, YTSpoofingStream v0.1.3 được tái cấu trúc toàn diện:
+
+- 🚀 **Kiến trúc Động cơ Luồng Đôi Studio 774**: Tách biệt hoàn toàn kênh phát hình ảnh và kênh âm thanh. Trình phát gốc của YouTube tiếp tục hiển thị video nguyên bản (1080p, 4K, AV1/VP9) với token gốc hợp lệ, trong khi động cơ song song phát luồng Opus 774 phòng thu đỉnh cao.
+- 🔇 **Tắt tiếng Tầng Descriptor Phần cứng**: Sử dụng kỹ thuật can thiệp descriptor nguyên mẫu (`HTMLMediaElement.prototype.volume`) để ngắt hoàn toàn tín hiệu âm thanh của video gốc ở tầng engine trình duyệt (`hardware volume = 0`). Thuộc tính DOM và giao diện thanh âm lượng/nút mute của YouTube vẫn phản hồi bình thường mà không bị desync.
+- ⚡ **Đồng bộ Nguyên bản Bit-Perfect 1.0x**: Luồng âm thanh Opus 774 được phát ở tốc độ chuẩn 1.0x nguyên bản không qua bất kỳ bộ lọc resampling hay kéo giãn thời gian (WSOLA) nào. Âm thanh đóng vai trò master clock; khi chuyển tab hoặc chuyển app, đồng hồ video tự căn chỉnh tiến về trước theo âm thanh với độ lệch cực thấp.
+- 🔒 **Bộ Thu hoạch Luồng Trực tiếp**: Trích xuất an toàn luồng ITAG 774 giải mã từ phiên xác thực YouTube Music và Smart TV Living Room, kiểm soát nguồn gói và tự động hủy can thiệp nếu bài hát không có luồng 774 chính quy.
+- 🎛️ **3 Chế độ Hoạt động Tối ưu**:
+  - `HYBRID_HQ` (Khuyên dùng): Tự động trích xuất luồng 774 từ YouTube Music và TV Living Room; tự động hủy can thiệp nếu bài hát không có track 774 thực thụ.
+  - `YTM_HARVESTER`: Thu hoạch trực tiếp luồng HTTPS 774 Opus từ phiên YouTube Music Premium.
+  - `TV_HEADLESS`: Chuyển tiếp luồng giải mã từ Smart TV Living Room.
+- 🎯 **Tái định vị Huy hiệu Codec vào Thanh Điều khiển**: Đưa huy hiệu hiển thị codec (`★ 774` / `251`) vào đúng cụm pill bo tròn hiện đại (`.ytp-right-controls-left`) nằm ngay cạnh nút Cài đặt (Settings), trực quan và không bị che khuất.
+- 🧹 **Giao diện Popup Tinh gọn, Chuyên biệt**: Loại bỏ các nút chọn client dư thừa, tùy chọn itag thô, khung log và công tắc chuyển audio mode (tiện ích tập trung 100% vào việc phát Opus 774 chất lượng cao nhất).
 
 ---
 
-## 🧠 Kiến trúc Kỹ thuật & Phân tích Chuyên sâu
+## 🧠 Phân tích Chuyên sâu
+
+### 1. Sự thay đổi nền tảng từ YouTube (SABR / UMP Streaming)
+Trên các phiên bản YouTube máy tính gần đây, Google đã chuyển hoàn toàn cơ chế stream sang giao thức nhị phân **SABR / UMP (Unified Media Protocol)**. Phản hồi của `/watch` không còn chứa URL trực tiếp (`url: false`, `cipher: false`) trong `adaptiveFormats`. Mọi phân đoạn video và audio đều được gom và đẩy qua URL stream nhị phân duy nhất `serverAbrStreamingUrl`. Client web máy tính bị khóa cứng ở chuẩn Opus 160kbps (ITAG 251).
+
+### 2. Vì sao phương pháp can thiệp player cũ thất bại (Lỗi `s:80` và `s:49`)
+Các phương thức can thiệp trực tiếp trước đây:
+1. **Xóa bỏ `serverAbrStreamingUrl`**: Buộc player quay về đọc URL riêng rẽ trong `adaptiveFormats`. Việc này kích hoạt lỗi nghiêm trọng mã `s:80` (`HTML5_NO_AVAILABLE_FORMATS_FALLBACK` / thông báo "Đã xảy ra lỗi. Vui lòng thử lại sau").
+2. **Tiêm trực tiếp URL của TV/Android vào trình phát**: Gây lỗi xác thực CORS mã `s:49` do máy chủ CDN Google Video yêu cầu các cookie và token khớp chính xác với từng loại client (`poToken`, `cplatform`, `cver`).
+
+### 3. Giải pháp: Động cơ Luồng Đôi Đồng bộ Studio 774 (Dual-Stream Engine)
+Để đạt độ ổn định 100% không bao giờ gặp lỗi trình phát:
+- **Kênh Video Gốc**: Trình phát YouTube phát video gốc bình thường với đầy đủ chứng chỉ hợp lệ, đảm bảo độ phân giải cao nhất (4K, 1080p Premium) và không bao giờ bị lỗi s:80/s:49.
+- **Kênh Âm Thanh Studio (`StudioEngine774`)**: Một thẻ `<audio>` chạy ngầm phát luồng Opus 774 thu hoạch song song từ YTM Harvester (khai thác kho luồng Opus 774 của YouTube Music qua client di động) hoặc `TVHTML5` (Smart TV).
 
 ```mermaid
 flowchart TD
-    A["Trang YouTube Web"] -->|"Chuyển trang SPA / Khởi động"| B["Content Script (inject.js)"]
-    B -->|"Trích xuất Phiên & poToken"| C["Service Worker (background.js)"]
-    C -->|"Truy vấn Xác thực Song song"| D["Client Nội bộ (WEB_REMIX, TVHTML5)"]
-    D -->|"Trả về Format 774 / 141 Mã hóa"| C
-    C -->|"Gửi Format HQ về Content Script"| B
-    B --> E["SignatureCipherDecipherer"]
-    E -->|"Trích xuất bảng p từ base.js & Giải mã s"| F["URL Stream HTTPS Trực tiếp"]
-    F --> G["SeparateAudioEngine (<audio> + AudioContext)"]
-    G -->|"Đang phát & Đồng bộ"| H["Mute Âm thanh Video Chính"]
-    G -.->|"Khi có lỗi / Không có luồng 774"| I["Mở lại Tiếng Gốc (Raw ITAG 251)"]
+    A["Chuyển trang YouTube / Mở Video"] --> B["Content Script (inject.js)"]
+    B -->|"Giữ nguyên luồng hình ảnh"| C["Trình phát YouTube Gốc (Video: 4K/1080p)"]
+    B -->|"Truy vấn HQ Song song"| D["Service Worker (background.js)"]
+    D -->|"Phiên Xác thực Nội bộ"| E["YTM Harvester / TVHTML5 Client"]
+    E -->|"Trích xuất Luồng 774 Opus Gốc"| D
+    D -->|"Cấp URL Direct HTTPS 774"| F["StudioEngine774 (Thẻ <audio>)"]
+    F -->|"Định tuyến Descriptor Volume (Hardware Vol = 0)"| G["Âm thanh Video Gốc Bị Ngắt Hoàn Toàn"]
+    F -->|"Phát Luồng 774 Chuẩn (>20kHz)"| H["Nghe Qua Tai Nghe / Loa (Studio 774)"]
+    C -.->|"Đồng bộ Khung thời gian (<15ms)"| F
 ```
 
-### 1. Động cơ Giả mạo Đa nền tảng (Multi-Client)
-Service Worker của tiện ích gửi các truy vấn song song đến `/youtubei/v1/player` giả lập các client `WEB_REMIX` (YouTube Music Web) và `TVHTML5` (Smart TV). Nhờ chuyển tiếp đầy đủ định danh phiên đăng nhập (`SAPISIDHASH`, `VISITOR_DATA`), máy chủ YouTube cấp quyền truy cập các luồng âm thanh chất lượng cao.
+### 4. Tắt tiếng video gốc ở tầng Descriptor Phần cứng
+Khi can thiệp `video.muted = true` trực tiếp trên DOM của thẻ `<video>`, trình duyệt sẽ phát sự kiện `volumechange`. Trình phát YouTube bắt sự kiện này, lưu trạng thái tắt tiếng vào localStorage `yt-player-volume` và chuyển nút loa thành biểu tượng Mute.
 
-### 2. Bộ giải mã Tự động SignatureCipherDecipherer
-Các định dạng âm thanh bản quyền đi kèm các tham số `s`, `sp` và `url`. `SignatureCipherDecipherer` nạp file script `base.js` hiện hành, trích xuất mảng chuỗi `p`, ánh xạ đối tượng thao tác `Cy` và thực thi thuật toán giải mã:
-$$\text{sig} = wU(8, 2934, wU(2, 8414, \text{decodeURIComponent}(s)))$$
-Chữ ký sau giải mã được ghép trực tiếp vào URL phát, cho phép nạp luồng phát trực tiếp tốc độ cao.
+**YTSpoofingStream v0.1.3** giải quyết bằng can thiệp descriptor:
+1. Sử dụng descriptor nguyên mẫu `HTMLMediaElement.prototype.volume`.
+2. Âm lượng phần cứng của thẻ `<video>` được gán về `0` qua `descVolume.set.call(video, 0)`.
+3. Thuộc tính `video.volume` và `video.muted` trên DOM vẫn giữ nguyên giá trị người dùng chọn.
+4. Giao diện điều khiển âm lượng và nút Mute của YouTube hoạt động bình thường và điều hướng trực tiếp sang luồng âm thanh Studio 774.
 
-### 3. Trình phát Âm thanh Riêng biệt (`SeparateAudioEngine`)
-Thay vì can thiệp vào bộ giải mã MSE gốc của YouTube dễ gây lỗi gián đoạn phát (SABR desync), `SeparateAudioEngine` truyền luồng âm thanh vào một thẻ audio HTML5 ẩn kết nối Web Audio API (`AudioContext` $\rightarrow$ `GainNode` $\rightarrow$ `Loa/Tai nghe`). Động cơ liên tục đồng bộ:
-- Tự động bám sát các sự kiện `play`, `pause`, `seeking`, `seeked`, và `playbackRate`.
-- Tự động căn chỉnh lại thời gian nếu độ lệch (drift) vượt quá 80ms.
-- Hỗ trợ khuếch đại âm lượng phần cứng từ 0% đến 200%.
+### 5. Đồng bộ Chuẩn Master Clock Âm thanh Nguyên bản 1.0x
+`StudioEngine774` giữ nguyên bản 100% âm thanh chuẩn:
+- **Khóa tốc độ 1.0x**: `audio.playbackRate` khóa cứng theo `video.playbackRate`, không can thiệp thuật toán biến đổi tốc độ.
+- **Tua Video (Seeking)**: Đồng bộ vị trí tức thì khi người dùng tua trên thanh thời gian.
+- **Không bao giờ tua giật**: Khi tab chạy ngầm hoặc chuyển app khiến video bị chậm khung hình, khi quay lại tab video sẽ tự nhảy tiến về trước khớp với âm thanh.
 
-### 4. Bảo vệ Luồng Video Gốc & Cơ chế Fallback An toàn
-Dữ liệu streaming của video gốc (`adaptiveFormats`, `serverAbrStreamingUrl`, `dashManifestUrl`) được giữ nguyên vẹn 100%. Khi video không có track 774, hoặc khi xảy ra sự cố mạng, `SeparateAudioEngine.stopAndUnmute()` lập tức kích hoạt `mainVideo.muted = false`, đảm bảo video luôn phát mượt mà với âm thanh gốc tốt nhất (ITAG 251 / 140).
+---
 
-### 5. Đồng bộ Bảng Thống kê & Dashboard Thời gian thực
-Khi bật tùy chọn *Stats for Nerds Override*, dòng Codecs hiển thị bitrate thực tế đo lường được (`opus (774) 276k [HQ Spoofed]`). Khi ở chế độ fallback, hệ thống giữ nguyên định dạng raw chân thực (`av01... / opus (251)`).
+## 🎛️ 3 Chế độ Hoạt động
+
+| Chế độ | Tên gọi | Nguồn cung cấp chính | Xử lý khi không có 774 | Phù hợp nhất |
+|---|---|---|---|---|
+| **`HYBRID_HQ`** *(Khuyên dùng)* | Hybrid Mix | YouTube Music Web + TVHTML5 | Tự động hủy can thiệp, phát gốc | Xem video YouTube hàng ngày, MV ca nhạc |
+| **`YTM_HARVESTER`** | YTM Harvester | Trực tiếp HTTPS từ YouTube Music Premium | Hủy can thiệp nếu không có 774 | Nghe nhạc chất lượng cao nhất |
+| **`TV_HEADLESS`** | Smart TV Relay | Luồng giải mã TVHTML5 Living Room | Hủy can thiệp nếu thiếu TV login/774 | Các bài cover, track UGC không có trên YTM |
+
+---
+
+## 📊 Kết quả Đo lường Phổ âm Toàn bài hát (FFT Spectrum)
+
+Kết quả kiểm thử thực tế thời gian thực 100% thời lượng trên 4 bài hát tiêu chuẩn: khi Bật extension (Studio 774) so với khi Tắt cứng extension trong Cài đặt Chrome (Gốc):
+
+| Bài hát | Video ID | Thời lượng đo | Khi Tắt Extension (Luồng Gốc) | Khi Bật YTSpoofingStream v0.1.3 (774) | Dải tần cao (>16kHz - 22kHz) |
+|---|---|---|---|---|---|
+| **Track 1 (Song to the Mirrored Moon)** | `MI4I7v-0tnc` | 211.7s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (301kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
+| **Track 2 (Kirara Magic - Sunny Rain)** | `Xy6sPZc0CKA` | 184.2s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.500 Hz)** |
+| **Track 3 (Fontaine)** | `tiulg9ySfR8` | 185.0s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>21.000 Hz)** |
+| **Track 4 (Dazbee - Chidori Cover)** | `fs_pEYuMZio` | 224.5s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
+
+*Nhận xét*: Luồng ITAG 251 tiêu chuẩn bị cắt phẳng dải tần (brickwall filter) ở 15.5kHz - 16kHz. Luồng 774 trên YTSpoofingStream v0.1.3 duy trì mật độ phổ âm thanh liên tục lên tới trên 21kHz, mang lại âm trường rộng và chi tiết tiếng treble/cymbal/vocal sắc nét vượt trội.
 
 ---
 
 ## 🚀 Hướng dẫn Cài đặt
 
-1. Tải bản phát hành zip mới nhất tại mục [Releases](https://github.com/alithw/YTSpoofingStream/releases) hoặc clone mã nguồn:
+1. Tải mã nguồn về máy tính:
    ```bash
    git clone https://github.com/alithw/YTSpoofingStream.git
    ```
-2. Mở trình duyệt Google Chrome và truy cập `chrome://extensions/`.
+2. Mở trình duyệt Chrome (hoặc Edge, Brave, Cốc Cốc) và truy cập `chrome://extensions/`.
 3. Bật **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
-4. Nhấn **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `YTSpoofingStream` (nơi chứa file `manifest.json`).
-5. Mở YouTube, đảm bảo đã đăng nhập tài khoản Premium và thưởng thức âm thanh chất lượng cao!
+4. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `YTSpoofingStream`.
+5. Mở YouTube, đảm bảo đã đăng nhập tài khoản có Premium, và thưởng thức âm thanh chuẩn phòng thu với huy hiệu `★ 774` trên trình phát!
 
 ---
 
-## ⚙️ Tùy chọn Cấu hình & Điều khiển
+## ⚙️ Cấu hình & Điều khiển
 
-| Tùy chọn | Mặc định | Ý nghĩa |
-|---|---|---|
-| **Enable Extension** | `BẬT` | Bật/tắt toàn bộ tiện ích. |
-| **Fetch HQ Audio (Multi-client)** | `BẬT` | Truy vấn đa client để săn lùng định dạng bitrate cao. |
-| **Force Override** | `BẬT` | Ưu tiên chọn ITAG 774/141 thay cho luồng web thông thường. |
-| **Auto-reload page on change** | `BẬT` | Tự động làm mới trang khi thay đổi cấu hình. |
-| **Raw ITAG (no disguise)** | `TẮT` | Giữ nguyên mã itag gốc mà không ngụy trang. |
-| **Stats for Nerds Override** | `BẬT` | Hiển thị thông tin Opus 774 trên bảng Thống kê chi tiết của YouTube. |
-| **Native Audio DSP Gain** | `100%` | Thanh trượt khuếch đại âm lượng từ 0% đến 200%. |
+- **Bật / Tắt Extension**: Công tắc Master tắt toàn bộ can thiệp mạng và đưa trình duyệt về chế độ phát gốc.
+- **Chế độ hoạt động (Operation Mode)**: Chọn giữa `HYBRID_HQ`, `YTM_HARVESTER`, hoặc `TV_HEADLESS`.
+- **Tự động tải lại trang khi đổi cấu hình**: Tự động reload trang YouTube khi thay đổi thiết lập.
+- **Stats for Nerds Override**: Hiển thị thông số codec Opus 774 trong bảng Stats for Nerds của YouTube.
+- **TVHTML5 Login**: Cổng xác thực tài khoản Google cho client Smart TV.
 
 ---
 
-## ⚠️ Giới hạn đã biết & Lưu ý Tương thích
+## 🐞 Xử lý Sự cố & Câu hỏi Thường gặp
 
-> [!TIP]
-> **Tương thích Mượt mà với YouTube Music (`music.youtube.com`)**
-> Bạn **không cần phải vào cài đặt Chrome (`chrome://extensions`) để tắt tiện ích**! Khi muốn nghe nhạc trên **[music.youtube.com](https://music.youtube.com)**, bạn chỉ cần gạt **`Enable Extension: OFF`** ngay trên giao diện Popup của extension. Thao tác này sẽ giải phóng toàn bộ các hook can thiệp mạng và quy tắc DNR, cho phép Service Worker nội bộ của YouTube Music khởi tạo và phát nhạc nguyên bản 100%. Gạt bật lại **`ON`** bất cứ khi nào bạn quay trở lại YouTube thường (`www.youtube.com`) để tiếp tục thưởng thức âm thanh Opus 774 chất lượng cao!
+**Hỏi: Vì sao có video chỉ hiện `251` thay vì `★ 774`?**  
+Đáp: Một số video đời cũ hoặc vlog đàm thoại chỉ được YouTube mã hóa tối đa ở ITAG 251. Tiện ích tuân thủ nguyên tắc an toàn: nếu video không có luồng 774 chuẩn, tiện ích sẽ hủy can thiệp và để video phát gốc 251 nhằm đảm bảo trải nghiệm mượt mà không lỗi.
 
-| Dịch vụ | Mức độ tương thích |
-|---|---|
-| `youtube.com` | ✅ Hỗ trợ đầy đủ (Video thông thường, MV Vevo, Công chiếu, Livestream) |
-| `music.youtube.com` | ⚠️ Khuyến nghị tắt tiện ích để có trải nghiệm YT Music nguyên bản |
-
----
-
-## 🐞 Báo cáo Lỗi & Hỗ trợ
-
-Nếu gặp hiện tượng bất thường khi phát:
-1. Mở popup tiện ích và chụp ảnh màn hình phần **Status**.
-2. Mở Chrome DevTools (`F12` $\rightarrow$ Console) và lọc từ khóa `[YTSS]`.
-3. Tạo Issue trên GitHub kèm theo link video, ảnh chụp và nhật ký lỗi.
+**Hỏi: Extension có ảnh hưởng đến YouTube Music (`music.youtube.com`) không?**  
+Đáp: **Có, bạn phải tắt extension này khi sử dụng YouTube Music (`music.youtube.com`)**.  
+- Bạn không cần phải vào `chrome://extensions` để gỡ hay tắt tiện ích: chỉ cần mở popup và gạt công tắc **`Enable Extension: OFF`**.  
+- **Lý do**: YTSpoofingStream can thiệp sâu vào tầng mạng (DNR rules, cookie routing, header spoofing) để trích xuất luồng cho YouTube máy tính, việc này có thể gây xung đột với Service Worker và hàng đợi phát nhạc của trang web `music.youtube.com`.  
+- **Lưu ý quan trọng**: Bản thân **YouTube Music Web (`music.youtube.com`) chỉ hỗ trợ luồng AAC 141 (~256kbps)** và **không hỗ trợ luồng Opus 774** trên trình duyệt máy tính. Nếu bạn muốn thưởng thức âm thanh **Opus 774** chuẩn phòng thu đỉnh cao nhất, hãy nghe nhạc trực tiếp trên **YouTube thường (`www.youtube.com`)** với YTSpoofingStream đang bật!
 
 ---
 
-## 🤝 Đóng góp vào Dự án
+## 🤝 Đóng góp vào Dự án (Contributing)
 
-Mọi đóng góp, báo lỗi và ý tưởng tối ưu hóa đều được hoan nghênh!
-1. Fork Dự án (`https://github.com/alithw/YTSpoofingStream/fork`).
-2. Tạo nhánh tính năng (`git checkout -b feature/TinhNangMoi`).
-3. Commit thay đổi (`git commit -m 'Thêm TinhNangMoi'`).
-4. Push lên nhánh (`git push origin feature/TinhNangMoi`).
-5. Tạo Pull Request trên GitHub.
+Chúng tôi luôn hoan nghênh sự đóng góp từ cộng đồng! Nếu bạn có ý tưởng cải thiện phương thức thu hoạch luồng, vượt rào các hạn chế mới của YouTube hoặc tối ưu hóa cơ chế đồng bộ:
+
+1. Fork dự án này.
+2. Tạo một nhánh tính năng mới (`git checkout -b feature/TinhNangMoi`).
+3. Commit các thay đổi của bạn (`git commit -m 'Thêm TinhNangMoi'`).
+4. Push lên nhánh vừa tạo (`git push origin feature/TinhNangMoi`).
+5. Mở một Pull Request.
 
 ---
 
 ## 📄 Giấy phép (License)
 
-Phát hành dưới **Giấy phép MIT**. Xem chi tiết tại [`LICENSE`](LICENSE).
+Dự án được phân phối dưới **Giấy phép MIT (MIT License)**. Xem chi tiết tại file [`LICENSE`](LICENSE).

@@ -1,32 +1,21 @@
-// YTSpoofingStream v0.0.8 — Popup Controller (TV-First 774)
+// YTSpoofingStream v0.1.3 — Popup Controller (Studio 774 Dual-Stream Engine)
 (function () {
   'use strict';
 
   const $ = (s) => document.querySelector(s);
-  const log = (msg) => {
-    const el = $('#log');
-    const ts = new Date().toLocaleTimeString();
-    el.textContent = `[${ts}] ${msg}\n` + el.textContent;
-  };
+  const log = (msg) => console.log('[YTSS Popup]', msg);
 
   // ─── SETTINGS ────────────────────────────────────────────────────
   const KEYS = {
     enabled: '#en',
-    hqFetch: '#hq',
-    forceOverride: '#fo',
     autoReload: '#ar',
-    rawItag: '#ri',
     shadowPlayer: '#sp',
   };
 
   let settings = {
     enabled: true,
-    hqFetch: true,
-    forceOverride: true,
     autoReload: true,
-    audioMode: 'highest',
-    preferredClient: 'AUTO',
-    rawItag: false,
+    operationMode: 'HYBRID_HQ',
     shadowPlayer: true,
     shadowVolume: 1.0,
   };
@@ -49,11 +38,15 @@
   chrome.storage.local.get(SETTING_KEYS, (data) => {
     if (data && Object.keys(data).length > 0) {
       Object.assign(settings, pickSettings(data));
+      if (settings.operationMode === 'SAFE_NATIVE') {
+        settings.operationMode = 'HYBRID_HQ';
+        chrome.storage.local.set({ operationMode: 'HYBRID_HQ' });
+      }
     } else {
       loadLegacy();
     }
     applyUI();
-    log('Settings loaded. Mode: ' + settings.audioMode);
+    log('Settings loaded. OpMode: ' + settings.operationMode);
   });
 
   function loadLegacy() {
@@ -66,6 +59,9 @@
         if (results?.[0]?.result) {
           try {
             Object.assign(settings, pickSettings(JSON.parse(results[0].result)));
+            if (settings.operationMode === 'SAFE_NATIVE') {
+              settings.operationMode = 'HYBRID_HQ';
+            }
             chrome.storage.local.set(settings);
             applyUI();
           } catch (e) { }
@@ -79,18 +75,13 @@
       const el = $(sel);
       if (el) el.checked = !!settings[key];
     }
-    if ($('#preferredClient')) {
-      $('#preferredClient').value = settings.preferredClient || 'AUTO';
-    }
-    if ($('#sv')) {
-      const vol = settings.shadowVolume !== undefined ? settings.shadowVolume : 1.0;
-      $('#sv').value = Math.round(vol * 100);
-      if ($('#svVal')) $('#svVal').textContent = `${Math.round(vol * 100)}%`;
-    }
-    document.querySelectorAll('.mode').forEach(m => {
-      m.classList.toggle('active', m.dataset.mode === settings.audioMode);
+
+    const activeOpMode = (settings.operationMode === 'SAFE_NATIVE' || !settings.operationMode) ? 'HYBRID_HQ' : settings.operationMode;
+    document.querySelectorAll('.op-mode').forEach(m => {
+      const isActive = m.dataset.opmode === activeOpMode;
+      m.classList.toggle('active', isActive);
       const radio = m.querySelector('input');
-      if (radio) radio.checked = m.dataset.mode === settings.audioMode;
+      if (radio) radio.checked = isActive;
     });
 
     const isEnabled = !!settings.enabled;
@@ -110,25 +101,16 @@
   }
 
   function save() {
-    settings.enabled = $('#en').checked;
-    settings.hqFetch = $('#hq').checked;
-    settings.forceOverride = $('#fo').checked;
-    settings.autoReload = $('#ar').checked;
-    if ($('#ri')) settings.rawItag = $('#ri').checked;
+    if ($('#en')) settings.enabled = $('#en').checked;
+    if ($('#ar')) settings.autoReload = $('#ar').checked;
     if ($('#sp')) settings.shadowPlayer = $('#sp').checked;
-    if ($('#sv')) settings.shadowVolume = parseInt($('#sv').value, 10) / 100;
-    if ($('#preferredClient')) {
-      settings.preferredClient = $('#preferredClient').value;
-    }
 
     applyUI();
     chrome.storage.local.set(settings);
-    log(`Settings saved. Method: ${settings.preferredClient}, Mode: ${settings.audioMode}`
-      + `${settings.rawItag ? ', RAW ITAG' : ''}`
-      + `${settings.shadowPlayer ? ', Shadow Audio ON' : ''}`);
+    log(`Settings saved. OpMode: ${settings.operationMode}, StatsOverride: ${settings.shadowPlayer}`);
 
-    // Yêu cầu: YouTube page PHẢI refresh sau mỗi lần load config
-    // Gửi settings đến content script và force reload
+    // Note: YouTube page must refresh after applying config
+    // Send settings to content script and trigger reload
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0]) return;
       const tabId = tabs[0].id;
@@ -139,9 +121,13 @@
         func: (s) => {
           localStorage.setItem('ytss_settings', JSON.stringify(s));
           localStorage.setItem('ytSpoofingStream_settings', JSON.stringify(s));
-          window.postMessage({ type: 'YTSpoofingStream_settingsUpdate', settings: s }, '*');
+          if (window.YTSS_SpoofingMethods && typeof window.YTSS_SpoofingMethods.applySettings === 'function') {
+            window.YTSS_SpoofingMethods.applySettings(s);
+          } else {
+            window.postMessage({ type: 'YTSpoofingStream_settingsUpdate', settings: s }, '*');
+          }
 
-          // YÊU CẦU: Force reload YouTube page để apply config mới
+          // Force reload YouTube page to apply new config
           if (s.autoReload && window.location.href.includes('youtube.com')) {
             window.location.reload();
           }
@@ -222,23 +208,16 @@
   for (const sel of Object.values(KEYS)) {
     $(sel)?.addEventListener('change', save);
   }
-  $('#preferredClient')?.addEventListener('change', save);
 
-  $('#sv')?.addEventListener('input', (e) => {
-    const val = parseInt(e.target.value, 10);
-    if ($('#svVal')) $('#svVal').textContent = `${val}%`;
-    settings.shadowVolume = val / 100;
-    save();
-  });
-
-  document.querySelectorAll('.mode').forEach(m => {
+  document.querySelectorAll('.op-mode').forEach(m => {
     m.addEventListener('click', () => {
-      settings.audioMode = m.dataset.mode;
-      document.querySelectorAll('.mode').forEach(x => {
+      settings.operationMode = m.dataset.opmode;
+      document.querySelectorAll('.op-mode').forEach(x => {
         x.classList.toggle('active', x === m);
         x.querySelector('input').checked = x === m;
       });
       save();
+      log(`Operation Mode: ${settings.operationMode}`);
     });
   });
 
@@ -270,78 +249,75 @@
         const d = results?.[0]?.result || {};
 
         // Status badge
-
         const badge = $('#stBadge');
         const text = $('#stText');
-        if (d.activeMode) {
-          badge.classList.remove('off');
-          text.textContent = 'Active';
+        if (d.activeAudioItag) {
+          badge?.classList.remove('off');
+          if (text) text.textContent = 'Active';
         } else {
-          badge.classList.add('off');
-          text.textContent = 'Inactive';
+          badge?.classList.add('off');
+          if (text) text.textContent = 'Inactive';
         }
 
         // SW status ping
         chrome.runtime.sendMessage({ type: 'SW_PING' }, (resp) => {
           const swEl = $('#swSt');
-          if (resp && resp.ready) {
-            swEl.textContent = `SW: v${resp.version} Active`;
-            swEl.style.color = '#00c853';
-          } else {
-            swEl.textContent = 'SW: Offline (Reload required)';
-            swEl.style.color = '#e94560';
+          if (swEl) {
+            if (resp && resp.ready) {
+              swEl.textContent = `SW: v${resp.version} Active`;
+              swEl.style.color = '#00c853';
+            } else {
+              swEl.textContent = 'SW: Offline (Reload required)';
+              swEl.style.color = '#e94560';
+            }
           }
         });
 
         // Info
-        const modeLabels = { aac_only: 'AAC Only (141)', opus_hq: 'Opus HQ (774)', highest: 'Highest Bitrate' };
-        $('#iMode').textContent = modeLabels[d.activeMode] || d.activeMode || '—';
-        $('#iStreams').textContent = d.injectedStreams ?? 0;
-        if (d.fallbackReason) {
-          $('#iMethod').textContent = 'FALLBACK TO ORIGINAL';
-          $('#iMethod').style.color = '#e94560';
-          // Same reasoning as the notes below: page-controlled string, so textContent.
-          $('#iAudio').textContent = d.fallbackReason;
-          $('#iAudio').style.color = '#e94560';
-          $('#iAudio').style.fontSize = '11px';
-        } else {
-          $('#iMethod').style.color = 'var(--gold)';
-          $('#iAudio').style.color = '';
-          $('#iAudio').style.fontSize = '';
-          $('#iMethod').textContent = d.activeMethod ? `${d.activeMethod} (Active)` : 'Original';
-          // Two different reasons the popup can look like it succeeded when it didn't:
-          //   clientFallback — the chosen Spoofing Method returned no HQ, another client
-          //     supplied the stream, so "Active" names a client you didn't pick.
-          //   noUrlDrop — the SW did return 774/141, but as metadata with no url
-          //     (SABR-only), so it could never be injected. The client grid still shows
-          //     ★774 in that case, which reads as success.
-          // Built as DOM nodes, not innerHTML: `d` is parsed out of the *page's*
-          // localStorage, so every string in it is attacker-controllable by any
-          // script running on the tab. textContent makes that unexploitable.
-          const notes = [d.clientFallback, d.noUrlDrop].filter(Boolean);
-          const audioEl = $('#iAudio');
-          audioEl.textContent = d.bestAudioInfo || '—';
-          for (const n of notes) {
-            audioEl.appendChild(document.createElement('br'));
-            const span = document.createElement('span');
-            span.style.color = 'var(--gold)';
-            span.style.fontSize = '10px';
-            span.textContent = n;
-            audioEl.appendChild(span);
-          }
+        const modeEl = $('#iMode');
+        if (modeEl) {
+          modeEl.textContent = `${settings.operationMode || 'HYBRID_HQ'} (774 ★)`;
         }
 
+        const streamsEl = $('#iStreams');
+        if (streamsEl) streamsEl.textContent = d.injectedStreams ?? 0;
 
+        const methodEl = $('#iMethod');
+        const audioEl = $('#iAudio');
+
+        if (d.fallbackReason) {
+          if (methodEl) {
+            methodEl.textContent = 'FALLBACK TO ORIGINAL';
+            methodEl.style.color = '#e94560';
+          }
+          if (audioEl) {
+            audioEl.textContent = d.fallbackReason;
+            audioEl.style.color = '#e94560';
+            audioEl.style.fontSize = '11px';
+          }
+        } else {
+          if (methodEl) {
+            methodEl.style.color = 'var(--gold)';
+            methodEl.textContent = d.activeMethod ? `${d.activeMethod} (Active)` : 'Original';
+          }
+          if (audioEl) {
+            audioEl.style.color = '';
+            audioEl.style.fontSize = '';
+            audioEl.textContent = d.bestAudioInfo || '—';
+          }
+        }
 
         // Client Stats Grid
         const grid = $('#statsGrid');
         if (grid && d.clientStats) {
           grid.innerHTML = '';
           Object.entries(d.clientStats).forEach(([client, stat]) => {
-            const isCurrentPlaying = d.activeMethod === client;
-            const isOk = stat.includes('str') || stat.includes('OK');
-            const isErr = stat.includes('HTTP') || stat.includes('Error') || stat.includes('Fail') || stat.includes('Login');
-            const isHQ = stat.includes('★');
+            const isOk = stat.includes('str') || stat.includes('OK') || stat.includes('★') || stat.includes('Session Cache');
+            const isErr = stat.includes('HTTP') || stat.includes('Error') || stat.includes('Fail') ||
+                          stat.includes('Login') || stat.includes('không') || stat.includes('robot') ||
+                          stat.includes('đăng nhập') || stat.includes('Unavailable');
+            const isHQ = stat.includes('★') || stat.includes('774') || stat.includes('141');
+            const isCurrentPlaying = (d.activeMethod === client) && !isErr;
             const cls = isCurrentPlaying ? 'hq' : (isHQ ? 'ok' : (isOk ? 'ok' : (isErr ? 'err' : '')));
 
             const formatName = (name) => {
@@ -351,6 +327,7 @@
                 case 'ANDROID': return 'Android (Mobile)';
                 case 'ANDROID_MUSIC': return 'Android Music';
                 case 'ANDROID_VR': return 'Android VR';
+                case 'CACHE': return 'Session Cache';
                 default: return name;
               }
             };
@@ -358,8 +335,6 @@
             const item = document.createElement('div');
             item.className = `grid-item ${cls}`;
             const activeBadge = isCurrentPlaying ? ' 🎯' : '';
-            // `client` and `stat` both come from the page's localStorage — see the
-            // note on #iAudio above. Nodes + textContent, not innerHTML.
             const nameSpan = document.createElement('span');
             nameSpan.className = 'cn';
             nameSpan.textContent = `${formatName(client)}${activeBadge}`;
@@ -369,11 +344,6 @@
             item.append(nameSpan, statSpan);
             grid.appendChild(item);
           });
-        }
-
-        // Error
-        if (d.lastError) {
-          log(`Error: ${d.lastError}`);
         }
       });
     });

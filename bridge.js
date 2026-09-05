@@ -37,8 +37,8 @@ window.addEventListener('message', (event) => {
   if (event.source !== window || !event.data) return;
 
   if (event.data.type === 'YTSS_FETCH_HQ') {
-    const { videoId, requestId, context } = event.data;
-    safeSend({ type: 'FETCH_HQ', videoId, context }, (response) => {
+    const { videoId, title, author, requestId, context, opMode } = event.data;
+    safeSend({ type: 'FETCH_HQ', videoId, title, author, context, opMode }, (response) => {
       window.postMessage({
         type: 'YTSS_HQ_RESULT',
         requestId,
@@ -102,6 +102,7 @@ const EXPOSED_SETTINGS = [
   'rawItag',
   'shadowPlayer',
   'shadowVolume',
+  'operationMode',
 ];
 
 function pickSettings(data) {
