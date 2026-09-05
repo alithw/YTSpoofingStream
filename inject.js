@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream — Main World Script                             ║
+// ║  YTSpoofingStream — Main World Script                            ║
 // ║  Pre-warm Cache + ITAG Disguise + Force Player Reload            ║
 // ╚══════════════════════════════════════════════════════════════════╝
 (function () {

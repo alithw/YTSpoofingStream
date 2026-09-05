@@ -1,6 +1,6 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.0.8 — Bridge (ISOLATED world)             ║
-// ║  Relays messages between MAIN world and Service Worker.         ║
+// ║  YTSpoofingStream v0.0.8 — Bridge (ISOLATED world)               ║
+// ║  Relays messages between MAIN world and Service Worker.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
 if (location.hostname === 'music.youtube.com') {

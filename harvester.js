@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream — Offscreen Harvester (Mode 1 & Mode 4)         ║
+// ║  YTSpoofingStream — Offscreen Harvester (Mode 1 & Mode 4)        ║
 // ║  Harvests direct HQ formats from YTM and UMP chunks from TV      ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
