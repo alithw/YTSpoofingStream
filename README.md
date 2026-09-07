@@ -8,6 +8,9 @@
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="License MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
+    <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"></a>
+    <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg?style=flat-square" alt="Code of Conduct"></a>
+    <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blueviolet.svg?style=flat-square" alt="Security Policy"></a>
     <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
@@ -42,7 +45,8 @@
 - [⚙️ Configuration & Controls](#️-configuration--controls)
 - [🐞 Troubleshooting & FAQ](#-troubleshooting--faq)
 - [💖 Support / Buy Me a Coffee](#-support--buy-me-a-coffee)
-- [🤝 Contributing](#-contributing)
+- [🤝 Contributing & Community](#-contributing--community)
+- [⚠️ Disclaimer](#️-disclaimer)
 - [📄 License](#-license)
 
 ---
@@ -199,15 +203,23 @@ You can support the project on **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/al
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing & Community
 
-We welcome contributions from the community! If you have ideas to improve stream harvesting methods, bypass new restrictions, or optimize synchronization:
+Contributions of all kinds are welcome! Whether you are reporting a bug, proposing new stream extraction strategies, or submitting code improvements, please read our community guidelines:
 
-1. Fork the project.
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
+- 📘 **[Contributing Guide (CONTRIBUTING.md)](CONTRIBUTING.md)**: Local development setup, codebase architecture map, vanilla ES6+ coding standards, and PR submission checklist.
+- 📜 **[Code of Conduct (CODE_OF_CONDUCT.md)](CODE_OF_CONDUCT.md)**: Our standards for a welcoming, constructive, and harassment-free community (Contributor Covenant 2.1).
+- 🔒 **[Security Policy (SECURITY.md)](SECURITY.md)**: Guidelines for responsibly disclosing vulnerabilities.
+- 🐛 **[Report a Bug](https://github.com/alithw/YTSpoofingStream/issues/new?template=bug_report.yml)**: Use our structured issue form with video details and player console logs.
+- 💡 **[Request a Feature](https://github.com/alithw/YTSpoofingStream/issues/new?template=feature_request.yml)**: Share ideas to enhance audio streaming and client compatibility.
+
+---
+
+## ⚠️ Disclaimer
+
+- **Independent Project**: YTSpoofingStream is an independent, open-source project and is **not** affiliated, associated, authorized, endorsed by, or in any way officially connected with YouTube, Google LLC, or Alphabet Inc. The official YouTube website can be found at [https://www.youtube.com](https://www.youtube.com). "YouTube" and "YouTube Music" are registered trademarks of Google LLC.
+- **No DRM Circumvention**: This extension does **not** bypass Widevine DRM, crack protected content, or provide unauthorized downloads/piracy. It strictly functions within legitimate, authenticated browser sessions to route streams already authorized for the user.
+- **Educational & Personal Use**: This software is provided for educational and personal research purposes only. Use of this software is at your own discretion and responsibility in compliance with YouTube's Terms of Service. The software is provided "as is", without warranty of any kind.
 
 ---
 

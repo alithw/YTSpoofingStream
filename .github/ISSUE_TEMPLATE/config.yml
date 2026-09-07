@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Frequently Asked Questions (FAQ)
+    url: https://github.com/alithw/YTSpoofingStream#--troubleshooting--faq
+    about: Check the FAQ before opening an issue to see if your question is already answered.
+  - name: ☕ Support & Donations
+    url: https://ko-fi.com/alithw
+    about: Support the author and ongoing development on Ko-fi.

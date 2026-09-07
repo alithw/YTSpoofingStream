@@ -1,0 +1,80 @@
+name: 🐛 Bug Report
+description: Report an issue, playback error, or unexpected behavior in YTSpoofingStream
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please ensure you are running the latest version of **YTSpoofingStream** before submitting.
+
+  - type: input
+    id: video-url
+    attributes:
+      label: YouTube Video URL / ID
+      description: Provide the specific video URL or video ID where the issue occurred.
+      placeholder: "https://www.youtube.com/watch?v=..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: badge-status
+    attributes:
+      label: HUD Badge Status
+      description: What does the badge display in the video player control bar (near the Settings cog)?
+      options:
+        - "★ 774 (Studio Opus active)"
+        - "141 (Studio AAC active)"
+        - "251 (Native Opus fallback)"
+        - "Badge not visible / missing"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operation-mode
+    attributes:
+      label: Operation Mode
+      description: Which operation mode is selected in the extension popup?
+      options:
+        - "HYBRID_HQ (Default & Recommended)"
+        - "YTM_HARVESTER"
+        - "TV_HEADLESS"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites & Authentication
+      description: Check all that apply to your environment.
+      options:
+        - label: "I have an active YouTube Premium subscription logged into my browser."
+        - label: "I have authenticated via TVHTML5 Login in the extension popup (if using TV modes)."
+        - label: "I tested with other third-party extensions disabled to rule out conflicts."
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser & OS
+      description: Which browser and OS are you using?
+      placeholder: "e.g. Chrome 128 / Windows 11, Edge 128 / macOS 14"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: Clear and concise description of what happened.
+      placeholder: "Describe the behavior, playback stalls, error codes (e.g. s:80, s:49), audio desync, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: console-logs
+    attributes:
+      label: Console Logs (DevTools)
+      description: Press F12 -> Console tab on the YouTube watch page, copy any warnings/errors prefixed with [YTSS-MAIN], [YTSS-SW], or [YTM-Harvester].
+      render: shell
+      placeholder: "[YTSS-MAIN] ..."
