@@ -26,6 +26,11 @@
 > 2. Đảm bảo đăng nhập đúng tài khoản Google có YouTube Premium.
 > 3. Sau khi xác thực thành công, extension sẽ hoạt động với độ khả dụng luồng 774 cao nhất!
 
+> [!TIP]
+> **Bạn đang sử dụng Mozilla Firefox / Firefox ESR?**  
+> Nhánh này (`main`) được cấu hình dành riêng cho **các trình duyệt Chromium** (Google Chrome, Brave, Microsoft Edge, Cốc Cốc, Opera).  
+> Nếu bạn sử dụng **Mozilla Firefox**, vui lòng chuyển sang nhánh [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) hoặc tải trực tiếp gói cài đặt đã ký số [**`YTSS-0.1.3.xpi`**](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-0.1.3.xpi) để cài đặt vĩnh viễn!
+
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 
 ---
