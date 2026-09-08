@@ -55,7 +55,7 @@
       return json;
     }
 
-    // No 774 available for this video -> Abort! As requested: "k có luồng 774 thì hủy đi"
+    // No 774 stream available for this video -> Abort harvest and let native audio play
     console.warn(TAG, `Video ${urlVid} has NO ITAG 774 stream. Aborting harvest.`);
     notifyAbort('NO_774_STREAM');
     json.streamingData = null;

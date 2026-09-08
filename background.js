@@ -526,7 +526,7 @@ async function fetchFromClient(videoId, client) {
   const isTVClient = client.name.startsWith('TVHTML5');
 
   // Auth strategy:
-  // TVHTML5: Check login TV trước khi fetch! Không có login -> Premium thì nghỉ
+  // TVHTML5: Check TV login before fetch! If not logged into Premium -> skip TV client
   // WEB_REMIX / TVHTML5_SIMPLY: SAPISIDHASH
   // Mobile clients (ANDROID, IOS, etc.): No web SAPISIDHASH (causes HTTP 400 Bad Request)
   if (isTVClient) {
@@ -889,7 +889,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         // Step 2: Fallback to TV Headless (Mode 1) ONLY if user is logged into TV with Premium!
-        // "check login tv trước khi fetch, k có login -> premium thì nghỉ"
+        // Fallback to TV client only if authenticated with Premium
         const tvToken = await getClientAccessToken('TVHTML5');
         if (tvToken) {
           console.log(TAG, `[FETCH_HQ] HYBRID_HQ: Checking TV client for ${videoId} with Premium login...`);
@@ -907,7 +907,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         }
 
-        // Exact video has no 774 stream -> HỦY ĐI! Cancel spoofing, let native play as requested!
+        // Exact video has no 774 stream -> Cancel spoofing and let native audio play
         console.log(TAG, `[FETCH_HQ] HYBRID_HQ: No genuine 774 stream found for ${videoId} -> Cancelled.`);
         sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'HYBRID_HQ' });
         return;
@@ -935,7 +935,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // ── MODE 1: TV_HEADLESS (TV SABR 774 Relay)
       if (opMode === 'TV_HEADLESS') {
         console.log(TAG, `[FETCH_HQ] Mode 1 (TV_HEADLESS) resolving for ${videoId}...`);
-        // Check TV login first! "check login tv trước khi fetch, k có login -> premium thì nghỉ"
+        // Check TV login first; skip if not logged in with Premium
         const tvToken = await getClientAccessToken('TVHTML5');
         if (!tvToken) {
           console.warn(TAG, `[FETCH_HQ] Mode 1: No TV login (Premium required) -> Stopping.`);

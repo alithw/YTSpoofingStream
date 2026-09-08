@@ -314,8 +314,7 @@
           Object.entries(d.clientStats).forEach(([client, stat]) => {
             const isOk = stat.includes('str') || stat.includes('OK') || stat.includes('★') || stat.includes('Session Cache');
             const isErr = stat.includes('HTTP') || stat.includes('Error') || stat.includes('Fail') ||
-                          stat.includes('Login') || stat.includes('không') || stat.includes('robot') ||
-                          stat.includes('đăng nhập') || stat.includes('Unavailable');
+                          stat.includes('Login') || stat.includes('robot') || stat.includes('Unavailable');
             const isHQ = stat.includes('★') || stat.includes('774') || stat.includes('141');
             const isCurrentPlaying = (d.activeMethod === client) && !isErr;
             const cls = isCurrentPlaying ? 'hq' : (isHQ ? 'ok' : (isOk ? 'ok' : (isErr ? 'err' : '')));
