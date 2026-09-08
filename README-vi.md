@@ -154,15 +154,29 @@ Kết quả kiểm thử thực tế thời gian thực 100% thời lượng tr�
 ---
 
 ## 🚀 Hướng dẫn Cài đặt
-
-1. Tải mã nguồn về máy tính:
+ 
+### Trình duyệt Chromium (Google Chrome, Brave, Edge, Cốc Cốc, Opera)
+1. Tải mã nguồn về máy tính (nhánh `main`):
    ```bash
    git clone https://github.com/alithw/YTSpoofingStream.git
    ```
-2. Mở trình duyệt Chrome (hoặc Edge, Brave, Cốc Cốc) và truy cập `chrome://extensions/`.
+2. Mở trình duyệt Chrome và truy cập `chrome://extensions/`.
 3. Bật **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
 4. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `YTSpoofingStream`.
 5. Mở YouTube, đảm bảo đã đăng nhập tài khoản có Premium, và thưởng thức âm thanh chuẩn phòng thu với huy hiệu `★ 774` trên trình phát!
+
+### Trình duyệt Mozilla Firefox / Firefox ESR (v128+)
+Bạn có thể cài đặt vĩnh viễn bằng gói đã ký số chính thức hoặc nạp từ mã nguồn:
+
+- **Cài đặt nhanh (Gói XPI đã ký số chính thức bởi Mozilla)**:
+  Tải file cài đặt [**`YTSS-0.1.3.xpi`**](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-0.1.3.xpi) từ nhánh [`firefox`](https://github.com/alithw/YTSpoofingStream/tree/firefox), kéo thả trực tiếp vào cửa sổ Firefox (hoặc nhấn `Ctrl + O` để mở file), sau đó bấm **Thêm (Add)** để cài đặt vĩnh viễn (không bao giờ bị mất khi khởi động lại).
+- **Chạy từ mã nguồn (Tiện ích tạm thời)**:
+  1. Chuyển sang nhánh `firefox`:
+     ```bash
+     git checkout firefox
+     ```
+  2. Mở Firefox và truy cập `about:debugging#/runtime/this-firefox`.
+  3. Bấm **Tải tiện ích tạm thời (Load Temporary Add-on...)** và chọn file `manifest.json`.
 
 ---
 

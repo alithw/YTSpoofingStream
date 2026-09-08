@@ -155,14 +155,27 @@ Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks
 
 ## 🚀 Installation
 
-1. Clone or download the repository:
+### Chromium Browsers (Google Chrome, Brave, Edge, Opera)
+1. Clone or download the repository (`main` branch):
    ```bash
    git clone https://github.com/alithw/YTSpoofingStream.git
    ```
-2. Open Google Chrome (or any Chromium browser: Brave, Edge, Opera) and navigate to `chrome://extensions/`.
-3. Toggle on **Developer mode** in the top-right corner.
-4. Click **Load unpacked** and select the `YTSpoofingStream` folder.
-5. Open YouTube, ensure you are logged into your Premium account, and verify the `★ 774` badge in the player control bar!
+2. Open `chrome://extensions/` and toggle on **Developer mode** in the top-right corner.
+3. Click **Load unpacked** and select the `YTSpoofingStream` folder.
+4. Open YouTube, ensure you are logged into your Premium account, and verify the `★ 774` badge in the player control bar!
+
+### Mozilla Firefox / Firefox ESR (v128+)
+You can install the officially signed package permanently, or run from source:
+
+- **Quick Install (Signed Package)**:
+  Download the signed [**`YTSS-0.1.3.xpi`**](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-0.1.3.xpi) package from the [`firefox`](https://github.com/alithw/YTSpoofingStream/tree/firefox) branch, drag and drop it into Firefox (or open it via `Ctrl+O`), and click **Add** to install it permanently.
+- **Run from Source (Temporary Add-on)**:
+  1. Switch to the `firefox` branch:
+     ```bash
+     git checkout firefox
+     ```
+  2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
+  3. Click **Load Temporary Add-on...** and select `manifest.json`.
 
 ---
 
