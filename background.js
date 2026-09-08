@@ -723,7 +723,9 @@ async function ensureOffscreenDocument() {
   }
 }
 
+let harvestSessionSeq = 0;
 let activeHarvestSession = null;
+let currentHarvestVideoId = null;
 
 if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
   chrome.webRequest.onBeforeRequest.addListener(
@@ -743,8 +745,9 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
       // Ensure initiator is NOT www.youtube.com
       if (details.initiator && details.initiator.includes('www.youtube.com')) return;
 
-      if (activeHarvestSession) {
-        console.log(TAG, `[WebRequest] Intercepted deciphered ITAG 774 stream for ${activeHarvestSession.videoId}`);
+      if (activeHarvestSession && !activeHarvestSession.cancelled) {
+        const currentSession = activeHarvestSession;
+        console.log(TAG, `[WebRequest] Intercepted deciphered ITAG 774 stream for ${currentSession.videoId} (session #${currentSession.sessionId})`);
 
         // Strip range and chunking params to get full base stream URL
         let cleanUrl = url.split('&range=')[0];
@@ -758,10 +761,10 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
           mimeType: 'audio/webm; codecs="opus"',
           bitrate: 280000,
           audioQuality: 'AUDIO_QUALITY_HIGH',
-          _src: activeHarvestSession.opMode === 'TV_HEADLESS' ? 'TV_HEADLESS' : 'YTM_HARVESTER',
+          _src: currentSession.opMode === 'TV_HEADLESS' ? 'TV_HEADLESS' : 'YTM_HARVESTER',
         };
 
-        const resolve = activeHarvestSession.resolve;
+        const resolve = currentSession.resolve;
         activeHarvestSession = null;
 
         // Reset harvester frame to avoid background playback load
@@ -775,7 +778,6 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
 }
 
 const pendingHarvests = new Map(); // videoId -> Promise
-let harvestQueue = Promise.resolve();
 
 async function harvestViaYtm(videoId, title = null, author = null) {
   if (pendingHarvests.has(videoId)) {
@@ -783,17 +785,24 @@ async function harvestViaYtm(videoId, title = null, author = null) {
     return pendingHarvests.get(videoId);
   }
 
-  const p = new Promise((resolve) => {
-    harvestQueue = harvestQueue.then(async () => {
-      try {
-        const res = await _doHarvest(videoId, title, author);
-        resolve(res);
-      } catch (e) {
-        console.warn(TAG, `[YTM_HARVEST] Error harvesting ${videoId}:`, e);
-        resolve([]);
-      }
-    });
-  }).finally(() => {
+  currentHarvestVideoId = videoId;
+
+  // Drop any obsolete pending harvests for different videos
+  for (const [vId, p] of pendingHarvests.entries()) {
+    if (vId !== videoId) {
+      console.log(TAG, `[YTM_HARVEST] Dropping obsolete pending harvest for ${vId}`);
+      pendingHarvests.delete(vId);
+    }
+  }
+
+  const p = (async () => {
+    try {
+      return await _doHarvest(videoId, title, author);
+    } catch (e) {
+      console.warn(TAG, `[YTM_HARVEST] Error harvesting ${videoId}:`, e);
+      return [];
+    }
+  })().finally(() => {
     pendingHarvests.delete(videoId);
   });
 
@@ -804,23 +813,35 @@ async function harvestViaYtm(videoId, title = null, author = null) {
 async function _doHarvest(videoId, title = null, author = null) {
   await ensureOffscreenDocument();
 
-  // Always harvest the exact requested videoId in the offscreen iframe
-  // NEVER substitute an arbitrary different video from search!
+  // Immediately abort any previous in-flight harvest for an older video
+  if (activeHarvestSession) {
+    console.log(TAG, `[YTM_HARVEST] Aborting existing harvest for ${activeHarvestSession.videoId} (new target: ${videoId})`);
+    activeHarvestSession.cancelled = true;
+    try { activeHarvestSession.resolve([]); } catch (e) {}
+    clearTimeout(activeHarvestSession.timer);
+    activeHarvestSession = null;
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+  }
+
   const targetId = videoId;
+  const sessionId = ++harvestSessionSeq;
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      if (activeHarvestSession && activeHarvestSession.videoId === videoId) {
+      if (activeHarvestSession && activeHarvestSession.sessionId === sessionId) {
         activeHarvestSession = null;
-        console.log(TAG, `[YTM_HARVEST] Timeout for ${videoId}, falling back to native`);
+        console.log(TAG, `[YTM_HARVEST] Timeout for ${videoId} (session #${sessionId}), falling back to native`);
         chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
         resolve([]);
       }
     }, 8000);
 
     activeHarvestSession = {
+      sessionId,
       videoId,
       targetId,
+      cancelled: false,
+      timer,
       resolve: (formats) => {
         clearTimeout(timer);
         resolve(formats);
@@ -839,6 +860,29 @@ async function _doHarvest(videoId, title = null, author = null) {
 
 // ─── MESSAGE HANDLER ─────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'OFFSCREEN_HARVEST_SUCCESS') {
+    if (activeHarvestSession && !activeHarvestSession.cancelled && activeHarvestSession.videoId === msg.videoId) {
+      console.log(TAG, `[YTM_HARVEST] Direct verified 774 stream for ${msg.videoId} (session #${activeHarvestSession.sessionId})`);
+      const cleanUrl = msg.url;
+      const fmt = {
+        itag: 774,
+        _origItag: 774,
+        url: cleanUrl,
+        _directUrl: cleanUrl,
+        mimeType: 'audio/webm; codecs="opus"',
+        bitrate: 280000,
+        audioQuality: 'AUDIO_QUALITY_HIGH',
+        _src: activeHarvestSession.opMode === 'TV_HEADLESS' ? 'TV_HEADLESS' : 'YTM_HARVESTER',
+      };
+      const resolve = activeHarvestSession.resolve;
+      activeHarvestSession = null;
+      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      resolve([fmt]);
+    }
+    sendResponse({ received: true });
+    return true;
+  }
+
   if (msg.type === 'OFFSCREEN_HARVEST_ABORT') {
     if (activeHarvestSession && activeHarvestSession.videoId === msg.videoId) {
       console.log(TAG, `[YTM_HARVEST] Harvest aborted for ${msg.videoId}: ${msg.reason}`);
@@ -881,7 +925,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             console.log(TAG, `[FETCH_HQ] HYBRID_HQ successfully harvested 774 for exact video ${videoId}`);
             const results = [{ source: 'HYBRID_774', audioFormats: ytmFormats }];
             chrome.storage.session.set({
-              [`hq_${videoId}`]: { formats: ytmFormats, streamingContext: null, ts: Date.now() }
+              [`hq_${videoId}`]: { videoId, formats: ytmFormats, streamingContext: null, ts: Date.now() }
             }).catch(() => {});
             sendResponse({ success: true, results, streamingContext: null, opMode: 'HYBRID_HQ' });
             return;
@@ -900,7 +944,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             console.log(TAG, `[FETCH_HQ] HYBRID_HQ: TV confirmed 774 for exact video ${videoId}`);
             const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
             chrome.storage.session.set({
-              [`hq_${videoId}`]: { formats: tvRes.audioFormats, streamingContext: tvRes?.streamingContext || null, ts: Date.now() }
+              [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvRes?.streamingContext || null, ts: Date.now() }
             }).catch(() => {});
             sendResponse({ success: true, results, streamingContext: tvRes?.streamingContext || null, opMode: 'HYBRID_HQ' });
             return;
@@ -922,7 +966,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           console.log(TAG, `[FETCH_HQ] Mode 4 successfully harvested 774 for exact video ${videoId}!`);
           const results = [{ source: 'YTM_HARVESTER', audioFormats: formats }];
           chrome.storage.session.set({
-            [`hq_${videoId}`]: { formats, streamingContext: null, ts: Date.now() }
+            [`hq_${videoId}`]: { videoId, formats, streamingContext: null, ts: Date.now() }
           }).catch(() => {});
           sendResponse({ success: true, results, streamingContext: null, opMode: 'YTM_HARVESTER' });
           return;
@@ -963,7 +1007,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (harvested && harvested.some(f => f.itag === 774)) {
           const results = [{ source: 'TV_HEADLESS', audioFormats: harvested.map(f => ({ ...f, _src: 'TV_HEADLESS' })) }];
           chrome.storage.session.set({
-            [`hq_${videoId}`]: { formats: results[0].audioFormats, streamingContext: tvCtx, ts: Date.now() }
+            [`hq_${videoId}`]: { videoId, formats: results[0].audioFormats, streamingContext: tvCtx, ts: Date.now() }
           }).catch(() => {});
           sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_HEADLESS' });
           return;
@@ -973,7 +1017,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log(TAG, `[FETCH_HQ] Mode 1: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
         const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
         chrome.storage.session.set({
-          [`hq_${videoId}`]: { formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
+          [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
         }).catch(() => {});
         sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_HEADLESS' });
         return;
@@ -997,25 +1041,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (results.some(r => r.audioFormats?.length > 0)) {
         const merged = results.flatMap(r => r.audioFormats || []);
         chrome.storage.session.set({
-          [`hq_${videoId}`]: { formats: merged, streamingContext: tvCtx, ts: Date.now() }
+          [`hq_${videoId}`]: { videoId, formats: merged, streamingContext: tvCtx, ts: Date.now() }
         }).catch(() => {});
       }
 
       sendResponse({ success: results.length > 0, results, streamingContext: tvCtx, opMode: 'AUTO' });
     })();
 
-    return true;
-  }
-
-  if (msg.type === 'OFFSCREEN_HARVEST_ABORT') {
-    if (activeHarvestSession && (!msg.videoId || activeHarvestSession.videoId === msg.videoId)) {
-      console.log(TAG, `[YTM_HARVEST] Aborted harvest for ${activeHarvestSession.videoId} (reason: ${msg.reason})`);
-      const resolve = activeHarvestSession.resolve;
-      activeHarvestSession = null;
-      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
-      resolve([]);
-    }
-    sendResponse({ success: true });
     return true;
   }
 
@@ -1127,8 +1159,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
     const stored = await chrome.storage.session.get(`hq_${videoId}`);
     const entry = stored[`hq_${videoId}`];
-    const TTL = 3600 * 1000; // 1 hour
-    if (!entry || !entry.formats?.length || (Date.now() - entry.ts) > TTL) return;
+    if (!entry || !entry.formats?.length || (Date.now() - entry.ts) > TTL || (entry.videoId && entry.videoId !== videoId)) return;
 
     console.log(TAG, `[TabActivated] YouTube tab focused for ${videoId}, pushing HQ upgrade trigger`);
     chrome.tabs.sendMessage(tabId, {

@@ -112,12 +112,57 @@
     configurable: true
   });
 
-  // 2. Hook fetch for async player requests
+  function notify774Found(streamUrl) {
+    if (isAborted || !streamUrl || !urlVid) return;
+    let cleanUrl = streamUrl.split('&range=')[0];
+    cleanUrl = cleanUrl.replace(/&rn=\d+/, '').replace(/&rbuf=\d+/, '');
+    console.log(TAG, `[DirectCapture] Found deciphered 774 URL for ${urlVid}`);
+    try {
+      window.parent.postMessage({
+        type: 'HARVEST_774_URL',
+        videoId: urlVid,
+        url: cleanUrl
+      }, '*');
+    } catch (e) {}
+  }
+
+  // Hook HTMLMediaElement src setter
+  try {
+    const origSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+    if (origSrcDesc && origSrcDesc.set) {
+      Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+        get() { return origSrcDesc.get.call(this); },
+        set(val) {
+          if (typeof val === 'string' && val.includes('videoplayback') && val.includes('itag=774')) {
+            notify774Found(val);
+          }
+          return origSrcDesc.set.call(this, val);
+        },
+        configurable: true
+      });
+    }
+  } catch (e) {}
+
+  // Hook XMLHttpRequest
+  try {
+    const origXhrOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+      if (typeof url === 'string' && url.includes('videoplayback') && url.includes('itag=774')) {
+        notify774Found(url);
+      }
+      return origXhrOpen.call(this, method, url, ...rest);
+    };
+  } catch (e) {}
+
+  // 2. Hook fetch for async player requests and videoplayback
   const origFetch = window.fetch;
   window.fetch = async function(...args) {
-    const res = await origFetch.apply(this, args);
     const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-    if (url.includes('/player') && url.includes('youtubei/v1')) {
+    if (typeof url === 'string' && url.includes('videoplayback') && url.includes('itag=774')) {
+      notify774Found(url);
+    }
+    const res = await origFetch.apply(this, args);
+    if (typeof url === 'string' && url.includes('/player') && url.includes('youtubei/v1')) {
       try {
         const json = await res.clone().json();
         if (!validatePlayerResponse(json)) {

@@ -223,8 +223,11 @@
     // 1. Check memory map first
     const entry = hqCache.get(videoId);
     if (entry && (Date.now() - entry.ts <= HQ_CACHE_TTL_MS)) {
-      noteCacheHit(entry);
-      return entry;
+      if (!entry.videoId || entry.videoId === videoId) {
+        noteCacheHit(entry);
+        return entry;
+      }
+      hqCache.delete(videoId);
     }
     // 2. Check sync sessionStorage (handles F5 reloads flawlessly)
     try {
@@ -232,9 +235,14 @@
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Date.now() - parsed.ts <= HQ_CACHE_TTL_MS) {
-          hqCache.set(videoId, parsed); // restore to mem
-          noteCacheHit(parsed);
-          return parsed;
+          if (!parsed.videoId || parsed.videoId === videoId) {
+            hqCache.set(videoId, parsed); // restore to mem
+            noteCacheHit(parsed);
+            return parsed;
+          } else {
+            console.warn(TAG, `[Cache] Corrupted cache entry detected for ${videoId} (contained ${parsed.videoId}). Removing.`);
+            window.sessionStorage.removeItem(CACHE_PREFIX + videoId);
+          }
         } else {
           window.sessionStorage.removeItem(CACHE_PREFIX + videoId);
         }
@@ -246,7 +254,7 @@
   }
 
   function cacheSet(videoId, formats, streamingContext = null, clientStats = null) {
-    const entry = { formats, streamingContext, clientStats: clientStats || status.clientStats, ts: Date.now() };
+    const entry = { videoId, formats, streamingContext, clientStats: clientStats || status.clientStats, ts: Date.now() };
     hqCache.set(videoId, entry);
     try {
       window.sessionStorage.setItem(CACHE_PREFIX + videoId, JSON.stringify(entry));
@@ -435,13 +443,14 @@
   // ═══════════════════════════════════════════════════════════════════
   function getVideoIdFromUrl() {
     try {
-      const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
-      if (playerVid) return playerVid;
       const urlVid = new URLSearchParams(window.location.search).get('v');
-      if (urlVid) return urlVid;
+      if (urlVid && VIDEO_ID_RE.test(urlVid)) return urlVid;
       if (window.location.pathname.startsWith('/shorts/')) {
-        return window.location.pathname.split('/')[2] || null;
+        const sVid = window.location.pathname.split('/')[2];
+        if (sVid && VIDEO_ID_RE.test(sVid)) return sVid;
       }
+      const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+      if (playerVid && VIDEO_ID_RE.test(playerVid)) return playerVid;
       return null;
     } catch (e) { return null; }
   }
@@ -468,8 +477,12 @@
 
   function isCurrentWatchVideo(videoId) {
     if (!videoId) return false;
+    const currentUrlVid = getVideoIdFromUrl();
+    if (currentUrlVid) {
+      return videoId === currentUrlVid || (navTargetVideoId && videoId === navTargetVideoId);
+    }
     const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
-    return videoId === navTargetVideoId || videoId === getVideoIdFromUrl() || videoId === playerVid;
+    return (navTargetVideoId && videoId === navTargetVideoId) || videoId === playerVid;
   }
   const isCurrentTarget = isCurrentWatchVideo;
 
@@ -678,6 +691,14 @@
         }
 
         if (e.type === 'play' || e.type === 'playing') {
+          // Playback Safety Guard: verify audio engine is playing for current video
+          const curPageVid = getVideoIdFromUrl();
+          if (this.isActive && this.activeVideoId && curPageVid && this.activeVideoId !== curPageVid) {
+            console.warn(TAG, `[PlaybackSafetyGuard] Audio engine playing ${this.activeVideoId} but page is ${curPageVid}! Stopping stale audio.`);
+            this.stopAndUnmute('Audio engine video mismatch on play');
+            return;
+          }
+
           if (this.isAdActive()) {
             this.audio.pause();
             this.restoreNativeVideo(video);
@@ -897,6 +918,10 @@
     },
 
     applyToVideo(mainVideo, videoId, best774) {
+      if (!isCurrentWatchVideo(videoId)) {
+        console.log(TAG, `[StudioEngine774] Rejecting applyToVideo for stale video ${videoId} (current is ${getVideoIdFromUrl()})`);
+        return false;
+      }
       const streamUrl = best774.url || best774._directUrl;
       if (!streamUrl) return false;
 
@@ -950,6 +975,10 @@
 
     load774(videoId, best774) {
       if (!videoId || !best774 || !S.enabled || isMusicSite) return false;
+      if (!isCurrentWatchVideo(videoId)) {
+        console.log(TAG, `[StudioEngine774] Rejecting load774 for stale video ${videoId} (current is ${getVideoIdFromUrl()})`);
+        return false;
+      }
       const streamUrl = best774.url || best774._directUrl;
       if (!streamUrl) return false;
 
@@ -1098,6 +1127,15 @@
       if (activeVid && (!status.activeAudioItag || status.activeAudioItag === 251)) {
         setTimeout(() => prewarmCache(activeVid), 100);
       }
+    }
+  });
+
+  window.addEventListener('popstate', () => {
+    const currentVid = getVideoIdFromUrl();
+    if (currentVid && currentVid !== StudioEngine774.activeVideoId) {
+      navTargetVideoId = currentVid;
+      if (StudioEngine774.isActive) StudioEngine774.stopAndUnmute('Popstate navigation');
+      prewarmCache(currentVid);
     }
   });
 
@@ -2061,10 +2099,17 @@
       StudioEngine774.init();
       StatsForNerdsSpoofer.init();
       PlayerBadgeUI.inject();
+      const currentVid = getVideoIdFromUrl();
+      if (StudioEngine774.isActive && StudioEngine774.activeVideoId && currentVid && StudioEngine774.activeVideoId !== currentVid) {
+        console.warn(TAG, `[PageGuard] StudioEngine audio (${StudioEngine774.activeVideoId}) does not match current page video (${currentVid})! Stopping stale audio.`);
+        StudioEngine774.stopAndUnmute('Page video changed');
+      }
       if (StudioEngine774.pending774) {
         const v = document.querySelector('video');
         if (v && isCurrentWatchVideo(StudioEngine774.pending774.videoId)) {
           StudioEngine774.applyToVideo(v, StudioEngine774.pending774.videoId, StudioEngine774.pending774.best774);
+        } else {
+          StudioEngine774.pending774 = null;
         }
       }
     });
