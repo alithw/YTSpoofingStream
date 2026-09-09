@@ -29,7 +29,7 @@
 > [!TIP]
 > **Using Mozilla Firefox / Firefox ESR?**  
 > This branch (`main`) is configured specifically for **Chromium-based browsers** (Google Chrome, Brave, Microsoft Edge, Opera).  
-> If you are using **Mozilla Firefox**, please switch to the [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) branch or download the pre-signed [**`YTSS-0.1.3.xpi`**](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-0.1.3.xpi) package for instant permanent installation!
+> If you are using **Mozilla Firefox**, please switch to the [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) branch or download the pre-signed [**`YTSS-0.1.4.xpi`**](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-0.1.4.xpi) package for instant permanent installation!
 
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
 
