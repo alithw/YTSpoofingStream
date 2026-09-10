@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YTSpoofingStream",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Force 100% genuine Studio Opus 774 on YouTube via Dual-Stream Synchronization Engine (YTM Harvester / TV Living Room)",
   "icons": {
     "16": "icon16.png",

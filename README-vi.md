@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.4-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="Giấy phép MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -29,7 +29,7 @@
 > [!TIP]
 > **Bạn đang sử dụng Mozilla Firefox / Firefox ESR?**  
 > Nhánh này (`main`) được cấu hình dành riêng cho **các trình duyệt Chromium** (Google Chrome, Brave, Microsoft Edge, Cốc Cốc, Opera).  
-> Nếu bạn sử dụng **Mozilla Firefox**, vui lòng chuyển sang nhánh [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) hoặc tải trực tiếp gói cài đặt đã ký số [**`YTSS-0.1.4.xpi`**](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-0.1.4.xpi) để cài đặt vĩnh viễn!
+> Nếu bạn sử dụng **Mozilla Firefox**, vui lòng chuyển sang nhánh [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) hoặc tải trực tiếp gói cài đặt đã ký số [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) từ mục [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) để cài đặt vĩnh viễn!
 
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 
@@ -141,6 +141,10 @@ Khi can thiệp `video.muted = true` trực tiếp trên DOM của thẻ `<video
 | **`YTM_HARVESTER`** | YTM Harvester | Trực tiếp HTTPS từ YouTube Music Premium | Hủy can thiệp nếu không có 774 | Nghe nhạc chất lượng cao nhất |
 | **`TV_HEADLESS`** | Smart TV Relay | Luồng giải mã TVHTML5 Living Room | Hủy can thiệp nếu thiếu TV login/774 | Các bài cover, track UGC không có trên YTM |
 
+> [!NOTE]
+> **Đặc tính mức âm lượng (YouTube Music vs YouTube thông thường)**:  
+> Các luồng âm thanh được thu hoạch từ **YouTube Music (`YTM_HARVESTER`)** thường có mức âm lượng (loudness) lớn hơn so với âm thanh video YouTube thông thường khoảng **3dB đến 6dB**. Nguyên nhân là do các bản thu trên YouTube Music được áp dụng tiêu chuẩn mastering và target loudness chuyên biệt cho stream nhạc (-14 LUFS) thay vì chuẩn nén dynamic của video tải lên trên YouTube Web thông thường.
+
 ---
 
 ## 📊 Kết quả Đo lường Phổ âm Toàn bài hát (FFT Spectrum)
@@ -174,7 +178,7 @@ Kết quả kiểm thử thực tế thời gian thực 100% thời lượng tr�
 Bạn có thể cài đặt vĩnh viễn bằng gói đã ký số chính thức hoặc nạp từ mã nguồn:
 
 - **Cài đặt nhanh (Gói XPI đã ký số chính thức bởi Mozilla)**:
-  Tải file cài đặt [**`YTSS-0.1.3.xpi`**](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-0.1.3.xpi) từ nhánh [`firefox`](https://github.com/alithw/YTSpoofingStream/tree/firefox), kéo thả trực tiếp vào cửa sổ Firefox (hoặc nhấn `Ctrl + O` để mở file), sau đó bấm **Thêm (Add)** để cài đặt vĩnh viễn (không bao giờ bị mất khi khởi động lại).
+  Tải file cài đặt [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) từ mục [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) (hoặc trực tiếp từ nhánh [`firefox`](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-firefox-0.1.5.1.xpi)), kéo thả trực tiếp vào cửa sổ Firefox (hoặc nhấn `Ctrl + O` để mở file), sau đó bấm **Thêm (Add)** để cài đặt vĩnh viễn (không bao giờ bị mất khi khởi động lại).
 - **Chạy từ mã nguồn (Tiện ích tạm thời)**:
   1. Chuyển sang nhánh `firefox`:
      ```bash
