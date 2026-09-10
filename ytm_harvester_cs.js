@@ -48,7 +48,8 @@
     const af = json.streamingData.adaptiveFormats;
 
     // Strict 774 requirement:
-    if (af.some(f => f.itag === 774)) {
+    const target774 = af.find(f => f.itag === 774);
+    if (target774) {
       console.log(TAG, `★ Genuine ITAG 774 found for ${urlVid}! Locking audio formats strictly to 774`);
       // Keep only 774 for audio, stripping all lower formats (251, 250, 249, 140, 141)
       json.streamingData.adaptiveFormats = af.filter(f => f.itag === 774 || !f.mimeType?.includes('audio/'));
@@ -112,10 +113,67 @@
     configurable: true
   });
 
+  function haltPlayback() {
+    try {
+      const moviePlayer = document.getElementById('movie_player');
+      if (moviePlayer) {
+        moviePlayer.pauseVideo?.();
+        moviePlayer.stopVideo?.();
+        moviePlayer.clearVideo?.();
+      }
+      const mediaElements = document.querySelectorAll('video, audio');
+      mediaElements.forEach(el => {
+        try {
+          el.pause();
+          el.removeAttribute('src');
+          el.src = '';
+          el.load?.();
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  function cleanStreamUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+    try {
+      const u = new URL(rawUrl);
+      u.searchParams.delete('range');
+      u.searchParams.delete('rn');
+      u.searchParams.delete('rbuf');
+      u.searchParams.delete('ump');
+      u.searchParams.delete('sabr');
+      u.searchParams.delete('alr');
+      u.searchParams.delete('sq');
+      return u.toString();
+    } catch (e) {
+      return rawUrl
+        .replace(/[?&]range=[^&]*/g, '')
+        .replace(/[?&]rn=[^&]*/g, '')
+        .replace(/[?&]rbuf=[^&]*/g, '')
+        .replace(/[?&]ump=[^&]*/g, '')
+        .replace(/[?&]sabr=[^&]*/g, '')
+        .replace(/[?&]alr=[^&]*/g, '')
+        .replace(/[?&]sq=[^&]*/g, '');
+    }
+  }
+
   function notify774Found(streamUrl) {
     if (isAborted || !streamUrl || !urlVid) return;
-    let cleanUrl = streamUrl.split('&range=')[0];
-    cleanUrl = cleanUrl.replace(/&rn=\d+/, '').replace(/&rbuf=\d+/, '');
+
+    try {
+      const u = new URL(streamUrl);
+      const docid = u.searchParams.get('docid');
+      if (docid && urlVid && docid !== urlVid) {
+        console.warn(TAG, `Ignored ITAG 774 stream for mismatched track docid=${docid} (expected ${urlVid})`);
+        return;
+      }
+    } catch (e) {}
+
+    isAborted = true;
+    clearInterval(pollInterval);
+    haltPlayback();
+
+    const cleanUrl = cleanStreamUrl(streamUrl);
     console.log(TAG, `[DirectCapture] Found deciphered 774 URL for ${urlVid}`);
     try {
       window.parent.postMessage({
@@ -125,6 +183,19 @@
       }, '*');
     } catch (e) {}
   }
+
+  // Intercept navigator.sendBeacon to swallow telemetry pings that trigger concurrent stream limits
+  try {
+    const origBeacon = navigator.sendBeacon;
+    if (origBeacon) {
+      navigator.sendBeacon = function(url, data) {
+        if (typeof url === 'string' && (url.includes('/api/stats/') || url.includes('/playback/'))) {
+          return true;
+        }
+        return origBeacon.call(this, url, data);
+      };
+    }
+  } catch (e) {}
 
   // Hook HTMLMediaElement src setter
   try {
@@ -143,23 +214,50 @@
     }
   } catch (e) {}
 
-  // Hook XMLHttpRequest
+  // Hook XMLHttpRequest: capture 774 and drop telemetry requests
   try {
     const origXhrOpen = XMLHttpRequest.prototype.open;
+    const origXhrSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-      if (typeof url === 'string' && url.includes('videoplayback') && url.includes('itag=774')) {
-        notify774Found(url);
+      this._ytssUrl = url;
+      if (typeof url === 'string') {
+        if (url.includes('videoplayback') && url.includes('itag=774')) {
+          notify774Found(url);
+        }
+        if (url.includes('/api/stats/') || url.includes('/playback/')) {
+          this._ytssBlockedTelemetry = true;
+        }
       }
       return origXhrOpen.call(this, method, url, ...rest);
     };
+    XMLHttpRequest.prototype.send = function(...args) {
+      if (this._ytssBlockedTelemetry) {
+        try {
+          Object.defineProperty(this, 'status', { value: 204, configurable: true });
+          Object.defineProperty(this, 'readyState', { value: 4, configurable: true });
+        } catch (e) {}
+        setTimeout(() => {
+          this.dispatchEvent(new Event('readystatechange'));
+          this.dispatchEvent(new Event('load'));
+        }, 10);
+        return;
+      }
+      return origXhrSend.apply(this, args);
+    };
   } catch (e) {}
 
-  // 2. Hook fetch for async player requests and videoplayback
+  // 2. Hook fetch for async player requests, videoplayback, and swallow telemetry
   const origFetch = window.fetch;
   window.fetch = async function(...args) {
     const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-    if (typeof url === 'string' && url.includes('videoplayback') && url.includes('itag=774')) {
-      notify774Found(url);
+    if (typeof url === 'string') {
+      if (url.includes('videoplayback') && url.includes('itag=774')) {
+        notify774Found(url);
+      }
+      if (url.includes('/api/stats/') || url.includes('/playback/')) {
+        // Drop stats/watchtime/heartbeat pings that trigger concurrent stream limits (TOO_MANY_STREAMS_PER_USER)
+        return new Response('', { status: 204 });
+      }
     }
     const res = await origFetch.apply(this, args);
     if (typeof url === 'string' && url.includes('/player') && url.includes('youtubei/v1')) {
@@ -209,5 +307,8 @@
     }
     autoPlayMuted();
   }, 250);
-  setTimeout(() => clearInterval(pollInterval), 8000);
+  setTimeout(() => {
+    clearInterval(pollInterval);
+    if (!isAborted) haltPlayback();
+  }, 8000);
 })();

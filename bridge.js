@@ -37,14 +37,22 @@ window.addEventListener('message', (event) => {
   if (event.source !== window || !event.data) return;
 
   if (event.data.type === 'YTSS_FETCH_HQ') {
-    const { videoId, title, author, requestId, context, opMode } = event.data;
-    safeSend({ type: 'FETCH_HQ', videoId, title, author, context, opMode }, (response) => {
+    const { videoId, title, author, requestId, context, opMode, preferredSource, excludeSource } = event.data;
+    safeSend({ type: 'FETCH_HQ', videoId, title, author, context, opMode, preferredSource, excludeSource }, (response) => {
       window.postMessage({
         type: 'YTSS_HQ_RESULT',
         requestId,
         ...(response || { success: false, results: [] }),
       }, '*');
     });
+  }
+
+  if (event.data.type === 'YTSS_CLEAR_VIDEO_CACHE') {
+    safeSend({ type: 'CLEAR_VIDEO_CACHE', videoId: event.data.videoId });
+  }
+
+  if (event.data.type === 'YTSS_STOP_HARVEST') {
+    safeSend({ type: 'OFFSCREEN_STOP_HARVEST' });
   }
 
   // ── Phase 1 (Option D): relay TV streaming context query.

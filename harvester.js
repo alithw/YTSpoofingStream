@@ -6,17 +6,19 @@
 const TAG = '[YTSpoofHarvester]';
 
 function teardownFrame() {
-  const iframe = document.getElementById('harvesterFrame');
-  if (iframe) {
+  const iframes = document.querySelectorAll('iframe');
+  iframes.forEach(iframe => {
     try { iframe.src = 'about:blank'; } catch (e) {}
-    iframe.remove();
-  }
+    try { iframe.remove(); } catch (e) {}
+  });
 }
+teardownFrame();
 
 function createFrame() {
   teardownFrame();
   const iframe = document.createElement('iframe');
   iframe.id = 'harvesterFrame';
+  iframe.setAttribute('allow', 'autoplay');
   iframe.style.cssText = 'position:absolute; top:-9999px; left:-9999px; width:640px; height:360px; border:none;';
   const root = document.body || document.documentElement;
   if (root) {

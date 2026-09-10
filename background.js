@@ -317,11 +317,13 @@ async function setupStaticRules() {
       return;
     }
 
+    const ITAG_774_MEDIA_RULE_ID = 9195;
+    const YTM_STATS_BLOCK_RULE_ID = 9196;
     const YTM_FRAME_RULE_ID = 9197;
     const YTM_API_RULE_ID = 9198;
     const WEB_REMIX_MEDIA_RULE_ID = 9199;
     const rulesToAdd = [];
-    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
+    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, ITAG_774_MEDIA_RULE_ID, YTM_STATS_BLOCK_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
 
     // 1. Origin spoofing for www.youtube.com API requests.
     rulesToAdd.push({
@@ -376,6 +378,18 @@ async function setupStaticRules() {
       condition: {
         urlFilter: '*music.youtube.com/*',
         resourceTypes: ['sub_frame'],
+      },
+    });
+
+    // 1d. Block playback telemetry and heartbeat from music.youtube.com to prevent
+    // triggering concurrent stream limits (TOO_MANY_STREAMS_PER_USER)
+    rulesToAdd.push({
+      id: YTM_STATS_BLOCK_RULE_ID,
+      priority: 30,
+      action: { type: 'block' },
+      condition: {
+        regexFilter: '^https?://music\\.youtube\\.com/(?:api/stats/|youtubei/v1/playback/)',
+        resourceTypes: ['xmlhttprequest', 'ping', 'other'],
       },
     });
 
@@ -440,10 +454,38 @@ async function setupStaticRules() {
         responseHeaders: [
           { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
           { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
+          { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+          { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' },
+          { header: 'Access-Control-Expose-Headers', operation: 'set', value: 'Content-Length, Content-Range, Accept-Ranges' },
         ],
       },
       condition: {
         regexFilter: '^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]c=|/c/)WEB_REMIX(?:[&/]|.*)',
+        resourceTypes: ['media', 'xmlhttprequest', 'other'],
+      },
+    });
+
+    // 3c. Dedicated rule for all ITAG 774 media streams (unconditional music referer, UA, and CORS)
+    rulesToAdd.push({
+      id: ITAG_774_MEDIA_RULE_ID,
+      priority: 25,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          { header: 'Referer', operation: 'set', value: 'https://music.youtube.com/' },
+          { header: 'Origin', operation: 'set', value: 'https://music.youtube.com' },
+          { header: 'User-Agent', operation: 'set', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' },
+        ],
+        responseHeaders: [
+          { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
+          { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
+          { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+          { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' },
+          { header: 'Access-Control-Expose-Headers', operation: 'set', value: 'Content-Length, Content-Range, Accept-Ranges' },
+        ],
+      },
+      condition: {
+        regexFilter: '^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]itag=|/itag/)774(?:[&/]|.*)',
         resourceTypes: ['media', 'xmlhttprequest', 'other'],
       },
     });
@@ -506,6 +548,13 @@ async function setupStaticRules() {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.enabled !== undefined) {
     setupStaticRules();
+  }
+  if (area === 'local' && changes.operationMode !== undefined) {
+    console.log(TAG, `[Settings] Operation mode changed to ${changes.operationMode.newValue}, clearing SW session cache`);
+    chrome.storage.session.get(null).then(all => {
+      const hqKeys = Object.keys(all || {}).filter(k => k.startsWith('hq_') || k.startsWith('tvctx_'));
+      if (hqKeys.length > 0) chrome.storage.session.remove(hqKeys).catch(() => {});
+    }).catch(() => {});
   }
 });
 
@@ -711,7 +760,7 @@ async function ensureOffscreenDocument() {
     try {
       await chrome.offscreen.createDocument({
         url: 'harvester.html',
-        reasons: ['IFRAME_SCRIPTING', 'DOM_PARSER'],
+        reasons: ['IFRAME_SCRIPTING', 'DOM_PARSER', 'AUDIO_PLAYBACK'],
         justification: 'Harvest HQ audio streams from YouTube Music and TV',
       });
       console.log(TAG, '[Harvester] Offscreen document created');
@@ -720,6 +769,30 @@ async function ensureOffscreenDocument() {
         console.warn(TAG, '[Harvester] Offscreen creation error:', err);
       }
     }
+  }
+}
+
+function cleanStreamUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+  try {
+    const u = new URL(rawUrl);
+    u.searchParams.delete('range');
+    u.searchParams.delete('rn');
+    u.searchParams.delete('rbuf');
+    u.searchParams.delete('ump');
+    u.searchParams.delete('sabr');
+    u.searchParams.delete('alr');
+    u.searchParams.delete('sq');
+    return u.toString();
+  } catch (e) {
+    return rawUrl
+      .replace(/[?&]range=[^&]*/g, '')
+      .replace(/[?&]rn=[^&]*/g, '')
+      .replace(/[?&]rbuf=[^&]*/g, '')
+      .replace(/[?&]ump=[^&]*/g, '')
+      .replace(/[?&]sabr=[^&]*/g, '')
+      .replace(/[?&]alr=[^&]*/g, '')
+      .replace(/[?&]sq=[^&]*/g, '');
   }
 }
 
@@ -734,7 +807,7 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
       if (!url || !url.includes('videoplayback')) return;
 
       // STRICT: ONLY intercept genuine ITAG 774 Opus ~280kbps
-      const is774 = url.includes('itag=774');
+      const is774 = url.includes('itag=774') || url.includes('/itag/774');
       if (!is774) return;
 
       // CRITICAL: Only intercept requests originating from offscreen harvester document (tabId === -1).
@@ -750,8 +823,7 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
         console.log(TAG, `[WebRequest] Intercepted deciphered ITAG 774 stream for ${currentSession.videoId} (session #${currentSession.sessionId})`);
 
         // Strip range and chunking params to get full base stream URL
-        let cleanUrl = url.split('&range=')[0];
-        cleanUrl = cleanUrl.replace(/&rn=\d+/, '').replace(/&rbuf=\d+/, '');
+        const cleanUrl = cleanStreamUrl(url);
 
         const fmt = {
           itag: 774,
@@ -863,7 +935,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'OFFSCREEN_HARVEST_SUCCESS') {
     if (activeHarvestSession && !activeHarvestSession.cancelled && activeHarvestSession.videoId === msg.videoId) {
       console.log(TAG, `[YTM_HARVEST] Direct verified 774 stream for ${msg.videoId} (session #${activeHarvestSession.sessionId})`);
-      const cleanUrl = msg.url;
+      const cleanUrl = cleanStreamUrl(msg.url);
       const fmt = {
         itag: 774,
         _origItag: 774,
@@ -895,8 +967,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'CLEAR_VIDEO_CACHE') {
+    const { videoId } = msg;
+    if (videoId) {
+      chrome.storage.session.remove([`hq_${videoId}`, `tvctx_${videoId}`]).catch(() => {});
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (msg.type === 'OFFSCREEN_STOP_HARVEST') {
+    if (activeHarvestSession) {
+      activeHarvestSession.cancelled = true;
+      try { activeHarvestSession.resolve([]); } catch (e) {}
+      clearTimeout(activeHarvestSession.timer);
+      activeHarvestSession = null;
+    }
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (msg.type === 'FETCH_HQ') {
-    const { videoId, title, author } = msg;
+    const { videoId, title, author, preferredSource, excludeSource } = msg;
     // Ignore anything that isn't a real 11-char YouTube ID.
     if (!/^[\w-]{11}$/.test(videoId || '')) {
       sendResponse({ success: false, results: [], error: 'invalid videoId' });
@@ -913,46 +1006,95 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       const opMode = msg.opMode || storage.operationMode || 'HYBRID_HQ';
 
-      // ── HYBRID MODE: HYBRID_HQ (Full 774 Support: YTM Harvester -> TV Headless -> Cancel)
+      // ── HYBRID MODE: HYBRID_HQ (Bidirectional Smart Failover: YTM Harvester <-> TV Relay)
       if (opMode === 'HYBRID_HQ') {
-        console.log(TAG, `[FETCH_HQ] Mode: HYBRID_HQ hunting for 774 on exact video ${videoId}...`);
+        const PROV_YTM = 'YTM_HARVESTER';
+        const PROV_TV = 'TVHTML5';
 
-        // Step 1: Harvest from YTM for the EXACT video (strict 774 only)
-        const ytmFormats = await harvestViaYtm(videoId, title, author);
-        if (ytmFormats && ytmFormats.length > 0) {
-          const has774 = ytmFormats.some(f => f.itag === 774);
-          if (has774) {
-            console.log(TAG, `[FETCH_HQ] HYBRID_HQ successfully harvested 774 for exact video ${videoId}`);
-            const results = [{ source: 'HYBRID_774', audioFormats: ytmFormats }];
-            chrome.storage.session.set({
-              [`hq_${videoId}`]: { videoId, formats: ytmFormats, streamingContext: null, ts: Date.now() }
-            }).catch(() => {});
-            sendResponse({ success: true, results, streamingContext: null, opMode: 'HYBRID_HQ' });
-            return;
+        const tryYtm = async () => {
+          console.log(TAG, `[FETCH_HQ] [Hybrid] Hunting for 774 via YTM Harvester on ${videoId}...`);
+          try {
+            const ytmFormats = await harvestViaYtm(videoId, title, author);
+            if (ytmFormats && ytmFormats.length > 0 && ytmFormats.some(f => f.itag === 774)) {
+              return { source: PROV_YTM, audioFormats: ytmFormats, streamingContext: null };
+            }
+          } catch (e) {
+            console.warn(TAG, `[FETCH_HQ] [Hybrid] YTM Harvester error:`, e);
           }
+          return null;
+        };
+
+        const tryTv = async () => {
+          console.log(TAG, `[FETCH_HQ] [Hybrid] Checking TV client for ${videoId} with Premium login...`);
+          try {
+            const tvToken = await getClientAccessToken('TVHTML5');
+            if (tvToken) {
+              const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
+              const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
+              if (tvRes?.audioFormats?.some(f => f.itag === 774)) {
+                return { source: PROV_TV, audioFormats: tvRes.audioFormats, streamingContext: tvRes?.streamingContext || null };
+              }
+            } else {
+              console.log(TAG, `[FETCH_HQ] [Hybrid] TV client skipped (no TV login)`);
+            }
+          } catch (e) {
+            console.warn(TAG, `[FETCH_HQ] [Hybrid] TV client error:`, e);
+          }
+          return null;
+        };
+
+        let firstProv = PROV_YTM;
+        let secondProv = PROV_TV;
+
+        if (excludeSource === PROV_YTM) {
+          firstProv = PROV_TV;
+          secondProv = null;
+        } else if (excludeSource === PROV_TV) {
+          firstProv = PROV_YTM;
+          secondProv = null;
+        } else if (preferredSource === PROV_TV || storage.preferredClient === 'TVHTML5') {
+          firstProv = PROV_TV;
+          secondProv = PROV_YTM;
         }
 
-        // Step 2: Fallback to TV Headless (Mode 1) ONLY if user is logged into TV with Premium!
-        // Fallback to TV client only if authenticated with Premium
-        const tvToken = await getClientAccessToken('TVHTML5');
-        if (tvToken) {
-          console.log(TAG, `[FETCH_HQ] HYBRID_HQ: Checking TV client for ${videoId} with Premium login...`);
-          const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
-          const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
-          const tvHas774 = tvRes?.audioFormats?.some(f => f.itag === 774);
-          if (tvHas774) {
-            console.log(TAG, `[FETCH_HQ] HYBRID_HQ: TV confirmed 774 for exact video ${videoId}`);
-            const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
-            chrome.storage.session.set({
-              [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvRes?.streamingContext || null, ts: Date.now() }
-            }).catch(() => {});
-            sendResponse({ success: true, results, streamingContext: tvRes?.streamingContext || null, opMode: 'HYBRID_HQ' });
-            return;
-          }
+        const runProvider = (p) => (p === PROV_YTM ? tryYtm() : tryTv());
+
+        // Step 1: Attempt first candidate provider
+        console.log(TAG, `[FETCH_HQ] [Hybrid] Step 1: Trying primary candidate (${firstProv}) for ${videoId}`);
+        let result = await runProvider(firstProv);
+
+        // Step 2: If first candidate failed or has no 774, automatically attempt alternate provider
+        if (!result && secondProv) {
+          console.log(TAG, `[FETCH_HQ] [Hybrid] Step 2: Primary (${firstProv}) failed or has no 774 -> Smart Failover to alternate (${secondProv}) for ${videoId}...`);
+          result = await runProvider(secondProv);
         }
 
-        // Exact video has no 774 stream -> Cancel spoofing and let native audio play
-        console.log(TAG, `[FETCH_HQ] HYBRID_HQ: No genuine 774 stream found for ${videoId} -> Cancelled.`);
+        if (result) {
+          console.log(TAG, `[FETCH_HQ] [Hybrid] Successfully acquired ITAG 774 via ${result.source} for ${videoId}`);
+          chrome.storage.session.set({
+            [`hq_${videoId}`]: {
+              videoId,
+              formats: result.audioFormats,
+              streamingContext: result.streamingContext,
+              source: result.source,
+              ts: Date.now()
+            }
+          }).catch(() => {});
+          if (result.streamingContext) {
+            chrome.storage.session.set({ [`tvctx_${videoId}`]: result.streamingContext }).catch(() => {});
+          }
+          sendResponse({
+            success: true,
+            results: [{ source: result.source, audioFormats: result.audioFormats }],
+            streamingContext: result.streamingContext,
+            opMode: 'HYBRID_HQ',
+            usedSource: result.source
+          });
+          return;
+        }
+
+        // Step 3: Both modes failed or video has NO 774 -> Retaining native YouTube stream (ITAG 251)
+        console.log(TAG, `[FETCH_HQ] [Hybrid] Both modes failed or video has NO 774 -> Retaining native YouTube stream (ITAG 251).`);
         sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'HYBRID_HQ' });
         return;
       }
@@ -1001,20 +1143,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
-        // TV confirmed 774 is available!
-        console.log(TAG, `[FETCH_HQ] Mode 1: TV confirmed 774 for ${videoId}`);
-        const harvested = await harvestViaYtm(videoId, title, author);
-        if (harvested && harvested.some(f => f.itag === 774)) {
-          const results = [{ source: 'TV_HEADLESS', audioFormats: harvested.map(f => ({ ...f, _src: 'TV_HEADLESS' })) }];
-          chrome.storage.session.set({
-            [`hq_${videoId}`]: { videoId, formats: results[0].audioFormats, streamingContext: tvCtx, ts: Date.now() }
-          }).catch(() => {});
-          sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_HEADLESS' });
-          return;
-        }
-
-        // Direct TVHTML5 774 format
-        console.log(TAG, `[FETCH_HQ] Mode 1: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
+        // TV confirmed 774 is available! Delivering authenticated TVHTML5 ITAG 774
+        console.log(TAG, `[FETCH_HQ] Mode 1 (TV_HEADLESS): Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
         const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
         chrome.storage.session.set({
           [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
@@ -1033,9 +1163,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
 
-      const promises = targetClients.map(c => fetchFromClient(videoId, c));
-      const rawResults = await Promise.all(promises);
-      const results = rawResults.filter(r => r !== null);
+      // Query clients sequentially starting with preferred client to avoid slamming YouTube
+      // with simultaneous multi-device requests that trigger concurrent stream limits (TOO_MANY_STREAMS_PER_USER).
+      const results = [];
+      for (const c of targetClients) {
+        const res = await fetchFromClient(videoId, c);
+        if (res && res.audioFormats?.length > 0) {
+          results.push(res);
+          const has774 = res.audioFormats.some(f => f.itag === 774 || f._origItag === 774);
+          if (has774 || res.streamingContext) {
+            break; // Found high-quality 774 stream; stop querying further clients
+          }
+        } else if (res) {
+          results.push(res);
+        }
+      }
       const tvCtx = results.find(r => r.streamingContext)?.streamingContext || null;
 
       if (results.some(r => r.audioFormats?.length > 0)) {

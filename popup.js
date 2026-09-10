@@ -211,10 +211,13 @@
 
   document.querySelectorAll('.op-mode').forEach(m => {
     m.addEventListener('click', () => {
-      settings.operationMode = m.dataset.opmode;
+      const mode = m.dataset.opmode;
+      if (settings.operationMode === mode) return;
+      settings.operationMode = mode;
       document.querySelectorAll('.op-mode').forEach(x => {
         x.classList.toggle('active', x === m);
-        x.querySelector('input').checked = x === m;
+        const radio = x.querySelector('input');
+        if (radio) radio.checked = (x === m);
       });
       save();
       log(`Operation Mode: ${settings.operationMode}`);
