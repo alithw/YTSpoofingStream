@@ -187,17 +187,18 @@
   const pendingReloads = new Set(); // guard: only one reload retry loop per videoId
   let isInitialPageLoad = true;     // guard: only allow page reload on very first visit
   const isMusicSite = location.hostname === 'music.youtube.com'; // YouTube Music needs special handling
-
+  let navTargetVideoId = null;
 
   function isCurrentWatchVideo(vid) {
     if (!vid) return false;
     const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
-    if (playerVid) return playerVid === vid;
-    if (typeof navTargetVideoId !== 'undefined' && navTargetVideoId) return navTargetVideoId === vid;
+    if (playerVid && playerVid === vid) return true;
+    if (navTargetVideoId && navTargetVideoId === vid) return true;
     const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
-    if (urlVid) return urlVid === vid;
+    if (urlVid && urlVid === vid) return true;
     return false;
   }
+  const isCurrentTarget = isCurrentWatchVideo;
 
   // A cache hit used to overwrite status.clientStats wholesale with a single CACHE
   // entry. The popup's client grid is the only place that reports which clients
@@ -484,19 +485,7 @@
     return !!isMiniActive || hasPlayerVideo;
   }
 
-  // The videoId the SPA is currently heading for.
-  let navTargetVideoId = getVideoIdFromUrl();
-
-  function isCurrentWatchVideo(videoId) {
-    if (!videoId) return false;
-    const currentUrlVid = getVideoIdFromUrl();
-    if (currentUrlVid) {
-      return videoId === currentUrlVid || (navTargetVideoId && videoId === navTargetVideoId);
-    }
-    const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
-    return (navTargetVideoId && videoId === navTargetVideoId) || videoId === playerVid;
-  }
-  const isCurrentTarget = isCurrentWatchVideo;
+  navTargetVideoId = getVideoIdFromUrl();
 
   function getPlayable774Candidates(list) {
     if (!list || !Array.isArray(list)) return [];
@@ -876,6 +865,33 @@
             if (video) this.restoreNativeVideo(video);
           }
         });
+
+        this.audio.addEventListener('ended', () => {
+          if (!this.isActive) return;
+          console.log(TAG, '[StudioEngine774] Audio playback completed. Advancing player clock...');
+          const video = getMainVideoElement();
+          if (video) {
+            this._isInternalVideoSync = true;
+            try {
+              if (video.duration && !isNaN(video.duration)) {
+                video.currentTime = video.duration;
+              }
+            } catch (e) {}
+            video.dispatchEvent(new Event('ended', { bubbles: true }));
+            setTimeout(() => { this._isInternalVideoSync = false; }, 250);
+          }
+          const player = document.getElementById('movie_player');
+          if (player) {
+            setTimeout(() => {
+              if (this.isActive && (!player.getVideoData?.()?.video_id || player.getVideoData?.()?.video_id === this.activeVideoId)) {
+                if (typeof player.nextVideo === 'function') {
+                  console.log(TAG, '[StudioEngine774] Advancing to next video via player.nextVideo()...');
+                  try { player.nextVideo(); } catch (e) {}
+                }
+              }
+            }, 1200);
+          }
+        });
       }
 
       this.hookGlobalEvents();
@@ -1013,8 +1029,16 @@
 
         // Background / Hidden optimization: let audio play continuously in background
         if (document.hidden) {
-          if ((e.type === 'play' || e.type === 'playing') && this.audio.paused && !this.isAdActive()) {
-            this.audio.play().catch(() => {});
+          if ((e.type === 'play' || e.type === 'playing') && !this.isAdActive()) {
+            this._silenceElement(video);
+            this.syncVol(video);
+            this.audio.playbackRate = video.playbackRate;
+            if (this.audio.paused) {
+              if (Math.abs(this.audio.currentTime - video.currentTime) > 1.0) {
+                this.audio.currentTime = video.currentTime;
+              }
+              this.audio.play().catch(() => {});
+            }
           }
           // Do NOT pause 774 audio when tab is hidden, because Chrome automatically pauses/throttles
           // hidden video elements to save resources. Audio must continue playing in background!
@@ -1022,10 +1046,9 @@
         }
 
         if (e.type === 'play' || e.type === 'playing') {
-          // Playback Safety Guard: verify audio engine is playing for current video
-          const curPageVid = getVideoIdFromUrl();
-          if (this.isActive && this.activeVideoId && curPageVid && this.activeVideoId !== curPageVid) {
-            console.warn(TAG, `[PlaybackSafetyGuard] Audio engine playing ${this.activeVideoId} but page is ${curPageVid}! Stopping stale audio.`);
+          // Playback Safety Guard: verify audio engine is playing for current active video
+          if (this.isActive && this.activeVideoId && !isCurrentWatchVideo(this.activeVideoId)) {
+            console.warn(TAG, `[PlaybackSafetyGuard] Audio engine playing ${this.activeVideoId} but video is no longer active! Stopping stale audio.`);
             this.stopAndUnmute('Audio engine video mismatch on play');
             return;
           }
@@ -1119,13 +1142,24 @@
         player._ytssStudioVolHooked = true;
 
         if (typeof player.addEventListener === 'function') {
-          player.addEventListener('videodatachange', (type, data) => {
+          const handleVideoDataChange = () => {
             const newVid = player.getVideoData?.()?.video_id;
             if (newVid && newVid !== this.activeVideoId) {
               console.log(TAG, `[PlayerVideoDataChange] Video changed inside player: ${newVid}`);
               navTargetVideoId = newVid;
               failedSourcesPerVideo.delete(newVid);
               if (this.isActive) this.stopAndUnmute('Player video changed');
+
+              if (this.pending774 && this.pending774.videoId === newVid) {
+                const pending = this.pending774;
+                this.pending774 = null;
+                const v = getMainVideoElement();
+                if (v) {
+                  this.applyToVideo(v, newVid, pending.best774);
+                  return;
+                }
+              }
+
               const cached = cacheGet(newVid);
               if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
                 const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
@@ -1147,6 +1181,13 @@
               } else if (S.hqFetch) {
                 prewarmCache(newVid);
               }
+            }
+          };
+
+          player.addEventListener('videodatachange', handleVideoDataChange);
+          player.addEventListener('onStateChange', (state) => {
+            if (state === -1 || state === 5 || state === 1 || state === 3) {
+              handleVideoDataChange();
             }
           });
         }
@@ -1304,11 +1345,11 @@
       this.audio.playbackRate = video.playbackRate;
 
       // Audio playing in background must NEVER stutter or seek on tab switch!
-      if (!this.audio.paused) {
+      if (!this.audio.paused && !this.audio.ended) {
         if (video.paused) {
           const drift = this.audio.currentTime - video.currentTime;
-          // Only seek video if Chrome throttled background video significantly (> 1.5s)
-          if (drift > 1.5) {
+          // Only seek video if Chrome throttled background video significantly (> 1.0s)
+          if (drift > 1.0) {
             this._isInternalVideoSync = true;
             video.currentTime = this.audio.currentTime;
             setTimeout(() => { this._isInternalVideoSync = false; }, 250);
@@ -1316,12 +1357,22 @@
           video.play().catch(() => {});
         } else {
           const drift = this.audio.currentTime - video.currentTime;
-          if (drift > 2.0) {
+          if (drift > 1.5) {
             this._isInternalVideoSync = true;
             video.currentTime = this.audio.currentTime;
             setTimeout(() => { this._isInternalVideoSync = false; }, 250);
           }
         }
+      } else if (this.audio.ended || (this.audio.duration && this.audio.currentTime >= this.audio.duration - 0.5)) {
+        // Audio already completed while tab was hidden: advance video immediately to end
+        this._isInternalVideoSync = true;
+        if (video.duration) video.currentTime = video.duration;
+        video.dispatchEvent(new Event('ended', { bubbles: true }));
+        const player = document.getElementById('movie_player');
+        if (player && typeof player.nextVideo === 'function') {
+          try { player.nextVideo(); } catch (e) {}
+        }
+        setTimeout(() => { this._isInternalVideoSync = false; }, 250);
       } else if (video.paused && !this.audio.paused) {
         this.audio.pause();
       }
@@ -1388,7 +1439,7 @@
 
     checkSyncWatchdog() {
       if (!this.isActive || !this.audio || !this.audio.src) return;
-      if (this.isAdActive() || document.hidden) return;
+      if (this.isAdActive()) return;
 
       const video = getMainVideoElement();
       if (!video) return;
@@ -1412,6 +1463,30 @@
         if (Math.abs(this.audio.volume - targetVol) > 0.01) {
           this.audio.volume = targetVol;
         }
+      }
+
+      if (document.hidden) {
+        // BACKGROUND TAB CLOCK SYNCHRONIZATION:
+        // When tab is hidden, Chrome throttles or pauses background <video> to save GPU/power.
+        // In this mode, <audio> is the MASTER CLOCK since it is what the user hears.
+        // Periodically advance video.currentTime to keep YouTube player state in sync.
+        if (!this.audio.paused && !this.audio.ended) {
+          const aTime = this.audio.currentTime;
+          const vTime = video.currentTime;
+          const drift = aTime - vTime;
+          if (drift > 1.0 && !video.seeking && !this._isInternalVideoSync) {
+            this._isInternalVideoSync = true;
+            video.currentTime = aTime;
+            setTimeout(() => { this._isInternalVideoSync = false; }, 200);
+          }
+          if (video.duration && aTime >= video.duration - 0.5) {
+            this._isInternalVideoSync = true;
+            video.currentTime = video.duration;
+            video.dispatchEvent(new Event('ended', { bubbles: true }));
+            setTimeout(() => { this._isInternalVideoSync = false; }, 200);
+          }
+        }
+        return;
       }
 
       if (video.seeking || this._isInternalVideoSync) return;
@@ -1517,7 +1592,8 @@
 
       this.syncVol(mainVideo);
 
-      if (!mainVideo.paused && !this.isAdActive()) {
+      const isPlayerPlaying = !mainVideo.paused || (document.hidden && document.getElementById('movie_player')?.getPlayerState?.() === 1);
+      if (isPlayerPlaying && !this.isAdActive()) {
         this.audio.play().catch((err) => {
           if (err && err.name === 'NotAllowedError') {
             const resume = () => {
@@ -1575,6 +1651,15 @@
         status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${Math.round((best774.bitrate || 280000) / 1000)}kbps | Method: ${status.activeMethod}`;
         report();
         if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+        return true;
+      }
+
+      // If mainVideo is currently playing an earlier video (e.g. pre-warming upcoming track),
+      // do NOT cut off the current track! Store as pending and apply when player switches.
+      const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+      if (playerVid && playerVid !== videoId) {
+        console.log(TAG, `[StudioEngine774] Storing 774 for upcoming track ${videoId} (player currently at ${playerVid})`);
+        this.pending774 = { videoId, best774 };
         return true;
       }
 
@@ -2694,8 +2779,8 @@
       if (currentVid && typeof pLoudness === 'number') {
         loudnessDbMap.set(currentVid, pLoudness);
       }
-      if (StudioEngine774.isActive && StudioEngine774.activeVideoId && currentVid && StudioEngine774.activeVideoId !== currentVid) {
-        console.warn(TAG, `[PageGuard] StudioEngine audio (${StudioEngine774.activeVideoId}) does not match current page video (${currentVid})! Stopping stale audio.`);
+      if (StudioEngine774.isActive && StudioEngine774.activeVideoId && !isCurrentWatchVideo(StudioEngine774.activeVideoId)) {
+        console.warn(TAG, `[PageGuard] StudioEngine audio (${StudioEngine774.activeVideoId}) is no longer active! Stopping stale audio.`);
         StudioEngine774.stopAndUnmute('Page video changed');
       }
       if (StudioEngine774.pending774) {
@@ -2711,6 +2796,7 @@
 
   setInterval(() => {
     PlayerBadgeUI.inject();
+    StudioEngine774.hookPlayer();
   }, 1500);
 
   // ═══════════════════════════════════════════════════════════════════
@@ -2746,6 +2832,9 @@
         const clone = response.clone();
         const json = await clone.json();
         const videoId = json.videoDetails?.videoId;
+        if (videoId) {
+          navTargetVideoId = videoId;
+        }
         const lDb = json.playerConfig?.audioConfig?.loudnessDb;
         if (videoId && typeof lDb === 'number') {
           loudnessDbMap.set(videoId, lDb);
@@ -2965,6 +3054,9 @@
           try {
             const json = JSON.parse(self.responseText);
             const videoId = json.videoDetails?.videoId;
+            if (videoId) {
+              navTargetVideoId = videoId;
+            }
             const cached = videoId ? cacheGet(videoId) : null;
             const isCurrentActive = isCurrentWatchVideo(videoId);
 
