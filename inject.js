@@ -110,9 +110,8 @@
   }
 
   window.addEventListener('message', (e) => {
-    // Only trust messages this page posted to itself — otherwise any embedded
-    // iframe on the page could push arbitrary settings into the extension.
-    if (e.source !== window) return;
+    const isSameOrigin = e.origin === window.location.origin || e.origin === '' || e.source === window;
+    if (!isSameOrigin) return;
     if ((e.data?.type === 'YTSS_SETTINGS_UPDATE' || e.data?.type === 'YTSpoofingStream_settingsUpdate') && e.data.settings) {
       Object.assign(S, pickSettings(e.data.settings));
       persistSettings();
@@ -3046,7 +3045,8 @@
   });
 
   window.addEventListener('message', (e) => {
-    if (e.source !== window) return;
+    const isSameOrigin = e.origin === window.location.origin || e.origin === '' || e.source === window;
+    if (!isSameOrigin) return;
     if (e.data?.type === 'YTSS_SW_TRIGGER' || e.data?.type === 'YTSS_TRIGGER_UPGRADE') {
       const { videoId } = e.data;
       if (videoId && !confirmedNo774Videos.has(videoId)) {

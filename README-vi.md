@@ -4,16 +4,23 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.1-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="Giấy phép MIT">
-    <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
+    <img src="https://img.shields.io/badge/platform-Firefox%20%7C%20Firefox%20ESR-orange?style=flat-square" alt="Nền tảng hỗ trợ">
     <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="Đóng góp vào dự án"></a>
     <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg?style=flat-square" alt="Quy tắc ứng xử"></a>
     <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blueviolet.svg?style=flat-square" alt="Chính sách bảo mật"></a>
     <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
+
+> [!IMPORTANT]
+> **🦊 Phiên bản Chính thức cho Mozilla Firefox & Firefox ESR (Nhánh `firefox`)**  
+> Nhánh này được xây dựng và tối ưu hóa chuyên biệt dành riêng cho **Mozilla Firefox** và **Firefox ESR (v128+)**.  
+> - **Tương thích WebExtensions MV3**: Sử dụng cơ chế event page background scripts kèm DOM adapter và cổng keep-alive liên tục.  
+> - **Tích hợp sẵn gói cài đã ký số**: Đi kèm file cài đặt chính thức đã được Mozilla AMO ký duyệt [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) để cài đặt vĩnh viễn (không bị mất khi khởi động lại trình duyệt).  
+> - *(Nếu bạn đang tìm kiếm phiên bản dành cho Google Chrome / Chromium, vui lòng truy cập nhánh [**`main`**](https://github.com/alithw/YTSpoofingStream/tree/main)).*
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
@@ -25,11 +32,6 @@
 > 1. Mở popup extension và nhấn nút đăng nhập **TVHTML5**.
 > 2. Đảm bảo đăng nhập đúng tài khoản Google có YouTube Premium.
 > 3. Sau khi xác thực thành công, extension sẽ hoạt động với độ khả dụng luồng 774 cao nhất!
-
-> [!TIP]
-> **Bạn đang sử dụng Mozilla Firefox / Firefox ESR?**  
-> Nhánh này (`main`) được cấu hình dành riêng cho **các trình duyệt Chromium** (Google Chrome, Brave, Microsoft Edge, Cốc Cốc, Opera).  
-> Nếu bạn sử dụng **Mozilla Firefox**, vui lòng chuyển sang nhánh [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) hoặc tải trực tiếp gói cài đặt đã ký số [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) từ mục [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) để cài đặt vĩnh viễn!
 
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 
@@ -141,10 +143,6 @@ Khi can thiệp `video.muted = true` trực tiếp trên DOM của thẻ `<video
 | **`YTM_HARVESTER`** | YTM Harvester | Trực tiếp HTTPS từ YouTube Music Premium | Hủy can thiệp nếu không có 774 | Nghe nhạc chất lượng cao nhất |
 | **`TV_HEADLESS`** | Smart TV Relay | Luồng giải mã TVHTML5 Living Room | Hủy can thiệp nếu thiếu TV login/774 | Các bài cover, track UGC không có trên YTM |
 
-> [!NOTE]
-> **Đặc tính mức âm lượng (YouTube Music vs YouTube thông thường)**:  
-> Các luồng âm thanh được thu hoạch từ **YouTube Music (`YTM_HARVESTER`)** thường có mức âm lượng (loudness) lớn hơn so với âm thanh video YouTube thông thường khoảng **3dB đến 6dB**. Nguyên nhân là do các bản thu trên YouTube Music được áp dụng tiêu chuẩn mastering và target loudness chuyên biệt cho stream nhạc (-14 LUFS) thay vì chuẩn nén dynamic của video tải lên trên YouTube Web thông thường.
-
 ---
 
 ## 📊 Kết quả Đo lường Phổ âm Toàn bài hát (FFT Spectrum)
@@ -163,29 +161,32 @@ Kết quả kiểm thử thực tế thời gian thực 100% thời lượng tr�
 ---
 
 ## 🚀 Hướng dẫn Cài đặt
- 
-### Trình duyệt Chromium (Google Chrome, Brave, Edge, Cốc Cốc, Opera)
-1. Tải mã nguồn về máy tính (nhánh `main`):
+
+### Cách 1: Cài đặt Vĩnh viễn bằng File Đã Ký số (.xpi) (Khuyên dùng)
+Nhánh này tích hợp sẵn gói tiện ích chính thức đã được Mozilla AMO ký duyệt an toàn [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) - cài đặt một lần và dùng vĩnh viễn, không bị gỡ khi tắt Firefox:
+1. Tải về file [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) (hoặc clone/tải mã nguồn nhánh này).
+2. Mở trình duyệt Mozilla Firefox hoặc Firefox ESR.
+3. **Kéo và thả (Drag & Drop)** trực tiếp file `YTSS-firefox-0.1.5.1.xpi` vào bất kỳ tab nào của Firefox (hoặc nhấn tổ hợp phím `Ctrl + O` rồi chọn file `YTSS-firefox-0.1.5.1.xpi`).
+4. Khi Firefox hiển thị hộp thoại xác nhận, nhấn nút **Thêm (Add)** (và tích chọn *"Cho phép tiện ích chạy trong Cửa sổ ẩn danh"* nếu muốn).
+5. Mở YouTube, đảm bảo đã đăng nhập tài khoản có YouTube Premium, và thưởng thức âm thanh chuẩn phòng thu với huy hiệu `★ 774` trên thanh điều khiển!
+
+### Cách 2: Chạy trực tiếp từ Mã nguồn (Chế độ Nhà phát triển / Tạm thời)
+Nếu bạn muốn soi mã nguồn, chỉnh sửa hoặc thử nghiệm trực tiếp từ repository:
+1. Tải mã nguồn nhánh `firefox` về máy tính:
    ```bash
-   git clone https://github.com/alithw/YTSpoofingStream.git
+   git clone -b firefox https://github.com/alithw/YTSpoofingStream.git
    ```
-2. Mở trình duyệt Chrome và truy cập `chrome://extensions/`.
-3. Bật **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
-4. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `YTSpoofingStream`.
-5. Mở YouTube, đảm bảo đã đăng nhập tài khoản có Premium, và thưởng thức âm thanh chuẩn phòng thu với huy hiệu `★ 774` trên trình phát!
+2. Mở tab mới trên Firefox và truy cập địa chỉ `about:debugging#/runtime/this-firefox`.
+3. Nhấn vào nút **Tải tiện ích tạm thời... (Load Temporary Add-on...)**.
+4. Chọn file `manifest.json` trong thư mục `YTSpoofingStream` vừa tải về.
+> [!NOTE]
+> Tiện ích tải tạm qua `about:debugging` sẽ tự động bị hủy khi bạn đóng trình duyệt Firefox. Để cài đặt sử dụng lâu dài, hãy dùng **Cách 1** với file `YTSS-firefox-0.1.5.1.xpi`.
 
-### Trình duyệt Mozilla Firefox / Firefox ESR (v128+)
-Bạn có thể cài đặt vĩnh viễn bằng gói đã ký số chính thức hoặc nạp từ mã nguồn:
+---
 
-- **Cài đặt nhanh (Gói XPI đã ký số chính thức bởi Mozilla)**:
-  Tải file cài đặt [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) từ mục [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) (hoặc trực tiếp từ nhánh [`firefox`](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-firefox-0.1.5.1.xpi)), kéo thả trực tiếp vào cửa sổ Firefox (hoặc nhấn `Ctrl + O` để mở file), sau đó bấm **Thêm (Add)** để cài đặt vĩnh viễn (không bao giờ bị mất khi khởi động lại).
-- **Chạy từ mã nguồn (Tiện ích tạm thời)**:
-  1. Chuyển sang nhánh `firefox`:
-     ```bash
-     git checkout firefox
-     ```
-  2. Mở Firefox và truy cập `about:debugging#/runtime/this-firefox`.
-  3. Bấm **Tải tiện ích tạm thời (Load Temporary Add-on...)** và chọn file `manifest.json`.
+> [!TIP]
+> **Bạn đang sử dụng Google Chrome hoặc trình duyệt Chromium?**  
+> Nếu bạn sử dụng Google Chrome, Microsoft Edge, Brave, Cốc Cốc hay Opera, vui lòng chuyển sang nhánh [**`main`**](https://github.com/alithw/YTSpoofingStream/tree/main) để sử dụng bản dành cho Chromium MV3.
 
 ---
 
@@ -206,7 +207,7 @@ Bạn có thể cài đặt vĩnh viễn bằng gói đã ký số chính thức
 
 **Hỏi: Extension có ảnh hưởng đến YouTube Music (`music.youtube.com`) không?**  
 Đáp: **Có, bạn phải tắt extension này khi sử dụng YouTube Music (`music.youtube.com`)**.  
-- Bạn không cần phải vào `chrome://extensions` để gỡ hay tắt tiện ích: chỉ cần mở popup và gạt công tắc **`Enable Extension: OFF`**.  
+- Bạn không cần phải vào `about:addons` để gỡ hay tắt tiện ích: chỉ cần mở popup và gạt công tắc **`Enable Extension: OFF`**.  
 - **Lý do**: YTSpoofingStream can thiệp sâu vào tầng mạng (DNR rules, cookie routing, header spoofing) để trích xuất luồng cho YouTube máy tính, việc này có thể gây xung đột với Service Worker và hàng đợi phát nhạc của trang web `music.youtube.com`.  
 - **Lưu ý quan trọng**: Bản thân **YouTube Music Web (`music.youtube.com`) chỉ hỗ trợ luồng AAC 141 (~256kbps)** và **không hỗ trợ luồng Opus 774** trên trình duyệt máy tính. Nếu bạn muốn thưởng thức âm thanh **Opus 774** chuẩn phòng thu đỉnh cao nhất, hãy nghe nhạc trực tiếp trên **YouTube thường (`www.youtube.com`)** với YTSpoofingStream đang bật!
 

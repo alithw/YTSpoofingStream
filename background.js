@@ -762,9 +762,9 @@ async function fetchFromClient(videoId, client) {
   }
 }
 
-// ─── OFFSCREEN HARVESTER & WEBREQUEST LISTENER ───────────────────────
-async function ensureOffscreenDocument() {
-  if (chrome.offscreen) {
+// ─── HARVESTER & WEBREQUEST LISTENER (Chrome Offscreen / Firefox Background Page) ───
+async function ensureHarvester() {
+  if (typeof chrome !== 'undefined' && chrome.offscreen) {
     if (await chrome.offscreen.hasDocument?.()) {
       return;
     }
@@ -780,7 +780,67 @@ async function ensureOffscreenDocument() {
         console.warn(TAG, '[Harvester] Offscreen creation error:', err);
       }
     }
+  } else if (typeof document !== 'undefined') {
+    // Firefox background event page has a real DOM!
+    let iframe = document.getElementById('harvesterFrame');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'harvesterFrame';
+      iframe.style.cssText = 'position:absolute; top:-9999px; left:-9999px; width:640px; height:360px; border:none;';
+      const root = document.body || document.documentElement;
+      if (root) {
+        root.appendChild(iframe);
+      } else {
+        document.addEventListener('DOMContentLoaded', () => {
+          (document.body || document.documentElement)?.appendChild(iframe);
+        });
+      }
+      console.log(TAG, '[Harvester] Background iframe created for Firefox');
+    }
   }
+}
+
+function triggerHarvester(videoId) {
+  if (typeof chrome !== 'undefined' && chrome.offscreen) {
+    chrome.runtime.sendMessage({
+      type: 'OFFSCREEN_HARVEST_YTM',
+      videoId
+    }).catch(err => {
+      console.warn(TAG, '[YTM_HARVEST] Offscreen message error:', err);
+    });
+  } else if (typeof document !== 'undefined') {
+    const iframe = document.getElementById('harvesterFrame');
+    if (iframe) {
+      console.log(TAG, `[YTM_HARVEST] Loading YTM harvest session for ${videoId} in Firefox background iframe...`);
+      iframe.src = `https://music.youtube.com/watch?v=${videoId}`;
+    }
+  }
+}
+
+function stopHarvester() {
+  if (typeof chrome !== 'undefined' && chrome.offscreen) {
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+  } else if (typeof document !== 'undefined') {
+    const iframe = document.getElementById('harvesterFrame');
+    if (iframe) {
+      iframe.src = 'about:blank';
+    }
+  }
+}
+
+// In Firefox, the background page's window directly receives window.parent.postMessage from the subframe
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (e) => {
+    if (e.data?.type === 'HARVEST_ABORT') {
+      console.warn(TAG, `[Harvester] Iframe reported abort for ${e.data.videoId}: ${e.data.reason}`);
+      stopHarvester();
+      if (activeHarvestSession && (!e.data.videoId || activeHarvestSession.videoId === e.data.videoId)) {
+        const resolve = activeHarvestSession.resolve;
+        activeHarvestSession = null;
+        resolve([]);
+      }
+    }
+  });
 }
 
 function cleanStreamUrl(rawUrl) {
@@ -821,13 +881,14 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
       const is774 = url.includes('itag=774') || url.includes('/itag/774');
       if (!is774) return;
 
-      // CRITICAL: Only intercept requests originating from offscreen harvester document (tabId === -1).
+      // CRITICAL: Only intercept requests originating from harvester document (tabId === -1).
       // Normal browser tabs (such as the active YouTube player tab) have tabId >= 0.
       // We must NEVER intercept playback requests from the user's active YouTube tab!
       if (details.tabId !== -1) return;
 
       // Ensure initiator is NOT www.youtube.com
-      if (details.initiator && details.initiator.includes('www.youtube.com')) return;
+      const initiator = details.initiator || details.originUrl || '';
+      if (initiator.includes('www.youtube.com')) return;
 
       if (activeHarvestSession && !activeHarvestSession.cancelled) {
         const currentSession = activeHarvestSession;
@@ -865,7 +926,7 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
         activeHarvestSession = null;
 
         // Reset harvester frame to avoid background playback load
-        chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+        stopHarvester();
 
         resolve([fmt]);
       }
@@ -908,7 +969,7 @@ async function harvestViaYtm(videoId, title = null, author = null) {
 }
 
 async function _doHarvest(videoId, title = null, author = null) {
-  await ensureOffscreenDocument();
+  await ensureHarvester();
 
   // Immediately abort any previous in-flight harvest for an older video
   if (activeHarvestSession) {
@@ -917,7 +978,7 @@ async function _doHarvest(videoId, title = null, author = null) {
     try { activeHarvestSession.resolve([]); } catch (e) {}
     clearTimeout(activeHarvestSession.timer);
     activeHarvestSession = null;
-    chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+    stopHarvester();
   }
 
   const targetId = videoId;
@@ -928,7 +989,7 @@ async function _doHarvest(videoId, title = null, author = null) {
       if (activeHarvestSession && activeHarvestSession.sessionId === sessionId) {
         activeHarvestSession = null;
         console.log(TAG, `[YTM_HARVEST] Timeout for ${videoId} (session #${sessionId}), falling back to native`);
-        chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+        stopHarvester();
         resolve([]);
       }
     }, 8000);
@@ -945,13 +1006,7 @@ async function _doHarvest(videoId, title = null, author = null) {
       }
     };
 
-    chrome.runtime.sendMessage({
-      type: 'OFFSCREEN_HARVEST_YTM',
-      videoId: targetId
-    }).catch(err => {
-      console.warn(TAG, '[YTM_HARVEST] Offscreen message error:', err);
-      resolve([]);
-    });
+    triggerHarvester(targetId);
   });
 }
 
@@ -997,7 +1052,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       };
       const resolve = activeHarvestSession.resolve;
       activeHarvestSession = null;
-      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      stopHarvester();
       resolve([fmt]);
     }
     sendResponse({ received: true });
@@ -1009,7 +1064,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log(TAG, `[YTM_HARVEST] Harvest aborted for ${msg.videoId}: ${msg.reason}`);
       const resolve = activeHarvestSession.resolve;
       activeHarvestSession = null;
-      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      stopHarvester();
       resolve([]);
     }
     sendResponse({ received: true });
@@ -1409,3 +1464,10 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 // re-install or browser restart.
 setupStaticRules();
 chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
+
+// Keep-alive port listener from bridge.js (keeps Firefox MV3 event page awake during YouTube playback)
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'ytss-keepalive') {
+    port.onDisconnect.addListener(() => {});
+  }
+});

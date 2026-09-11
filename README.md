@@ -4,16 +4,23 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.1-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="License MIT">
-    <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
+    <img src="https://img.shields.io/badge/platform-Firefox%20%7C%20Firefox%20ESR-orange?style=flat-square" alt="Platforms">
     <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"></a>
     <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg?style=flat-square" alt="Code of Conduct"></a>
     <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blueviolet.svg?style=flat-square" alt="Security Policy"></a>
     <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
+
+> [!IMPORTANT]
+> **🦊 Official Mozilla Firefox & Firefox ESR Edition (Branch `firefox`)**  
+> This branch is specifically built and optimized for **Mozilla Firefox** and **Firefox ESR (v128+)**.  
+> - **WebExtensions MV3 compliant**: Uses event page background scripts with DOM adapters and persistent keep-alive ports.  
+> - **Pre-signed package included**: Contains the officially signed [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) file for instant permanent installation (persists across browser restarts).  
+> - *(If you are looking for the Chromium / Google Chrome edition, please visit the [**`main`**](https://github.com/alithw/YTSpoofingStream/tree/main) branch).*
 
 > [!WARNING]
 > **Requirement: Active YouTube Premium Subscription**
@@ -25,11 +32,6 @@
 > 1. Open the extension popup and click the **TVHTML5** login button.
 > 2. Ensure you sign in with the Google account that has active YouTube Premium.
 > 3. Once authenticated, the extension operates with maximum stream availability!
-
-> [!TIP]
-> **Using Mozilla Firefox / Firefox ESR?**  
-> This branch (`main`) is configured specifically for **Chromium-based browsers** (Google Chrome, Brave, Microsoft Edge, Opera).  
-> If you are using **Mozilla Firefox**, please switch to the [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) branch or download the pre-signed [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) package from [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) for instant permanent installation!
 
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
 
@@ -141,10 +143,6 @@ In v0.1.3, the audio engine acts as the continuous master clock:
 | **`YTM_HARVESTER`** | YTM Harvester | Direct HTTPS from YouTube Music Premium | Cancels if no 774 stream | High-fidelity music tracks |
 | **`TV_HEADLESS`** | Smart TV Relay | Deciphered TVHTML5 Living Room | Cancels if no TV login / 774 | UGC tracks and videos not indexed on YTM |
 
-> [!NOTE]
-> **Audio Loudness Characteristics (YouTube Music vs Standard YouTube)**:  
-> Audio streams harvested from **YouTube Music (`YTM_HARVESTER`)** typically have a noticeably higher perceived loudness compared to regular YouTube video audio (approximately **+3dB to +6dB** louder). This is because YouTube Music master tracks follow dedicated music streaming loudness standards (-14 LUFS) and different dynamic compression targets compared to standard YouTube video uploads.
-
 ---
 
 ## 📊 Full-Track FFT Spectrum Benchmark Results
@@ -164,27 +162,31 @@ Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks
 
 ## 🚀 Installation
 
-### Chromium Browsers (Google Chrome, Brave, Edge, Opera)
-1. Clone or download the repository (`main` branch):
+### Option 1: Permanent Installation via Signed Package (Recommended)
+This branch includes the officially Mozilla-signed add-on package [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) which persists across browser restarts:
+1. Download the pre-signed package [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) (or clone/download this branch).
+2. Open Mozilla Firefox or Firefox ESR.
+3. Simply **drag and drop** the `YTSS-firefox-0.1.5.1.xpi` file into any Firefox tab (or press `Ctrl + O` and select the file).
+4. When prompted by Firefox, click **Add** (and optionally check *"Allow this extension to run in Private Windows"*).
+5. Open YouTube, ensure you are logged into your Premium account, and verify the `★ 774` badge in the player control bar!
+
+### Option 2: Run from Source (Temporary Add-on / Developer Mode)
+If you want to inspect, modify code, or test directly from the source repository:
+1. Clone or download this repository on the `firefox` branch:
    ```bash
-   git clone https://github.com/alithw/YTSpoofingStream.git
+   git clone -b firefox https://github.com/alithw/YTSpoofingStream.git
    ```
-2. Open `chrome://extensions/` and toggle on **Developer mode** in the top-right corner.
-3. Click **Load unpacked** and select the `YTSpoofingStream` folder.
-4. Open YouTube, ensure you are logged into your Premium account, and verify the `★ 774` badge in the player control bar!
+2. In Firefox, open a new tab and navigate to `about:debugging#/runtime/this-firefox`.
+3. Click the **Load Temporary Add-on...** button.
+4. Select the `manifest.json` file inside the downloaded `YTSpoofingStream` folder.
+> [!NOTE]
+> Temporary add-ons loaded via `about:debugging` are unloaded when Firefox exits. For permanent usage, use **Option 1** above with `YTSS-firefox-0.1.5.1.xpi`.
 
-### Mozilla Firefox / Firefox ESR (v128+)
-You can install the officially signed package permanently, or run from source:
+---
 
-- **Quick Install (Signed Package)**:
-  Download the signed [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) package from [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) (or direct from the [`firefox`](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-firefox-0.1.5.1.xpi) branch), drag and drop it into Firefox (or open it via `Ctrl+O`), and click **Add** to install it permanently.
-- **Run from Source (Temporary Add-on)**:
-  1. Switch to the `firefox` branch:
-     ```bash
-     git checkout firefox
-     ```
-  2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
-  3. Click **Load Temporary Add-on...** and select `manifest.json`.
+> [!TIP]
+> **Using Google Chrome or Chromium?**  
+> If you are using Google Chrome, Microsoft Edge, Brave, or Opera, please switch to the [**`main`**](https://github.com/alithw/YTSpoofingStream/tree/main) branch for the Chromium MV3 build.
 
 ---
 
@@ -205,7 +207,7 @@ A: Some videos (like non-music vlogs or podcasts) are encoded by YouTube exclusi
 
 **Q: Does this extension affect YouTube Music (`music.youtube.com`)?**  
 A: **Yes, you must turn off this extension when using YouTube Music (`music.youtube.com`)**.  
-- You do not need to visit `chrome://extensions` to disable or remove the extension: simply open the popup and switch **`Enable Extension: OFF`**.  
+- You do not need to visit `about:addons` to disable or remove the extension: simply open the popup and switch **`Enable Extension: OFF`**.  
 - **Reason**: YTSpoofingStream uses deep network routing (DNR rules, cookie routing, header spoofing) to harvest streams for standard YouTube, which can conflict with the Service Worker and playback queue of `music.youtube.com`.  
 - **Key Technical Note**: The **YouTube Music Web client (`music.youtube.com`) only supports AAC 141 (~256kbps)** and **does not serve Opus 774** in desktop browsers. If you want to experience authentic **Opus 774** studio audio, simply enjoy music directly on **standard YouTube (`www.youtube.com`)** with YTSpoofingStream enabled!
 

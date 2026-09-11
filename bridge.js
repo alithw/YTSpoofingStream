@@ -34,7 +34,8 @@ function safeSend(msg, callback, retryCount = 0) {
 }
 
 window.addEventListener('message', (event) => {
-  if (event.source !== window || !event.data) return;
+  const isSameOrigin = event.origin === window.location.origin || event.origin === '' || event.source === window;
+  if (!isSameOrigin || !event.data) return;
 
   if (event.data.type === 'YTSS_FETCH_HQ') {
     const { videoId, title, author, requestId, context, opMode, preferredSource, excludeSource, forceFresh } = event.data;
@@ -137,6 +138,20 @@ function pushSettings() {
 
 // Push settings changes to MAIN world
 chrome.storage.onChanged.addListener(pushSettings);
+
+// Keep-alive port to prevent Firefox MV3 event page from suspending while YouTube is active
+let keepAlivePort = null;
+function ensureKeepAlive() {
+  if (keepAlivePort) return;
+  try {
+    keepAlivePort = chrome.runtime.connect({ name: 'ytss-keepalive' });
+    keepAlivePort.onDisconnect.addListener(() => {
+      keepAlivePort = null;
+      setTimeout(ensureKeepAlive, 1000);
+    });
+  } catch (e) {}
+}
+ensureKeepAlive();
 
 // On load, push current settings to MAIN world
 pushSettings();

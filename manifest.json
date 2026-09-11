@@ -3,6 +3,15 @@
   "name": "YTSpoofingStream",
   "version": "0.1.5",
   "description": "Force 100% genuine Studio Opus 774 on YouTube via Dual-Stream Synchronization Engine (YTM Harvester / TV Living Room)",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ytspoofingstream@personal.local",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
@@ -17,7 +26,6 @@
     "declarativeNetRequest",
     "alarms",
     "downloads",
-    "offscreen",
     "webRequest"
   ],
   "host_permissions": [
@@ -27,7 +35,12 @@
     "*://*.googleusercontent.com/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src 'self' https://music.youtube.com;"
   },
   "action": {
     "default_popup": "popup.html",
