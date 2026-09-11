@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.2-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="Giấy phép MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -14,6 +14,14 @@
     <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
+
+> [!IMPORTANT]
+> **QUAN TRỌNG: CẬP NHẬT LÊN PHIÊN BẢN [v0.1.5.2](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2)**  
+> Nếu bạn đang sử dụng extension phiên bản cũ hơn, vui lòng cập nhật lên phiên bản mới nhất ([**v0.1.5.2**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2)) để:
+> - Khắc phục triệt để hiện tượng mất tiếng hoặc âm thanh đột ngột giảm nhỏ khi chuyển bài / tua video.
+> - Xóa bỏ hoàn toàn hiện tượng gián đoạn lặp vòng (dropout loop) và lỗi phát im lặng trên client Smart TV (`TVHTML5`).
+> - Tự động đồng bộ và nâng cấp thẳng lên luồng 774 ngay lập tức khi phát tự động (autoplay) hoặc chuyển tab nền.
+> - Hiển thị chính xác bitrate thực của luồng Studio Opus 774 thu hoạch từ YouTube Music dựa trên độ dài và dung lượng thực tế.
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**

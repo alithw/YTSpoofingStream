@@ -4,7 +4,7 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.2-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="License MIT">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -14,6 +14,14 @@
     <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
+
+> [!IMPORTANT]
+> **IMPORTANT: UPDATE TO [v0.1.5.2](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2) RECOMMENDED**  
+> If you are using an older version of the extension, please update to the latest version ([**v0.1.5.2**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2)) to:
+> - Completely resolve audio dropouts, sudden volume reductions, and seek desynchronization.
+> - Eliminate dropout loops and silent playback issues on the Smart TV client (`TVHTML5`).
+> - Ensure instantaneous 774 stream upgrade during autoplay and background tab switching.
+> - Report accurate Studio Opus 774 bitrates harvested from YouTube Music based on actual content length and duration.
 
 > [!WARNING]
 > **Requirement: Active YouTube Premium Subscription**
