@@ -37,8 +37,8 @@ window.addEventListener('message', (event) => {
   if (event.source !== window || !event.data) return;
 
   if (event.data.type === 'YTSS_FETCH_HQ') {
-    const { videoId, title, author, requestId, context, opMode, preferredSource, excludeSource } = event.data;
-    safeSend({ type: 'FETCH_HQ', videoId, title, author, context, opMode, preferredSource, excludeSource }, (response) => {
+    const { videoId, title, author, requestId, context, opMode, preferredSource, excludeSource, forceFresh } = event.data;
+    safeSend({ type: 'FETCH_HQ', videoId, title, author, context, opMode, preferredSource, excludeSource, forceFresh }, (response) => {
       window.postMessage({
         type: 'YTSS_HQ_RESULT',
         requestId,
@@ -49,6 +49,10 @@ window.addEventListener('message', (event) => {
 
   if (event.data.type === 'YTSS_CLEAR_VIDEO_CACHE') {
     safeSend({ type: 'CLEAR_VIDEO_CACHE', videoId: event.data.videoId });
+  }
+
+  if (event.data.type === 'YTSS_CONFIRM_NO_774') {
+    safeSend({ type: 'CONFIRM_NO_774', videoId: event.data.videoId });
   }
 
   if (event.data.type === 'YTSS_STOP_HARVEST') {

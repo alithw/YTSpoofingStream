@@ -54,7 +54,11 @@ window.addEventListener('message', (e) => {
     chrome.runtime.sendMessage({
       type: 'OFFSCREEN_HARVEST_SUCCESS',
       videoId: e.data.videoId,
-      url: e.data.url
+      url: e.data.url,
+      bitrate: e.data.bitrate,
+      averageBitrate: e.data.averageBitrate,
+      contentLength: e.data.contentLength,
+      approxDurationMs: e.data.approxDurationMs
     }).catch(() => {});
     return;
   }

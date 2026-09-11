@@ -87,6 +87,16 @@ const CLIENTS = [
 // lifetime of the SW, so it is derived from array position exactly once.
 CLIENTS.forEach((c, i) => { c.idx = i; });
 
+// Ephemeral single-track tracking: only holds at most 1 video temporarily in-memory.
+// Replaced/cleared upon video change. NEVER stored in session storage.
+let currentNo774VideoId = null;
+const confirmedNo774Videos = {
+  has(v) { return Boolean(v && currentNo774VideoId === v); },
+  add(v) { if (v && /^[\w-]{11}$/.test(v)) currentNo774VideoId = v; },
+  delete(v) { if (currentNo774VideoId === v) currentNo774VideoId = null; },
+  clear() { currentNo774VideoId = null; }
+};
+
 // ─── AUTHENTICATION ──────────────────────────────────────────────────
 // YouTube web derives its Authorization header from up to three cookies, each with
 // its own hash prefix. Sending only `SAPISIDHASH` while hashing a 3PAPISID value
@@ -551,8 +561,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (area === 'local' && changes.operationMode !== undefined) {
     console.log(TAG, `[Settings] Operation mode changed to ${changes.operationMode.newValue}, clearing SW session cache`);
+    confirmedNo774Videos.clear();
     chrome.storage.session.get(null).then(all => {
-      const hqKeys = Object.keys(all || {}).filter(k => k.startsWith('hq_') || k.startsWith('tvctx_'));
+      const hqKeys = Object.keys(all || {}).filter(k => k.startsWith('hq_') || k.startsWith('tvctx_') || k.startsWith('no774_'));
       if (hqKeys.length > 0) chrome.storage.session.remove(hqKeys).catch(() => {});
     }).catch(() => {});
   }
@@ -825,13 +836,27 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
         // Strip range and chunking params to get full base stream URL
         const cleanUrl = cleanStreamUrl(url);
 
+        let realBitrate = 0;
+        try {
+          const u = new URL(cleanUrl);
+          const clen = u.searchParams.get('clen');
+          const dur = u.searchParams.get('dur');
+          if (clen && dur) {
+            const c = parseFloat(clen);
+            const d = parseFloat(dur);
+            if (c > 0 && d > 0) realBitrate = Math.round((c * 8) / d);
+          }
+        } catch (e) {}
+        realBitrate = realBitrate || 256000;
+
         const fmt = {
           itag: 774,
           _origItag: 774,
           url: cleanUrl,
           _directUrl: cleanUrl,
           mimeType: 'audio/webm; codecs="opus"',
-          bitrate: 280000,
+          bitrate: realBitrate,
+          averageBitrate: realBitrate,
           audioQuality: 'AUDIO_QUALITY_HIGH',
           _src: currentSession.opMode === 'TV_HEADLESS' ? 'TV_HEADLESS' : 'YTM_HARVESTER',
         };
@@ -936,13 +961,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (activeHarvestSession && !activeHarvestSession.cancelled && activeHarvestSession.videoId === msg.videoId) {
       console.log(TAG, `[YTM_HARVEST] Direct verified 774 stream for ${msg.videoId} (session #${activeHarvestSession.sessionId})`);
       const cleanUrl = cleanStreamUrl(msg.url);
+
+      let realBitrate = msg.averageBitrate || msg.bitrate;
+      if (!realBitrate && msg.contentLength && msg.approxDurationMs) {
+        const c = Number(msg.contentLength);
+        const d = Number(msg.approxDurationMs) / 1000;
+        if (c > 0 && d > 0) realBitrate = Math.round((c * 8) / d);
+      }
+      if (!realBitrate) {
+        try {
+          const u = new URL(cleanUrl);
+          const clen = u.searchParams.get('clen');
+          const dur = u.searchParams.get('dur');
+          if (clen && dur) {
+            const c = parseFloat(clen);
+            const d = parseFloat(dur);
+            if (c > 0 && d > 0) realBitrate = Math.round((c * 8) / d);
+          }
+        } catch (e) {}
+      }
+      realBitrate = realBitrate || 256000;
+
       const fmt = {
         itag: 774,
         _origItag: 774,
         url: cleanUrl,
         _directUrl: cleanUrl,
         mimeType: 'audio/webm; codecs="opus"',
-        bitrate: 280000,
+        bitrate: realBitrate,
+        averageBitrate: msg.averageBitrate || realBitrate,
+        contentLength: msg.contentLength,
+        approxDurationMs: msg.approxDurationMs,
         audioQuality: 'AUDIO_QUALITY_HIGH',
         _src: activeHarvestSession.opMode === 'TV_HEADLESS' ? 'TV_HEADLESS' : 'YTM_HARVESTER',
       };
@@ -967,10 +1016,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'CONFIRM_NO_774') {
+    const { videoId } = msg;
+    if (videoId && /^[\w-]{11}$/.test(videoId)) {
+      confirmedNo774Videos.add(videoId);
+      chrome.storage.session.remove([`hq_${videoId}`, `tvctx_${videoId}`]).catch(() => {});
+      console.log(TAG, `[CONFIRM_NO_774] Video ${videoId} temporarily marked as NO 774 in SW (ephemeral).`);
+    }
+    sendResponse({ received: true });
+    return true;
+  }
+
   if (msg.type === 'CLEAR_VIDEO_CACHE') {
     const { videoId } = msg;
     if (videoId) {
-      chrome.storage.session.remove([`hq_${videoId}`, `tvctx_${videoId}`]).catch(() => {});
+      chrome.storage.session.remove([`hq_${videoId}`, `tvctx_${videoId}`, `no774_${videoId}`]).catch(() => {});
+      confirmedNo774Videos.delete(videoId);
+    } else {
+      confirmedNo774Videos.clear();
     }
     sendResponse({ success: true });
     return true;
@@ -989,12 +1052,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'FETCH_HQ') {
-    const { videoId, title, author, preferredSource, excludeSource } = msg;
+    const { videoId, title, author, preferredSource, excludeSource, forceFresh } = msg;
     // Ignore anything that isn't a real 11-char YouTube ID.
     if (!/^[\w-]{11}$/.test(videoId || '')) {
       sendResponse({ success: false, results: [], error: 'invalid videoId' });
       return true;
     }
+
+    // Ephemeral single-track tracking: clear if new videoId is requested or forced fresh
+    if (currentNo774VideoId && currentNo774VideoId !== videoId) {
+      confirmedNo774Videos.clear();
+    }
+    if (forceFresh) {
+      confirmedNo774Videos.delete(videoId);
+    }
+
+    if (confirmedNo774Videos.has(videoId)) {
+      console.log(TAG, `[FETCH_HQ] Video ${videoId} is temporarily confirmed to have NO 774. SW doing nothing.`);
+      sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true });
+      return true;
+    }
+
     if (msg.context) setPageContext(msg.context);
 
     (async () => {
@@ -1095,7 +1173,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         // Step 3: Both modes failed or video has NO 774 -> Retaining native YouTube stream (ITAG 251)
         console.log(TAG, `[FETCH_HQ] [Hybrid] Both modes failed or video has NO 774 -> Retaining native YouTube stream (ITAG 251).`);
-        sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'HYBRID_HQ' });
+        confirmedNo774Videos.add(videoId);
+        sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'HYBRID_HQ' });
         return;
       }
 
@@ -1114,7 +1193,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         console.log(TAG, `[FETCH_HQ] Mode 4: No 774 stream found for ${videoId} -> Cancelled.`);
-        sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'YTM_HARVESTER' });
+        confirmedNo774Videos.add(videoId);
+        sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'YTM_HARVESTER' });
         return;
       }
 
@@ -1139,7 +1219,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         if (!tvHas774) {
           console.log(TAG, `[FETCH_HQ] Mode 1: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
-          sendResponse({ success: false, results: [], error: 'NO_774_STREAM', opMode: 'TV_HEADLESS' });
+          confirmedNo774Videos.add(videoId);
+          sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'TV_HEADLESS' });
           return;
         }
 
@@ -1180,14 +1261,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       const tvCtx = results.find(r => r.streamingContext)?.streamingContext || null;
 
-      if (results.some(r => r.audioFormats?.length > 0)) {
+      const has774 = results.some(r => r.audioFormats?.some(f => f.itag === 774 || f._origItag === 774));
+      if (has774) {
         const merged = results.flatMap(r => r.audioFormats || []);
         chrome.storage.session.set({
           [`hq_${videoId}`]: { videoId, formats: merged, streamingContext: tvCtx, ts: Date.now() }
         }).catch(() => {});
+        sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'AUTO' });
+        return;
       }
 
-      sendResponse({ success: results.length > 0, results, streamingContext: tvCtx, opMode: 'AUTO' });
+      console.log(TAG, `[FETCH_HQ] AUTO: Video ${videoId} has NO 774 across all clients.`);
+      confirmedNo774Videos.add(videoId);
+      sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'AUTO' });
     })();
 
     return true;
@@ -1299,9 +1385,13 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     const videoId = url.searchParams.get('v');
     if (!videoId) return;
 
+    if (confirmedNo774Videos.has(videoId)) return;
+
     const stored = await chrome.storage.session.get(`hq_${videoId}`);
     const entry = stored[`hq_${videoId}`];
     if (!entry || !entry.formats?.length || (Date.now() - entry.ts) > TTL || (entry.videoId && entry.videoId !== videoId)) return;
+    const has774 = entry.formats.some(f => f.itag === 774 || f._origItag === 774);
+    if (!has774) return;
 
     console.log(TAG, `[TabActivated] YouTube tab focused for ${videoId}, pushing HQ upgrade trigger`);
     chrome.tabs.sendMessage(tabId, {

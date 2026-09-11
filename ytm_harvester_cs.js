@@ -43,6 +43,8 @@
     }
   }
 
+  let cached774Metadata = null;
+
   function filterAndPrioritize774(json) {
     if (!json?.streamingData?.adaptiveFormats) return json;
     const af = json.streamingData.adaptiveFormats;
@@ -51,6 +53,13 @@
     const target774 = af.find(f => f.itag === 774);
     if (target774) {
       console.log(TAG, `★ Genuine ITAG 774 found for ${urlVid}! Locking audio formats strictly to 774`);
+      cached774Metadata = {
+        bitrate: target774.bitrate,
+        averageBitrate: target774.averageBitrate,
+        contentLength: target774.contentLength,
+        approxDurationMs: target774.approxDurationMs,
+        audioSampleRate: target774.audioSampleRate
+      };
       // Keep only 774 for audio, stripping all lower formats (251, 250, 249, 140, 141)
       json.streamingData.adaptiveFormats = af.filter(f => f.itag === 774 || !f.mimeType?.includes('audio/'));
       return json;
@@ -179,7 +188,11 @@
       window.parent.postMessage({
         type: 'HARVEST_774_URL',
         videoId: urlVid,
-        url: cleanUrl
+        url: cleanUrl,
+        bitrate: cached774Metadata?.bitrate,
+        averageBitrate: cached774Metadata?.averageBitrate,
+        contentLength: cached774Metadata?.contentLength,
+        approxDurationMs: cached774Metadata?.approxDurationMs
       }, '*');
     } catch (e) {}
   }
