@@ -34,10 +34,10 @@
 > 2. Đảm bảo đăng nhập đúng tài khoản Google có YouTube Premium.
 > 3. Sau khi xác thực thành công, extension sẽ hoạt động với độ khả dụng luồng 774 cao nhất!
 
-> [!TIP]
-> **Bạn đang sử dụng Mozilla Firefox / Firefox ESR?**  
-> Nhánh này (`main`) được cấu hình dành riêng cho **các trình duyệt Chromium** (Google Chrome, Brave, Microsoft Edge, Cốc Cốc, Opera).  
-> Nếu bạn sử dụng **Mozilla Firefox**, vui lòng chuyển sang nhánh [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) hoặc tải trực tiếp gói cài đặt đã ký số [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) từ mục [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) để cài đặt vĩnh viễn!
+> [!WARNING]
+> **Thông báo về Mozilla Firefox: Ngừng hỗ trợ từ bây giờ**  
+> Extension dành cho **Mozilla Firefox** đã chính thức **ngừng hỗ trợ kể từ bây giờ** do các vấn đề về tính tương thích trên nền tảng Gecko (cơ chế bảo mật CORS khắt khe, chặn iframe ngầm `X-Frame-Options` và các giới hạn kiến trúc của WebExtensions MV3).  
+> Nếu bạn muốn sử dụng extension để trải nghiệm âm thanh chuẩn phòng thu Studio Opus 774, vui lòng sử dụng các **trình duyệt nhân Chromium** (Google Chrome, Microsoft Edge, Brave, Cốc Cốc, Opera,...).
 
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 

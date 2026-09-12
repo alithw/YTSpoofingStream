@@ -34,10 +34,10 @@
 > 2. Ensure you sign in with the Google account that has active YouTube Premium.
 > 3. Once authenticated, the extension operates with maximum stream availability!
 
-> [!TIP]
-> **Using Mozilla Firefox / Firefox ESR?**  
-> This branch (`main`) is configured specifically for **Chromium-based browsers** (Google Chrome, Brave, Microsoft Edge, Opera).  
-> If you are using **Mozilla Firefox**, please switch to the [**`firefox`**](https://github.com/alithw/YTSpoofingStream/tree/firefox) branch or download the pre-signed [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) package from [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) for instant permanent installation!
+> [!WARNING]
+> **Notice Regarding Mozilla Firefox: Support Discontinued**  
+> The **Mozilla Firefox** edition has been officially **discontinued from now on** due to compatibility limitations on the Gecko engine (strict CORS enforcement, background `X-Frame-Options` blocking, and WebExtensions MV3 architectural constraints).  
+> If you want to use this extension to enjoy studio-grade Opus 774 audio, please use a **Chromium-based browser** (Google Chrome, Microsoft Edge, Brave, Opera, etc.).
 
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
 
