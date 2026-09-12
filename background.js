@@ -5,6 +5,7 @@
 
 const TAG = '[YTSS-SW]';
 const VERSION = chrome.runtime.getManifest().version;
+console.log(TAG, `Loaded YTSpoofingStream v${VERSION} in background context (Firefox)`);
 
 // ─── FULL CLIENT CONFIGURATIONS ──────────────────────────────────────
 // Restored from working v0.0.5: WEB_REMIX first (best HQ success rate)
@@ -328,12 +329,29 @@ async function setupStaticRules() {
     }
 
     const ITAG_774_MEDIA_RULE_ID = 9195;
-    const YTM_STATS_BLOCK_RULE_ID = 9196;
     const YTM_FRAME_RULE_ID = 9197;
     const YTM_API_RULE_ID = 9198;
     const WEB_REMIX_MEDIA_RULE_ID = 9199;
     const rulesToAdd = [];
-    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, ITAG_774_MEDIA_RULE_ID, YTM_STATS_BLOCK_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
+    const clientRuleIds = [];
+    CLIENTS.forEach(c => {
+      clientRuleIds.push(API_UA_RULE_ID_BASE + c.idx);
+      clientRuleIds.push(MEDIA_RULE_ID_BASE + c.idx);
+    });
+
+    const rulesToRemove = Array.from(new Set([
+      ...existingIds,
+      ORIGIN_RULE_ID,
+      ITAG_774_MEDIA_RULE_ID,
+      YTM_FRAME_RULE_ID,
+      YTM_API_RULE_ID,
+      WEB_REMIX_MEDIA_RULE_ID,
+      SABR_BLOCK_RULE_ID,
+      BLACKLIST_BLOCK_RULE_ID,
+      SW_BLOCK_RULE_ID,
+      CORS_RULE_ID,
+      ...clientRuleIds
+    ]));
 
     // 1. Origin spoofing for www.youtube.com API requests.
     rulesToAdd.push({
@@ -374,39 +392,28 @@ async function setupStaticRules() {
       },
     });
 
-    // 1c. Remove frame restrictions for music.youtube.com in offscreen/subframes
+    // 1c. Remove frame restrictions for music.youtube.com in background/subframes
     rulesToAdd.push({
       id: YTM_FRAME_RULE_ID,
-      priority: 25,
+      priority: 100,
       action: {
         type: 'modifyHeaders',
         responseHeaders: [
           { header: 'X-Frame-Options', operation: 'remove' },
+          { header: 'Frame-Options', operation: 'remove' },
           { header: 'Content-Security-Policy', operation: 'remove' },
+          { header: 'Content-Security-Policy-Report-Only', operation: 'remove' },
         ],
       },
       condition: {
         urlFilter: '*music.youtube.com/*',
-        resourceTypes: ['sub_frame'],
-      },
-    });
-
-    // 1d. Block playback telemetry and heartbeat from music.youtube.com to prevent
-    // triggering concurrent stream limits (TOO_MANY_STREAMS_PER_USER)
-    rulesToAdd.push({
-      id: YTM_STATS_BLOCK_RULE_ID,
-      priority: 30,
-      action: { type: 'block' },
-      condition: {
-        regexFilter: '^https?://music\\.youtube\\.com/(?:api/stats/|youtubei/v1/playback/)',
-        resourceTypes: ['xmlhttprequest', 'ping', 'other'],
+        resourceTypes: ['sub_frame', 'main_frame', 'xmlhttprequest', 'other'],
       },
     });
 
     // 2. Per-client User-Agent for the player API request.
     CLIENTS.forEach((c) => {
       const ruleId = API_UA_RULE_ID_BASE + c.idx;
-      rulesToRemove.push(ruleId);
       if (!c.ua) return;
 
       rulesToAdd.push({
@@ -428,7 +435,6 @@ async function setupStaticRules() {
     // 3. Media segment User-Agent spoofing for each client.
     CLIENTS.forEach((c) => {
       const ruleId = MEDIA_RULE_ID_BASE + c.idx;
-      rulesToRemove.push(ruleId);
       if (!c.ua) return;
 
       rulesToAdd.push({
@@ -475,7 +481,7 @@ async function setupStaticRules() {
       },
     });
 
-    // 3c. Dedicated rule for all ITAG 774 media streams (unconditional music referer, UA, and CORS)
+    // 3c. Dedicated rule for all ITAG 774 media streams (unconditional music referer and CORS)
     rulesToAdd.push({
       id: ITAG_774_MEDIA_RULE_ID,
       priority: 25,
@@ -484,7 +490,6 @@ async function setupStaticRules() {
         requestHeaders: [
           { header: 'Referer', operation: 'set', value: 'https://music.youtube.com/' },
           { header: 'Origin', operation: 'set', value: 'https://music.youtube.com' },
-          { header: 'User-Agent', operation: 'set', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' },
         ],
         responseHeaders: [
           { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
@@ -501,7 +506,6 @@ async function setupStaticRules() {
     });
 
     // 4. Block the streaming_data_emergency_itag_blacklist endpoint on www.youtube.com.
-    rulesToRemove.push(BLACKLIST_BLOCK_RULE_ID);
     rulesToAdd.push({
       id: BLACKLIST_BLOCK_RULE_ID,
       priority: 5,
@@ -513,7 +517,6 @@ async function setupStaticRules() {
     });
 
     // 5. Block YouTube Service Worker on www.youtube.com ONLY (Never block music.youtube.com)
-    rulesToRemove.push(SW_BLOCK_RULE_ID);
     rulesToAdd.push({
       id: SW_BLOCK_RULE_ID,
       priority: 6,
@@ -525,7 +528,6 @@ async function setupStaticRules() {
     });
 
     // 6. Enable CORS headers for googlevideo.com so Web Audio API FFT analyser can measure full spectrum
-    rulesToRemove.push(CORS_RULE_ID);
     rulesToAdd.push({
       id: CORS_RULE_ID,
       priority: 10,
@@ -570,6 +572,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // (setupStaticRules is called at the end of the file)
+
+const pendingPlayerHeaders = new Map();
 
 // ─── INNERTUBE NATIVE FETCHER ─────────────────────────────────────────
 async function fetchFromClient(videoId, client) {
@@ -695,12 +699,26 @@ async function fetchFromClient(videoId, client) {
   }
 
   // Always include key=client.apiKey on the URL. InnerTube API gateway requires it for all clients.
-  const url = `${origin}/youtubei/v1/player?key=${client.apiKey}&prettyPrint=false&_ytss_c=${client.idx}`;
+  const reqId = 'req_' + Math.random().toString(36).slice(2, 11);
+  pendingPlayerHeaders.set(reqId, headers);
+  if (pendingPlayerHeaders.size > 50) {
+    const oldest = pendingPlayerHeaders.keys().next().value;
+    pendingPlayerHeaders.delete(oldest);
+  }
+
+  const url = `${origin}/youtubei/v1/player?key=${client.apiKey}&prettyPrint=false&_ytss_c=${client.idx}&_ytss_req=${reqId}`;
 
   try {
+    // In Firefox MV3, sending custom headers directly via fetch() from the background
+    // page triggers an OPTIONS CORS preflight to youtubei/v1/player, which YouTube rejects with 405.
+    // By initiating a Simple Request with text/plain, no preflight is sent. The real
+    // Content-Type: application/json and custom client headers are injected on the wire
+    // via chrome.webRequest.onBeforeSendHeaders, and CORS headers are injected on response.
     const resp = await fetch(url, {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'text/plain;charset=UTF-8',
+      },
       body: JSON.stringify(payload),
       credentials: bearerToken ? 'omit' : 'include',
     });
@@ -780,24 +798,33 @@ async function ensureHarvester() {
         console.warn(TAG, '[Harvester] Offscreen creation error:', err);
       }
     }
-  } else if (typeof document !== 'undefined') {
-    // Firefox background event page has a real DOM!
-    let iframe = document.getElementById('harvesterFrame');
-    if (!iframe) {
-      iframe = document.createElement('iframe');
-      iframe.id = 'harvesterFrame';
-      iframe.style.cssText = 'position:absolute; top:-9999px; left:-9999px; width:640px; height:360px; border:none;';
-      const root = document.body || document.documentElement;
-      if (root) {
-        root.appendChild(iframe);
-      } else {
-        document.addEventListener('DOMContentLoaded', () => {
-          (document.body || document.documentElement)?.appendChild(iframe);
-        });
-      }
-      console.log(TAG, '[Harvester] Background iframe created for Firefox');
-    }
   }
+}
+
+function teardownHarvesterFrame() {
+  if (typeof document === 'undefined') return;
+  const iframe = document.getElementById('harvesterFrame');
+  if (iframe) {
+    try { iframe.src = 'about:blank'; } catch (e) {}
+    iframe.remove();
+  }
+}
+
+function createHarvesterFrame() {
+  if (typeof document === 'undefined') return null;
+  teardownHarvesterFrame();
+  const iframe = document.createElement('iframe');
+  iframe.id = 'harvesterFrame';
+  iframe.style.cssText = 'position:absolute; top:-9999px; left:-9999px; width:640px; height:360px; border:none;';
+  const root = document.body || document.documentElement;
+  if (root) {
+    root.appendChild(iframe);
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      (document.body || document.documentElement)?.appendChild(iframe);
+    }, { once: true });
+  }
+  return iframe;
 }
 
 function triggerHarvester(videoId) {
@@ -809,9 +836,9 @@ function triggerHarvester(videoId) {
       console.warn(TAG, '[YTM_HARVEST] Offscreen message error:', err);
     });
   } else if (typeof document !== 'undefined') {
-    const iframe = document.getElementById('harvesterFrame');
+    const iframe = createHarvesterFrame();
     if (iframe) {
-      console.log(TAG, `[YTM_HARVEST] Loading YTM harvest session for ${videoId} in Firefox background iframe...`);
+      console.log(TAG, `[YTM_HARVEST] Loading clean YTM harvest session for ${videoId} in Firefox background iframe...`);
       iframe.src = `https://music.youtube.com/watch?v=${videoId}`;
     }
   }
@@ -821,24 +848,69 @@ function stopHarvester() {
   if (typeof chrome !== 'undefined' && chrome.offscreen) {
     chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
   } else if (typeof document !== 'undefined') {
-    const iframe = document.getElementById('harvesterFrame');
-    if (iframe) {
-      iframe.src = 'about:blank';
-    }
+    teardownHarvesterFrame();
   }
 }
 
 // In Firefox, the background page's window directly receives window.parent.postMessage from the subframe
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (e) => {
+    if (e.data?.type === 'HARVEST_774_URL') {
+      if (activeHarvestSession && !activeHarvestSession.cancelled && activeHarvestSession.videoId === e.data.videoId) {
+        console.log(TAG, `[Harvester] Direct verified 774 stream for ${e.data.videoId} (session #${activeHarvestSession.sessionId})`);
+        const cleanUrl = cleanStreamUrl(e.data.url);
+        let realBitrate = e.data.averageBitrate || e.data.bitrate;
+        if (!realBitrate && e.data.contentLength && e.data.approxDurationMs) {
+          const c = Number(e.data.contentLength);
+          const d = Number(e.data.approxDurationMs) / 1000;
+          if (c > 0 && d > 0) realBitrate = Math.round((c * 8) / d);
+        }
+        if (!realBitrate) {
+          try {
+            const u = new URL(cleanUrl);
+            const clen = u.searchParams.get('clen');
+            const dur = u.searchParams.get('dur');
+            if (clen && dur) {
+              const c = parseFloat(clen);
+              const d = parseFloat(dur);
+              if (c > 0 && d > 0) realBitrate = Math.round((c * 8) / d);
+            }
+          } catch (err) {}
+        }
+        realBitrate = realBitrate || 256000;
+
+        const fmt = {
+          itag: 774,
+          _origItag: 774,
+          url: cleanUrl,
+          _directUrl: cleanUrl,
+          mimeType: 'audio/webm; codecs="opus"',
+          bitrate: realBitrate,
+          averageBitrate: realBitrate,
+          contentLength: e.data.contentLength,
+          approxDurationMs: e.data.approxDurationMs,
+          audioQuality: 'AUDIO_QUALITY_HIGH',
+          _src: activeHarvestSession.opMode === 'TV_HEADLESS' ? 'TV_HEADLESS' : 'YTM_HARVESTER',
+        };
+
+        const resolve = activeHarvestSession.resolve;
+        activeHarvestSession = null;
+        stopHarvester();
+        resolve([fmt]);
+      }
+      return;
+    }
     if (e.data?.type === 'HARVEST_ABORT') {
       console.warn(TAG, `[Harvester] Iframe reported abort for ${e.data.videoId}: ${e.data.reason}`);
-      stopHarvester();
       if (activeHarvestSession && (!e.data.videoId || activeHarvestSession.videoId === e.data.videoId)) {
         const resolve = activeHarvestSession.resolve;
         activeHarvestSession = null;
+        stopHarvester();
         resolve([]);
+      } else {
+        stopHarvester();
       }
+      return;
     }
   });
 }
@@ -850,20 +922,12 @@ function cleanStreamUrl(rawUrl) {
     u.searchParams.delete('range');
     u.searchParams.delete('rn');
     u.searchParams.delete('rbuf');
-    u.searchParams.delete('ump');
-    u.searchParams.delete('sabr');
-    u.searchParams.delete('alr');
-    u.searchParams.delete('sq');
     return u.toString();
   } catch (e) {
     return rawUrl
       .replace(/[?&]range=[^&]*/g, '')
       .replace(/[?&]rn=[^&]*/g, '')
-      .replace(/[?&]rbuf=[^&]*/g, '')
-      .replace(/[?&]ump=[^&]*/g, '')
-      .replace(/[?&]sabr=[^&]*/g, '')
-      .replace(/[?&]alr=[^&]*/g, '')
-      .replace(/[?&]sq=[^&]*/g, '');
+      .replace(/[?&]rbuf=[^&]*/g, '');
   }
 }
 
@@ -933,6 +997,115 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
     },
     { urls: ["*://*.googlevideo.com/videoplayback*"] }
   );
+}
+
+// ─── WEBREQUEST HEADERS INTERCEPTOR (Bypasses CORS preflight 405 & frame restrictions) ───
+try {
+  const webReq = (typeof browser !== 'undefined' && browser.webRequest) ? browser.webRequest : chrome.webRequest;
+  if (webReq && webReq.onBeforeSendHeaders) {
+    webReq.onBeforeSendHeaders.addListener(
+      (details) => {
+        try {
+          const u = new URL(details.url);
+          const reqId = u.searchParams.get('_ytss_req');
+          if (reqId && pendingPlayerHeaders.has(reqId)) {
+            const customHeaders = pendingPlayerHeaders.get(reqId);
+            pendingPlayerHeaders.delete(reqId);
+
+            let reqHeaders = details.requestHeaders ? [...details.requestHeaders] : [];
+            // Replace Content-Type: text/plain with application/json
+            reqHeaders = reqHeaders.filter(h => h.name.toLowerCase() !== 'content-type');
+            reqHeaders.push({ name: 'Content-Type', value: 'application/json' });
+
+            // Force Origin & Referer to genuine YouTube origin instead of moz-extension://
+            const isMusic = details.url.includes('music.youtube.com');
+            const originVal = isMusic ? 'https://music.youtube.com' : 'https://www.youtube.com';
+            const refererVal = isMusic ? 'https://music.youtube.com/' : 'https://www.youtube.com/';
+
+            reqHeaders = reqHeaders.filter(h => h.name.toLowerCase() !== 'origin' && h.name.toLowerCase() !== 'referer');
+            reqHeaders.push({ name: 'Origin', value: originVal });
+            reqHeaders.push({ name: 'Referer', value: refererVal });
+
+            // Ensure Sec-Fetch-Site and Sec-Fetch-Mode match same-origin cors
+            reqHeaders = reqHeaders.filter(h => !['sec-fetch-site', 'sec-fetch-mode'].includes(h.name.toLowerCase()));
+            reqHeaders.push({ name: 'Sec-Fetch-Site', value: 'same-origin' });
+            reqHeaders.push({ name: 'Sec-Fetch-Mode', value: 'cors' });
+
+            // Inject custom client headers (Authorization, X-Youtube-Client-Name, etc.)
+            for (const [k, v] of Object.entries(customHeaders)) {
+              if (v && k.toLowerCase() !== 'content-type') {
+                reqHeaders = reqHeaders.filter(h => h.name.toLowerCase() !== k.toLowerCase());
+                reqHeaders.push({ name: k, value: String(v) });
+              }
+            }
+
+            return { requestHeaders: reqHeaders };
+          }
+        } catch (e) {}
+        return { requestHeaders: details.requestHeaders };
+      },
+      { urls: ['*://*.youtube.com/youtubei/v1/player*'] },
+      ['blocking', 'requestHeaders']
+    );
+  }
+
+  if (webReq && webReq.onHeadersReceived) {
+    webReq.onHeadersReceived.addListener(
+      (details) => {
+        if (!details.responseHeaders) return;
+        let headers = [...details.responseHeaders];
+        const url = details.url || '';
+
+        // 1. For player API: Inject CORS headers so fetch() never gets blocked by browser
+        if (url.includes('/youtubei/v1/player')) {
+          let reqOrigin = 'https://www.youtube.com';
+          try {
+            if (details.originUrl) {
+              reqOrigin = new URL(details.originUrl).origin;
+            } else if (typeof location !== 'undefined' && location.origin) {
+              reqOrigin = location.origin;
+            }
+          } catch (e) {}
+
+          // Strip existing access-control headers to prevent duplicates or wildcard conflicts
+          headers = headers.filter(h => !h.name.toLowerCase().startsWith('access-control-'));
+
+          headers.push({ name: 'Access-Control-Allow-Origin', value: reqOrigin });
+          headers.push({ name: 'Access-Control-Allow-Credentials', value: 'true' });
+          headers.push({ name: 'Access-Control-Allow-Methods', value: 'GET, POST, OPTIONS' });
+          headers.push({ name: 'Access-Control-Allow-Headers', value: '*' });
+          return { responseHeaders: headers };
+        }
+
+        // 2. For YTM iframe & background frames: Strip frame restrictions so YTM can load cleanly in Firefox background
+        const isFrameTarget = details.tabId === -1 || url.includes('music.youtube.com') || details.type === 'sub_frame';
+        if (isFrameTarget) {
+          let modified = false;
+          headers = headers.filter(h => {
+            const n = h.name.toLowerCase();
+            if (n === 'x-frame-options' || n === 'frame-options') {
+              modified = true;
+              return false;
+            }
+            if (n === 'content-security-policy' || n === 'content-security-policy-report-only') {
+              modified = true;
+              return false;
+            }
+            return true;
+          });
+          if (modified) {
+            console.log(TAG, `[HeadersReceived] Stripped XFO & CSP for ${url.slice(0, 80)}`);
+            return { responseHeaders: headers };
+          }
+        }
+      },
+      { urls: ['*://*.youtube.com/*', '*://*.googlevideo.com/*', '*://*.google.com/*'] },
+      ['blocking', 'responseHeaders']
+    );
+    console.log(TAG, '[Init] webRequest.onHeadersReceived blocking listener registered');
+  }
+} catch (e) {
+  console.warn(TAG, '[webRequest] Listener registration error:', e);
 }
 
 const pendingHarvests = new Map(); // videoId -> Promise
@@ -1101,7 +1274,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       clearTimeout(activeHarvestSession.timer);
       activeHarvestSession = null;
     }
-    chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+    stopHarvester();
     sendResponse({ success: true });
     return true;
   }

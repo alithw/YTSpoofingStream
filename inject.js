@@ -127,22 +127,33 @@
   // intercept, and breaking YouTube's own Service Worker anyway would degrade
   // the site for no reason.
   if (navigator.serviceWorker && S.enabled) {
-    navigator.serviceWorker.getRegistrations().then(function (registrations) {
-      for (let registration of registrations) {
-        registration.unregister().then(success => {
-          if (success) console.log(TAG, 'Unregistered existing Service Worker');
-        });
-      }
-    }).catch(e => { });
+    try {
+      navigator.serviceWorker.getRegistrations().then(function (registrations) {
+        for (let registration of registrations) {
+          registration.unregister().then(success => {
+            if (success) console.log(TAG, 'Unregistered existing Service Worker');
+          }).catch(() => {});
+        }
+      }).catch(e => { });
 
-    Object.defineProperty(navigator.serviceWorker, 'register', {
-      value: function () {
-        console.log(TAG, "Service Worker registration blocked by YTSpoofingStream.");
-        return Promise.reject(new Error("Service Worker disabled to force fetch intercept."));
-      },
-      configurable: true,
-      writable: true
-    });
+      try {
+        navigator.serviceWorker.register = function () {
+          console.log(TAG, "Service Worker registration blocked by YTSpoofingStream.");
+          return Promise.reject(new Error("Service Worker disabled to force fetch intercept."));
+        };
+      } catch (e) {
+        try {
+          Object.defineProperty(navigator.serviceWorker, 'register', {
+            value: function () {
+              console.log(TAG, "Service Worker registration blocked by YTSpoofingStream.");
+              return Promise.reject(new Error("Service Worker disabled to force fetch intercept."));
+            },
+            configurable: true,
+            writable: true
+          });
+        } catch (e2) {}
+      }
+    } catch (e) {}
   }
 
   // ─── STATUS ──────────────────────────────────────────────────────
@@ -2769,56 +2780,58 @@
     }
   }
 
-  Object.defineProperty(window, 'ytInitialPlayerResponse', {
-    get() { return initialResponseValue; },
-    set(val) {
-      initialResponseValue = val;
-      if (val && S.enabled) {
-        const videoId = val.videoDetails?.videoId;
-        const lDb = val.playerConfig?.audioConfig?.loudnessDb;
-        if (videoId && typeof lDb === 'number') {
-          loudnessDbMap.set(videoId, lDb);
-          if (StudioEngine774.isActive && StudioEngine774.activeVideoId === videoId) {
-            StudioEngine774.syncVol();
-          }
-        }
-        if (videoId) {
-          if (confirmedNo774Videos.has(videoId)) {
-            return;
-          }
-          const cached = cacheGet(videoId);
-          if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
-            const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
-            const playable = getPlayable774Candidates(formats);
-            const all774 = getAll774Candidates(formats);
-            if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentWatchVideo(videoId)) {
-              val = processPlayerResponse(val, cached);
-              StudioEngine774.load774(videoId, playable[0]);
-            } else if (all774.length > 0 && isCurrentWatchVideo(videoId)) {
-              StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-              const best774 = all774[0];
-              status.activeAudioItag = 774;
-              status.activeMethod = best774._src || 'TVHTML5';
-              status.fallbackReason = null;
-              status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
-              report();
-              if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
-            } else if (isCurrentWatchVideo(videoId)) {
-              confirmedNo774Videos.add(videoId);
-              if (StudioEngine774.isActive) {
-                StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
-              }
+  try {
+    Object.defineProperty(window, 'ytInitialPlayerResponse', {
+      get() { return initialResponseValue; },
+      set(val) {
+        initialResponseValue = val;
+        if (val && S.enabled) {
+          const videoId = val.videoDetails?.videoId;
+          const lDb = val.playerConfig?.audioConfig?.loudnessDb;
+          if (videoId && typeof lDb === 'number') {
+            loudnessDbMap.set(videoId, lDb);
+            if (StudioEngine774.isActive && StudioEngine774.activeVideoId === videoId) {
+              StudioEngine774.syncVol();
             }
-          } else {
-            prewarmCache(videoId);
+          }
+          if (videoId) {
+            if (confirmedNo774Videos.has(videoId)) {
+              return;
+            }
+            const cached = cacheGet(videoId);
+            if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
+              const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
+              const playable = getPlayable774Candidates(formats);
+              const all774 = getAll774Candidates(formats);
+              if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentWatchVideo(videoId)) {
+                val = processPlayerResponse(val, cached);
+                StudioEngine774.load774(videoId, playable[0]);
+              } else if (all774.length > 0 && isCurrentWatchVideo(videoId)) {
+                StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
+                const best774 = all774[0];
+                status.activeAudioItag = 774;
+                status.activeMethod = best774._src || 'TVHTML5';
+                status.fallbackReason = null;
+                status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
+                report();
+                if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+              } else if (isCurrentWatchVideo(videoId)) {
+                confirmedNo774Videos.add(videoId);
+                if (StudioEngine774.isActive) {
+                  StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
+                }
+              }
+            } else {
+              prewarmCache(videoId);
+            }
           }
         }
-      }
-      initialResponseValue = val;
-    },
-    configurable: true,
-    enumerable: true,
-  });
+        initialResponseValue = val;
+      },
+      configurable: true,
+      enumerable: true,
+    });
+  } catch (e) { }
 
   // ═══════════════════════════════════════════════════════════════════
   // PAGE CONTEXT → SERVICE WORKER
@@ -2877,35 +2890,47 @@
   // [APPROACH 2.5] YTCFG EXPERIMENT FLAGS HOOK
   // Force disable SABR globally via YouTube's experiment flags
   // ═══════════════════════════════════════════════════════════════════
-  let _ytcfg = window.ytcfg;
-  Object.defineProperty(window, 'ytcfg', {
-    get() { return _ytcfg; },
-    set(val) {
-      if (val && typeof val.set === 'function' && !val._ytssHooked) {
-        const origSet = val.set;
-        val.set = function (...args) {
-          try {
-            let obj = args[0];
-            if (typeof args[0] === 'string' && args.length > 1) {
-              obj = { [args[0]]: args[1] };
-            }
-            if (obj && obj.EXPERIMENT_FLAGS) {
-              // Ensure SABR is permitted so TV SABR transplant can stream UMP 774
-              if (obj.EXPERIMENT_FLAGS.html5_disable_sabr) {
-                obj.EXPERIMENT_FLAGS.html5_disable_sabr = false;
-              }
-            }
-          } catch (e) { }
-          const result = origSet.apply(this, args);
-          // Session identifiers land here during page boot and again on SPA nav.
-          reportPageContext();
-          return result;
-        };
-        val._ytssHooked = true;
-      }
-      _ytcfg = val;
-    }
-  });
+  function hookYtcfgObject(cfg) {
+    if (!cfg || typeof cfg.set !== 'function' || cfg._ytssHooked) return;
+    const origSet = cfg.set;
+    cfg.set = function (...args) {
+      try {
+        let obj = args[0];
+        if (typeof args[0] === 'string' && args.length > 1) {
+          obj = { [args[0]]: args[1] };
+        }
+        if (obj && obj.EXPERIMENT_FLAGS) {
+          if (obj.EXPERIMENT_FLAGS.html5_disable_sabr) {
+            obj.EXPERIMENT_FLAGS.html5_disable_sabr = false;
+          }
+        }
+      } catch (e) { }
+      const result = origSet.apply(this, args);
+      reportPageContext();
+      return result;
+    };
+    cfg._ytssHooked = true;
+  }
+
+  // Pre-hook if already present
+  if (window.ytcfg) {
+    hookYtcfgObject(window.ytcfg);
+  }
+
+  try {
+    let _ytcfg = window.ytcfg;
+    Object.defineProperty(window, 'ytcfg', {
+      get() { return _ytcfg; },
+      set(val) {
+        hookYtcfgObject(val);
+        _ytcfg = val;
+      },
+      configurable: true
+    });
+  } catch (e) {
+    // In Firefox, window.ytcfg may be defined as non-configurable by YouTube scripts
+    hookYtcfgObject(window.ytcfg);
+  }
 
   // ytcfg may already be populated before our hook installs (or be set via a path
   // that bypasses .set), so also sample it once the document is ready.
@@ -2956,26 +2981,30 @@
   }
 
   // Hook window.ytplayer
-  let _ytplayerValue = window.ytplayer || null;
-  Object.defineProperty(window, 'ytplayer', {
-    get() { return _ytplayerValue; },
-    set(val) {
-      _ytplayerValue = val;
-      if (val?.config) {
-        val.config = patchYtplayerConfig(val.config);
-      }
-      // Hook config property too
-      if (val && typeof val === 'object') {
-        let _cfgVal = val.config;
-        Object.defineProperty(val, 'config', {
-          get() { return _cfgVal; },
-          set(cfg) { _cfgVal = patchYtplayerConfig(cfg); },
-          configurable: true,
-        });
-      }
-    },
-    configurable: true,
-  });
+  try {
+    let _ytplayerValue = window.ytplayer || null;
+    Object.defineProperty(window, 'ytplayer', {
+      get() { return _ytplayerValue; },
+      set(val) {
+        _ytplayerValue = val;
+        if (val?.config) {
+          val.config = patchYtplayerConfig(val.config);
+        }
+        // Hook config property too
+        if (val && typeof val === 'object') {
+          try {
+            let _cfgVal = val.config;
+            Object.defineProperty(val, 'config', {
+              get() { return _cfgVal; },
+              set(cfg) { _cfgVal = patchYtplayerConfig(cfg); },
+              configurable: true,
+            });
+          } catch (e) {}
+        }
+      },
+      configurable: true,
+    });
+  } catch (e) {}
 
   // ═══════════════════════════════════════════════════════════════════
   // [APPROACH 4] FORCE PLAYER RELOAD

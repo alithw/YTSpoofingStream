@@ -149,34 +149,17 @@
       u.searchParams.delete('range');
       u.searchParams.delete('rn');
       u.searchParams.delete('rbuf');
-      u.searchParams.delete('ump');
-      u.searchParams.delete('sabr');
-      u.searchParams.delete('alr');
-      u.searchParams.delete('sq');
       return u.toString();
     } catch (e) {
       return rawUrl
         .replace(/[?&]range=[^&]*/g, '')
         .replace(/[?&]rn=[^&]*/g, '')
-        .replace(/[?&]rbuf=[^&]*/g, '')
-        .replace(/[?&]ump=[^&]*/g, '')
-        .replace(/[?&]sabr=[^&]*/g, '')
-        .replace(/[?&]alr=[^&]*/g, '')
-        .replace(/[?&]sq=[^&]*/g, '');
+        .replace(/[?&]rbuf=[^&]*/g, '');
     }
   }
 
   function notify774Found(streamUrl) {
     if (isAborted || !streamUrl || !urlVid) return;
-
-    try {
-      const u = new URL(streamUrl);
-      const docid = u.searchParams.get('docid');
-      if (docid && urlVid && docid !== urlVid) {
-        console.warn(TAG, `Ignored ITAG 774 stream for mismatched track docid=${docid} (expected ${urlVid})`);
-        return;
-      }
-    } catch (e) {}
 
     isAborted = true;
     clearInterval(pollInterval);
@@ -197,17 +180,15 @@
     } catch (e) {}
   }
 
-  // Intercept navigator.sendBeacon to swallow telemetry pings that trigger concurrent stream limits
+  // Hook HTMLMediaElement.prototype.play to ensure media is muted before play() is invoked.
+  // Bypasses Firefox's strict autoplay blocking in background iframes without user gesture.
   try {
-    const origBeacon = navigator.sendBeacon;
-    if (origBeacon) {
-      navigator.sendBeacon = function(url, data) {
-        if (typeof url === 'string' && (url.includes('/api/stats/') || url.includes('/playback/'))) {
-          return true;
-        }
-        return origBeacon.call(this, url, data);
-      };
-    }
+    const origPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function(...args) {
+      this.muted = true;
+      this.volume = 0;
+      return origPlay.apply(this, args);
+    };
   } catch (e) {}
 
   // Hook HTMLMediaElement src setter
@@ -227,50 +208,23 @@
     }
   } catch (e) {}
 
-  // Hook XMLHttpRequest: capture 774 and drop telemetry requests
+  // Hook XMLHttpRequest
   try {
     const origXhrOpen = XMLHttpRequest.prototype.open;
-    const origXhrSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-      this._ytssUrl = url;
-      if (typeof url === 'string') {
-        if (url.includes('videoplayback') && url.includes('itag=774')) {
-          notify774Found(url);
-        }
-        if (url.includes('/api/stats/') || url.includes('/playback/')) {
-          this._ytssBlockedTelemetry = true;
-        }
+      if (typeof url === 'string' && url.includes('videoplayback') && url.includes('itag=774')) {
+        notify774Found(url);
       }
       return origXhrOpen.call(this, method, url, ...rest);
     };
-    XMLHttpRequest.prototype.send = function(...args) {
-      if (this._ytssBlockedTelemetry) {
-        try {
-          Object.defineProperty(this, 'status', { value: 204, configurable: true });
-          Object.defineProperty(this, 'readyState', { value: 4, configurable: true });
-        } catch (e) {}
-        setTimeout(() => {
-          this.dispatchEvent(new Event('readystatechange'));
-          this.dispatchEvent(new Event('load'));
-        }, 10);
-        return;
-      }
-      return origXhrSend.apply(this, args);
-    };
   } catch (e) {}
 
-  // 2. Hook fetch for async player requests, videoplayback, and swallow telemetry
+  // 2. Hook fetch for async player requests and videoplayback
   const origFetch = window.fetch;
   window.fetch = async function(...args) {
     const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-    if (typeof url === 'string') {
-      if (url.includes('videoplayback') && url.includes('itag=774')) {
-        notify774Found(url);
-      }
-      if (url.includes('/api/stats/') || url.includes('/playback/')) {
-        // Drop stats/watchtime/heartbeat pings that trigger concurrent stream limits (TOO_MANY_STREAMS_PER_USER)
-        return new Response('', { status: 204 });
-      }
+    if (typeof url === 'string' && url.includes('videoplayback') && url.includes('itag=774')) {
+      notify774Found(url);
     }
     const res = await origFetch.apply(this, args);
     if (typeof url === 'string' && url.includes('/player') && url.includes('youtubei/v1')) {

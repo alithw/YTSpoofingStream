@@ -15,12 +15,13 @@
   </p>
 </div>
 
-> [!IMPORTANT]
-> **🦊 Official Mozilla Firefox & Firefox ESR Edition (Branch `firefox`)**  
-> This branch is specifically built and optimized for **Mozilla Firefox** and **Firefox ESR (v128+)**.  
-> - **WebExtensions MV3 compliant**: Uses event page background scripts with DOM adapters and persistent keep-alive ports.  
-> - **Pre-signed package included**: Contains the officially signed [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) file for instant permanent installation (persists across browser restarts).  
-> - *(If you are looking for the Chromium / Google Chrome edition, please visit the [**`main`**](https://github.com/alithw/YTSpoofingStream/tree/main) branch).*
+> [!CAUTION]
+> **⚠️ IMPORTANT NOTICE: MOZILLA FIREFOX SUPPORT DISCONTINUED**  
+> Currently, the **Mozilla Firefox** edition of this extension is no longer supported due to compatibility limitations (strict CORS policies, background `X-Frame-Options` restrictions, and Gecko MV3 architectural constraints).  
+> 
+> If you truly want to use this extension to enjoy studio-grade Opus 774 audio, please switch to a **Chromium-based browser** (Google Chrome, Microsoft Edge, Brave, Opera, etc.).  
+> 
+> 👉 Please visit the main project repository on the [**`main` (Chromium Edition)**](https://github.com/alithw/YTSpoofingStream/tree/main) branch.
 
 > [!WARNING]
 > **Requirement: Active YouTube Premium Subscription**

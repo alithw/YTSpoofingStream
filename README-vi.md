@@ -15,12 +15,13 @@
   </p>
 </div>
 
-> [!IMPORTANT]
-> **🦊 Phiên bản Chính thức cho Mozilla Firefox & Firefox ESR (Nhánh `firefox`)**  
-> Nhánh này được xây dựng và tối ưu hóa chuyên biệt dành riêng cho **Mozilla Firefox** và **Firefox ESR (v128+)**.  
-> - **Tương thích WebExtensions MV3**: Sử dụng cơ chế event page background scripts kèm DOM adapter và cổng keep-alive liên tục.  
-> - **Tích hợp sẵn gói cài đã ký số**: Đi kèm file cài đặt chính thức đã được Mozilla AMO ký duyệt [**`YTSS-firefox-0.1.5.1.xpi`**](YTSS-firefox-0.1.5.1.xpi) để cài đặt vĩnh viễn (không bị mất khi khởi động lại trình duyệt).  
-> - *(Nếu bạn đang tìm kiếm phiên bản dành cho Google Chrome / Chromium, vui lòng truy cập nhánh [**`main`**](https://github.com/alithw/YTSpoofingStream/tree/main)).*
+> [!CAUTION]
+> **⚠️ THÔNG BÁO QUAN TRỌNG: NGỪNG HỖ TRỢ MOZILLA FIREFOX**  
+> Hiện tại, extension dành cho **Mozilla Firefox** không còn được hỗ trợ do tính tương thích (các rào cản về cơ chế bảo mật CORS, chặn iframe ngầm `X-Frame-Options` và các giới hạn kiến trúc của Gecko MV3).  
+> 
+> Nếu bạn thực sự muốn sử dụng extension này để trải nghiệm âm thanh Studio Opus 774 chất lượng cao nhất, bạn có thể chuyển sang sử dụng các **trình duyệt nhân Chromium** (Google Chrome, Microsoft Edge, Brave, Cốc Cốc, Opera,...).  
+> 
+> 👉 Vui lòng quay về trang gốc của dự án tại nhánh [**`main` (Phiên bản Chromium)**](https://github.com/alithw/YTSpoofingStream/tree/main).
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
