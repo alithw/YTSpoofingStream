@@ -2378,7 +2378,8 @@
       this.reset(vid);
 
       // Auto-upgrade watchdog: if not currently active on 774 and not in an ad, attempt upgrade straight to 774
-      if (!StudioEngine774.isActive && !StudioEngine774.isAdActive() && !confirmedNo774Videos.has(vid) && isCurrentWatchVideo(vid)) {
+      const isTvSabrActive = status.activeAudioItag === 774 && (status.activeMethod === 'TVHTML5' || status.activeMethod === 'TV_HEADLESS');
+      if (!StudioEngine774.isActive && !isTvSabrActive && !StudioEngine774.isAdActive() && !confirmedNo774Videos.has(vid) && isCurrentWatchVideo(vid)) {
         tryUpgradeVideo(vid, 'NextVideoManagerTick');
       }
 
@@ -2723,9 +2724,9 @@
           _origItag: 774,
           mimeType: 'audio/webm; codecs="opus"',
           bitrate: preciseBps,
-          audioQuality: 'AUDIO_QUALITY_HIGH'
         };
-        json.streamingData.adaptiveFormats = [...videoFormats, upgraded251, raw774];
+        const otherAudio = origAudio.filter(f => f.itag !== 251);
+        json.streamingData.adaptiveFormats = [...videoFormats, ...otherAudio, upgraded251, raw774];
       }
 
       if (isCurrent) {
@@ -2796,6 +2797,7 @@
               val = processPlayerResponse(val, cached);
               StudioEngine774.load774(videoId, playable[0]);
             } else if (all774.length > 0 && isCurrentWatchVideo(videoId)) {
+              val = processPlayerResponse(val, cached);
               StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
               const best774 = all774[0];
               status.activeAudioItag = 774;
@@ -3018,8 +3020,17 @@
       console.log(TAG, `[${source}] Upgrading ${videoId} to Studio HQ 774`);
       StudioEngine774.load774(videoId, playableCandidates[0]);
     } else if (real774Candidates.length > 0) {
-      console.log(TAG, `[${source}] Upgrading ${videoId} to TV HQ 774`);
-      StudioEngine774.load774(videoId, real774Candidates[0]);
+      if (status.activeAudioItag !== 774 || status.activeMethod !== (real774Candidates[0]._src || 'TVHTML5')) {
+        console.log(TAG, `[${source}] Activating TV SABR 774 for ${videoId}`);
+        StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
+        const best774 = real774Candidates[0];
+        status.activeAudioItag = 774;
+        status.activeMethod = best774._src || 'TVHTML5';
+        status.fallbackReason = null;
+        status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
+        report();
+        if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+      }
     } else if (cached && formats.length > 0) {
       confirmedNo774Videos.add(videoId);
       if (StudioEngine774.isActive) {
@@ -3638,6 +3649,14 @@
             status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
             report();
             if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+            try {
+              const patchedJson = processPlayerResponse(json, cached);
+              return new Response(JSON.stringify(patchedJson), {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers
+              });
+            } catch (e) {}
             return response;
           } else if (isCurrentActive) {
             StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
@@ -3950,7 +3969,11 @@
         this.analyser = this.audioCtx.createAnalyser();
         this.analyser.fftSize = 2048;
         this.sourceNode.connect(this.analyser);
+        try { this.analyser.connect(this.audioCtx.destination); } catch (e) {}
         activeAudio.__ytss_meter = { sourceNode: this.sourceNode, analyser: this.analyser };
+        if (this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume().catch(() => {});
+        }
       } catch (e) { }
     },
     getSpectrum() {

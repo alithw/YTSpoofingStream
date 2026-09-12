@@ -332,8 +332,9 @@ async function setupStaticRules() {
     const YTM_FRAME_RULE_ID = 9197;
     const YTM_API_RULE_ID = 9198;
     const WEB_REMIX_MEDIA_RULE_ID = 9199;
+    const TVHTML5_MEDIA_RULE_ID = 9193;
     const rulesToAdd = [];
-    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, ITAG_774_MEDIA_RULE_ID, YTM_STATS_BLOCK_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
+    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, TVHTML5_MEDIA_RULE_ID, ITAG_774_MEDIA_RULE_ID, YTM_STATS_BLOCK_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
 
     // 1. Origin spoofing for www.youtube.com API requests.
     rulesToAdd.push({
@@ -442,10 +443,13 @@ async function setupStaticRules() {
           responseHeaders: [
             { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
             { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
+            { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS, POST' },
+            { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' },
+            { header: 'Access-Control-Expose-Headers', operation: 'set', value: 'Content-Length, Content-Range, Accept-Ranges, Client-Protocol, Content-Type, X-Bandwidth-Est, X-Bandwidth-Est2, X-Bandwidth-Est3, X-Head-Time-Millis, X-Head-Seqnum, X-Response-Itag, X-Segment-Lmt, X-Walltime-Ms' },
           ],
         },
         condition: {
-          regexFilter: `^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]c=|/c/)${c.clientName}(?:[&/]|$)`,
+          regexFilter: `^https?://.*\\.googlevideo\\.com/(?:videoplayback|initplayback).*(?:[?&]c=|/c/)${c.clientName}(?:[&/]|$)`,
           resourceTypes: ['xmlhttprequest', 'media', 'other', 'main_frame', 'sub_frame'],
         },
       });
@@ -496,6 +500,30 @@ async function setupStaticRules() {
       },
       condition: {
         regexFilter: '^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]itag=|/itag/)774(?:[&/]|.*)',
+        resourceTypes: ['media', 'xmlhttprequest', 'other'],
+      },
+    });
+
+    // 3d. Dedicated rule for all TVHTML5 media & SABR streams (Smart-TV UA and CORS)
+    rulesToRemove.push(TVHTML5_MEDIA_RULE_ID);
+    rulesToAdd.push({
+      id: TVHTML5_MEDIA_RULE_ID,
+      priority: 30,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          { header: 'User-Agent', operation: 'set', value: 'Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 TV Safari/538.1' },
+        ],
+        responseHeaders: [
+          { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://www.youtube.com' },
+          { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
+          { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS, POST' },
+          { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' },
+          { header: 'Access-Control-Expose-Headers', operation: 'set', value: 'Content-Length, Content-Range, Accept-Ranges, Client-Protocol, Content-Type, X-Bandwidth-Est, X-Bandwidth-Est2, X-Bandwidth-Est3, X-Head-Time-Millis, X-Head-Seqnum, X-Response-Itag, X-Segment-Lmt, X-Walltime-Ms' },
+        ],
+      },
+      condition: {
+        regexFilter: '^https?://.*\\.googlevideo\\.com/(?:videoplayback|initplayback).*(?:[?&]c=|/c/)TVHTML5(?:[&/]|.*)',
         resourceTypes: ['media', 'xmlhttprequest', 'other'],
       },
     });
