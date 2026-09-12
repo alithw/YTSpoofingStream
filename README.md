@@ -11,6 +11,7 @@
     <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"></a>
     <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg?style=flat-square" alt="Code of Conduct"></a>
     <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blueviolet.svg?style=flat-square" alt="Security Policy"></a>
+    <a href="https://github.com/sponsors/alithw"><img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=flat-square&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors"></a>
     <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
@@ -212,17 +213,21 @@ A: **Yes, you must turn off this extension when using YouTube Music (`music.yout
 
 ---
 
-## 💖 Support / Buy Me a Coffee
+## 💖 Support / Sponsor the Project
 
 If **YTSpoofingStream** enhances your music listening experience on YouTube, consider supporting its active development and maintenance:
 
 <p align="center">
+  <a href="https://github.com/sponsors/alithw" target="_blank">
+    <img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor on GitHub" height="38" />
+  </a>
+  &nbsp;&nbsp;
   <a href="https://ko-fi.com/alithw" target="_blank">
-    <img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" height="40" alt="Buy Me a Coffee at ko-fi.com" />
+    <img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" height="38" alt="Buy Me a Coffee at ko-fi.com" />
   </a>
 </p>
 
-You can support the project on **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Every coffee helps keep the engine updated against YouTube's frequent backend changes! ☕✨
+You can sponsor directly via **[GitHub Sponsors (github.com/sponsors/alithw)](https://github.com/sponsors/alithw)** or buy a coffee on **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Every contribution helps maintain and update the engine against YouTube's frequent backend changes! ☕✨
 
 ---
 

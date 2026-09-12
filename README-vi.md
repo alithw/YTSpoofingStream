@@ -11,6 +11,7 @@
     <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="Đóng góp vào dự án"></a>
     <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg?style=flat-square" alt="Quy tắc ứng xử"></a>
     <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blueviolet.svg?style=flat-square" alt="Chính sách bảo mật"></a>
+    <a href="https://github.com/sponsors/alithw"><img src="https://img.shields.io/badge/T%C3%A0i%20tr%E1%BB%A3-GitHub%20Sponsors-ea4aaa?style=flat-square&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors"></a>
     <a href="https://ko-fi.com/alithw"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
@@ -213,17 +214,21 @@ Bạn có thể cài đặt vĩnh viễn bằng gói đã ký số chính thức
 
 ---
 
-## 💖 Ủng hộ Dự án (Buy Me a Coffee)
+## 💖 Ủng Hộ & Tài Trợ Dự Án
 
-Nếu **YTSpoofingStream** mang lại trải nghiệm nghe nhạc tuyệt vời hơn cho bạn trên YouTube, bạn có thể ủng hộ tác giả một ly cà phê để tiếp thêm động lực nghiên cứu và cập nhật tiện ích:
+Nếu **YTSpoofingStream** mang lại trải nghiệm nghe nhạc tuyệt vời hơn cho bạn trên YouTube, bạn có thể ủng hộ và đồng hành cùng tác giả để tiếp thêm động lực nghiên cứu và duy trì tiện ích:
 
 <p align="center">
+  <a href="https://github.com/sponsors/alithw" target="_blank">
+    <img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Tài trợ qua GitHub Sponsors" height="38" />
+  </a>
+  &nbsp;&nbsp;
   <a href="https://ko-fi.com/alithw" target="_blank">
-    <img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" height="40" alt="Buy Me a Coffee at ko-fi.com" />
+    <img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" height="38" alt="Buy Me a Coffee at ko-fi.com" />
   </a>
 </p>
 
-Bạn có thể ủng hộ dự án qua **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Mọi sự ủng hộ và đồng hành của bạn đều là nguồn động lực rất lớn! ☕✨
+Bạn có thể tài trợ trực tiếp qua **[GitHub Sponsors (github.com/sponsors/alithw)](https://github.com/sponsors/alithw)** hoặc mời một ly cà phê qua **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Mọi sự ủng hộ và đồng hành của bạn đều là nguồn động lực rất lớn! ☕✨
 
 ---
 
