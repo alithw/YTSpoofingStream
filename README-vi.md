@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.2-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
-    <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="Giấy phép MIT">
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="Giấy phép Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
     <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="Đóng góp vào dự án"></a>
     <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg?style=flat-square" alt="Quy tắc ứng xử"></a>
@@ -256,4 +256,4 @@ Dự án luôn hoan nghênh mọi sự đóng góp từ cộng đồng! Dù bạ
 
 ## 📄 Giấy phép (License)
 
-Dự án được phân phối dưới **Giấy phép MIT (MIT License)**. Xem chi tiết tại file [`LICENSE`](LICENSE).
+Dự án được phân phối dưới **Giấy phép Apache 2.0 (Apache License 2.0)**. Xem chi tiết tại file [`LICENSE`](LICENSE).
