@@ -4,7 +4,7 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.2-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.6-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="License Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -16,12 +16,8 @@
 </div>
 
 > [!IMPORTANT]
-> **IMPORTANT: UPDATE TO [v0.1.5.2](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2) RECOMMENDED**  
-> If you are using an older version of the extension, please update to the latest version ([**v0.1.5.2**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2)) to:
-> - Completely resolve audio dropouts, sudden volume reductions, and seek desynchronization.
-> - Eliminate dropout loops and silent playback issues on the Smart TV client (`TVHTML5`).
-> - Ensure instantaneous 774 stream upgrade during autoplay and background tab switching.
-> - Report accurate Studio Opus 774 bitrates harvested from YouTube Music based on actual content length and duration.
+> **RECOMMENDED: UPDATE TO [v0.1.6](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.6)**  
+> **v0.1.6** is now the official production-grade stable release. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.6) for full changelog and details.
 
 > [!WARNING]
 > **Requirement: Active YouTube Premium Subscription**
@@ -34,10 +30,7 @@
 > 2. Ensure you sign in with the Google account that has active YouTube Premium.
 > 3. Once authenticated, the extension operates with maximum stream availability!
 
-> [!WARNING]
-> **Notice Regarding Mozilla Firefox: Support Discontinued**  
-> The **Mozilla Firefox** edition has been officially **discontinued from now on** due to compatibility limitations on the Gecko engine (strict CORS enforcement, background `X-Frame-Options` blocking, and WebExtensions MV3 architectural constraints).  
-> If you want to use this extension to enjoy studio-grade Opus 774 audio, please use a **Chromium-based browser** (Google Chrome, Microsoft Edge, Brave, Opera, etc.).
+<sub>**Note on Firefox**: Support for Mozilla Firefox has been discontinued due to Gecko engine constraints (see [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100)). Please use Chromium-based browsers.</sub>
 
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
 

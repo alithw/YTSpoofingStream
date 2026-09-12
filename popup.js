@@ -1,4 +1,4 @@
-// YTSpoofingStream v0.1.5 — Popup Controller (Studio 774 Dual-Stream Engine)
+// YTSpoofingStream v0.1.6 — Popup Controller (Studio 774 Dual-Stream Engine)
 (function () {
   'use strict';
 

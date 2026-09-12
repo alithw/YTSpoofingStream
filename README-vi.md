@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.2-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.6-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="Giấy phép Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -16,12 +16,8 @@
 </div>
 
 > [!IMPORTANT]
-> **QUAN TRỌNG: CẬP NHẬT LÊN PHIÊN BẢN [v0.1.5.2](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2)**  
-> Nếu bạn đang sử dụng extension phiên bản cũ hơn, vui lòng cập nhật lên phiên bản mới nhất ([**v0.1.5.2**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.5.2)) để:
-> - Khắc phục triệt để hiện tượng mất tiếng hoặc âm thanh đột ngột giảm nhỏ khi chuyển bài / tua video.
-> - Xóa bỏ hoàn toàn hiện tượng gián đoạn lặp vòng (dropout loop) và lỗi phát im lặng trên client Smart TV (`TVHTML5`).
-> - Tự động đồng bộ và nâng cấp thẳng lên luồng 774 ngay lập tức khi phát tự động (autoplay) hoặc chuyển tab nền.
-> - Hiển thị chính xác bitrate thực của luồng Studio Opus 774 thu hoạch từ YouTube Music dựa trên độ dài và dung lượng thực tế.
+> **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.1.6](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.6)**  
+> **v0.1.6** hiện là phiên bản ổn định chính thức. Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.6) để xem chi tiết danh sách thay đổi và sửa lỗi.
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
@@ -34,10 +30,7 @@
 > 2. Đảm bảo đăng nhập đúng tài khoản Google có YouTube Premium.
 > 3. Sau khi xác thực thành công, extension sẽ hoạt động với độ khả dụng luồng 774 cao nhất!
 
-> [!WARNING]
-> **Thông báo về Mozilla Firefox: Ngừng hỗ trợ từ bây giờ**  
-> Extension dành cho **Mozilla Firefox** đã chính thức **ngừng hỗ trợ kể từ bây giờ** do các vấn đề về tính tương thích trên nền tảng Gecko (cơ chế bảo mật CORS khắt khe, chặn iframe ngầm `X-Frame-Options` và các giới hạn kiến trúc của WebExtensions MV3).  
-> Nếu bạn muốn sử dụng extension để trải nghiệm âm thanh chuẩn phòng thu Studio Opus 774, vui lòng sử dụng các **trình duyệt nhân Chromium** (Google Chrome, Microsoft Edge, Brave, Cốc Cốc, Opera,...).
+<sub>**Lưu ý về Firefox**: Phiên bản Mozilla Firefox đã ngừng hỗ trợ do các giới hạn kỹ thuật của Gecko (xem chi tiết thông báo tại [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100)). Vui lòng sử dụng các trình duyệt nhân Chromium.</sub>
 
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 
