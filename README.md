@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.5.1-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
-    <img src="https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square" alt="License MIT">
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="License Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Firefox%20%7C%20Firefox%20ESR-orange?style=flat-square" alt="Platforms">
     <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"></a>
     <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg?style=flat-square" alt="Code of Conduct"></a>
@@ -250,4 +250,4 @@ Contributions of all kinds are welcome! Whether you are reporting a bug, proposi
 
 ## 📄 License
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for complete details.
+Distributed under the **Apache License 2.0**. See [`LICENSE`](LICENSE) for complete details.
