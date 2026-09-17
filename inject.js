@@ -794,22 +794,22 @@
         console.log(TAG, `[HybridFailover] Smart failover SUCCESS: Playing direct 774 stream via ${targetSource}`);
         StudioEngine774.load774(videoId, playable[0]);
       } else if (all774.length > 0) {
-        console.log(TAG, `[HybridFailover] Smart failover SUCCESS: Delivering TV 774 stream via ${targetSource}`);
-        StudioEngine774.stopAndUnmute('Native TV 774 stream');
+        console.log(TAG, `[HybridFailover] Smart failover SUCCESS: Delivering TV 774 stream via ${targetSource} (Native SABR 774)`);
+        StudioEngine774.stopAndUnmute('Native TV 774 SABR stream');
         const best774 = all774[0];
         status.activeAudioItag = 774;
-        status.activeMethod = best774._src || targetSource;
+        status.activeMethod = 'TVHTML5 (Native SABR 774)';
         status.fallbackReason = null;
-        status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
+        status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: TVHTML5 (Native SABR 774)`;
         report();
         if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
       } else {
-        console.warn(TAG, `[HybridFailover] Alternate source ${targetSource} also failed / has no 774 for ${videoId}. Cleanly retaining native YouTube stream (ITAG 251).`);
+        console.log(TAG, `[HybridFailover] Alternate source ${targetSource} also failed / has no 774 for ${videoId}. Cleanly retaining native YouTube stream (ITAG 251).`);
         failedSet.add(targetSource);
         StudioEngine774.stopAndUnmute(`Both modes failed (${reason})`);
       }
     }).catch(err => {
-      console.warn(TAG, `[HybridFailover] Error during smart failover fetch for ${videoId}:`, err);
+      console.log(TAG, `[HybridFailover] Error during smart failover fetch for ${videoId}:`, err);
       failedSet.add(targetSource);
       StudioEngine774.stopAndUnmute(`Failover error: ${err.message}`);
     });
@@ -2727,10 +2727,11 @@
         };
         const otherAudio = origAudio.filter(f => f.itag !== 251);
         json.streamingData.adaptiveFormats = [...videoFormats, ...otherAudio, upgraded251, raw774];
+        StudioEngine774.stopAndUnmute('Native TV 774 SABR stream');
       }
 
       if (isCurrent) {
-        status.activeMethod = best774._src || 'TVHTML5';
+        status.activeMethod = !streamUrl ? 'TVHTML5 (Native SABR 774)' : (best774._src || 'TVHTML5');
         status.activeAudioItag = 774;
         status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
         status.injectedStreams = Math.max(pool.length, 6);

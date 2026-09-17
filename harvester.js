@@ -64,7 +64,7 @@ window.addEventListener('message', (e) => {
   }
 
   if (e.data?.type === 'HARVEST_ABORT') {
-    console.warn(TAG, `Iframe reported abort for ${e.data.videoId}: ${e.data.reason}`);
+    console.log(TAG, `Iframe reported abort for ${e.data.videoId}: ${e.data.reason}`);
     teardownFrame();
     chrome.runtime.sendMessage({
       type: 'OFFSCREEN_HARVEST_ABORT',

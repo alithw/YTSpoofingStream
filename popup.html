@@ -35,24 +35,64 @@
     .hdr {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 10px;
       margin-bottom: 12px;
       padding-bottom: 10px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
 
-    .hdr svg {
+    .hdr-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .hdr-brand svg {
       flex-shrink: 0;
     }
 
-    .hdr h1 {
+    .hdr-brand h1 {
       font-size: 14px;
       font-weight: 600;
     }
 
-    .hdr .ver {
+    .hdr-brand .ver {
       font-size: 10px;
       color: var(--dim);
+    }
+
+    .hdr-lang {
+      flex-shrink: 0;
+    }
+
+    .lang-select {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 6px;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .lang-select:hover {
+      border-color: var(--accent);
+      background: rgba(233, 69, 96, 0.12);
+    }
+
+    .lang-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-dim);
+    }
+
+    .lang-select option {
+      background: #1c1c35;
+      color: #eaeaea;
     }
 
     .sec {
@@ -480,20 +520,28 @@
 
 <body>
   <div class="hdr">
-    <svg width="26" height="26" viewBox="0 0 24 24">
-      <rect width="24" height="24" rx="5" fill="#e94560" />
-      <path d="M8 6L18 12L8 18Z" fill="#fff" />
-    </svg>
-    <div>
-      <h1>YTSpoofingStream</h1>
-      <div class="ver">v0.1.6 &bull; Studio 774 Dual-Stream Engine</div>
+    <div class="hdr-brand">
+      <svg width="26" height="26" viewBox="0 0 24 24">
+        <rect width="24" height="24" rx="5" fill="#e94560" />
+        <path d="M8 6L18 12L8 18Z" fill="#fff" />
+      </svg>
+      <div>
+        <h1>YTSpoofingStream</h1>
+        <div class="ver" data-i18n="headerSubtitle">v0.1.6 &bull; Studio 774 Dual-Stream Engine</div>
+      </div>
+    </div>
+    <div class="hdr-lang">
+      <select id="langSelect" class="lang-select" aria-label="Language / Ngôn ngữ">
+        <option value="en">English</option>
+        <option value="vi">Tiếng Việt</option>
+      </select>
     </div>
   </div>
 
   <!-- MASTER ENABLE / DISABLE SECTION -->
   <div class="sec" style="border: 1px solid rgba(233, 69, 96, 0.3); background: rgba(233, 69, 96, 0.08);">
     <label class="row" for="en" style="cursor: pointer; margin: 0;">
-      <span style="font-weight: 700; font-size: 13px; color: #fff;">Enable Extension</span>
+      <span style="font-weight: 700; font-size: 13px; color: #fff;" data-i18n="enableExtension">Enable Extension</span>
       <span class="tog"><input type="checkbox" id="en" checked><span class="sl"></span></span>
     </label>
   </div>
@@ -501,16 +549,16 @@
   <div id="mainContentWrapper">
     <!-- OPERATION MODE (INDEPENDENT SWITCHES) -->
     <div class="sec">
-      <div class="sec-title">Operation Mode</div>
+      <div class="sec-title" data-i18n="opModeTitle">Operation Mode</div>
       <div class="op-modes" id="opModes">
         <label class="op-mode active" data-opmode="HYBRID_HQ">
           <input type="radio" name="opmode" value="HYBRID_HQ" checked>
           <div class="op-mode-info">
             <div class="op-mode-name">
-              <span>Mode: Hybrid Mix (774 Opus ★)</span>
-              <span class="op-badge hybrid">Recommended</span>
+              <span data-i18n="opModeHybridTitle">Mode: Hybrid Mix (774 Opus ★)</span>
+              <span class="op-badge hybrid" data-i18n="opModeHybridBadge">Recommended</span>
             </div>
-            <div class="op-mode-desc">Strict exact video • Harvests genuine Opus 280k+ from YTM & TV • Cancels if no 774</div>
+            <div class="op-mode-desc" data-i18n="opModeHybridDesc">Strict exact video • Dual-engine: YTM Harvester & Native TV SABR 774 • Cancels if no 774</div>
           </div>
         </label>
 
@@ -518,10 +566,10 @@
           <input type="radio" name="opmode" value="YTM_HARVESTER">
           <div class="op-mode-info">
             <div class="op-mode-name">
-              <span>YTM Harvester Only (774 Opus ★)</span>
-              <span class="op-badge ytm">Direct HQ</span>
+              <span data-i18n="opModeYtmTitle">YTM Harvester Only (774 Opus ★)</span>
+              <span class="op-badge ytm" data-i18n="opModeYtmBadge">Direct HQ</span>
             </div>
-            <div class="op-mode-desc">Strict exact video • Direct HTTPS Opus 774 from YouTube Music • Cancels if no 774</div>
+            <div class="op-mode-desc" data-i18n="opModeYtmDesc">Strict exact video • Direct HTTPS Opus 774 from YouTube Music • Cancels if no 774</div>
           </div>
         </label>
 
@@ -529,10 +577,10 @@
           <input type="radio" name="opmode" value="TV_HEADLESS">
           <div class="op-mode-info">
             <div class="op-mode-name">
-              <span>Smart TV Relay Only (774 Opus ★)</span>
-              <span class="op-badge tv">TV Premium</span>
+              <span data-i18n="opModeTvTitle">Smart TV Relay Only (774 Opus ★)</span>
+              <span class="op-badge tv" data-i18n="opModeTvBadge">TV Premium</span>
             </div>
-            <div class="op-mode-desc">Strict exact video • Requires TV Premium login • Deciphered 774 relay • Cancels if no 774</div>
+            <div class="op-mode-desc" data-i18n="opModeTvDesc">Strict exact video • Requires TV Premium login • Native SABR 774 streaming • Cancels if no 774</div>
           </div>
         </label>
       </div>
@@ -540,15 +588,15 @@
 
     <!-- STATUS -->
     <div class="sec">
-      <div class="sec-title">Status</div>
+      <div class="sec-title" data-i18n="statusTitle">Status</div>
       <div class="row">
-        <span class="st-badge" id="stBadge"><span class="st-dot"></span><span id="stText">Active</span></span>
+        <span class="st-badge" id="stBadge"><span class="st-dot"></span><span id="stText" data-i18n="statusActive">Active</span></span>
         <span style="font-size:10px;color:var(--dim)" id="swSt">SW: —</span>
       </div>
-      <div class="info"><span class="l">Mode</span><span class="v" id="iMode" style="color:var(--gold);font-weight:700;">HYBRID_HQ (774)</span></div>
-      <div class="info"><span class="l">Active Method</span><span class="v" id="iMethod" style="color:var(--gold);font-weight:700;">—</span></div>
-      <div class="info"><span class="l">Streams</span><span class="v" id="iStreams">0</span></div>
-      <div class="info"><span class="l">Active Audio</span><span class="v" id="iAudio">—</span></div>
+      <div class="info"><span class="l" data-i18n="statusMode">Mode</span><span class="v" id="iMode" style="color:var(--gold);font-weight:700;">HYBRID_HQ (774)</span></div>
+      <div class="info"><span class="l" data-i18n="statusMethod">Active Method</span><span class="v" id="iMethod" style="color:var(--gold);font-weight:700;">—</span></div>
+      <div class="info"><span class="l" data-i18n="statusStreams">Streams</span><span class="v" id="iStreams">0</span></div>
+      <div class="info"><span class="l" data-i18n="statusAudio">Active Audio</span><span class="v" id="iAudio">—</span></div>
 
       <div class="grid" id="statsGrid">
         <!-- Generated dynamically in popup.js -->
@@ -557,39 +605,39 @@
 
     <!-- CONTROLS -->
     <div class="sec">
-      <div class="sec-title">Controls</div>
-      <label class="row" for="ar"><span>Auto-reload page on change</span>
+      <div class="sec-title" data-i18n="controlsTitle">Controls</div>
+      <label class="row" for="ar"><span data-i18n="controlAutoReload">Auto-reload page on change</span>
         <span class="tog"><input type="checkbox" id="ar" checked><span class="sl"></span></span>
       </label>
-      <label class="row" for="sp"><span>Stats for Nerds Override (774 Spoof)<br><span style="font-size:9px;color:var(--dim);">Display Opus 774 metrics in player Stats for Nerds</span></span>
+      <label class="row" for="sp"><span><span data-i18n="controlStatsOverride">Stats for Nerds Override (774 Spoof)</span><br><span style="font-size:9px;color:var(--dim);" data-i18n="controlStatsOverrideDesc">Display Opus 774 metrics in player Stats for Nerds</span></span>
         <span class="tog"><input type="checkbox" id="sp" checked><span class="sl"></span></span>
       </label>
     </div>
 
     <!-- ACTIONS -->
     <div class="sec">
-      <div class="sec-title">Actions</div>
+      <div class="sec-title" data-i18n="actionsTitle">Actions</div>
       <div class="btns">
-        <button class="btn btn-p" id="btnR">↻ Refresh Page</button>
-        <button class="btn btn-s" id="btnL">⟳ Reload</button>
+        <button class="btn btn-p" id="btnR" data-i18n="actionRefresh">↻ Refresh Page</button>
+        <button class="btn btn-s" id="btnL" data-i18n="actionReload">⟳ Reload</button>
       </div>
     </div>
 
-  <!-- AUTHENTICATION SECTIONS -->
-  <div class="sec" id="tvAuthSec">
-    <div class="sec-title">TVHTML5 Login</div>
-    <div id="tvAuthContent">
-      <div id="tvAuthStatus" style="font-size: 11px; margin-bottom: 6px; color: var(--dim);">Status: Checking...</div>
-      <div id="tvAuthCodeContainer" style="display: none; text-align: center; margin-bottom: 8px;">
-        <div style="font-size: 10px; color: var(--dim);">Enter code at <a href="https://youtube.com/activate" target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
-        <div id="tvAuthCode" style="font-size: 16px; font-weight: 700; letter-spacing: 2px; margin-top: 4px;"></div>
-      </div>
-      <div class="btns">
-        <button class="btn btn-p" id="btnTvLogin">Login to TV</button>
-        <button class="btn btn-s" id="btnTvLogout" style="display: none;">Logout</button>
+    <!-- AUTHENTICATION SECTIONS -->
+    <div class="sec" id="tvAuthSec">
+      <div class="sec-title" data-i18n="tvLoginTitle">TVHTML5 Login</div>
+      <div id="tvAuthContent">
+        <div id="tvAuthStatus" style="font-size: 11px; margin-bottom: 6px; color: var(--dim);" data-i18n="tvStatusChecking">Status: Checking...</div>
+        <div id="tvAuthCodeContainer" style="display: none; text-align: center; margin-bottom: 8px;">
+          <div id="tvEnterCodeText" style="font-size: 10px; color: var(--dim);">Enter code at <a href="https://youtube.com/activate" target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
+          <div id="tvAuthCode" style="font-size: 16px; font-weight: 700; letter-spacing: 2px; margin-top: 4px;"></div>
+        </div>
+        <div class="btns">
+          <button class="btn btn-p" id="btnTvLogin" data-i18n="tvBtnLogin">Login to TV</button>
+          <button class="btn btn-s" id="btnTvLogout" style="display: none;" data-i18n="tvBtnLogout">Logout</button>
+        </div>
       </div>
     </div>
-  </div>
 
 
 

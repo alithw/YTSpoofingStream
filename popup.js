@@ -5,6 +5,85 @@
   const $ = (s) => document.querySelector(s);
   const log = (msg) => console.log('[YTSS Popup]', msg);
 
+  // ─── LOCALIZATION (i18n) ─────────────────────────────────────────
+  const localesCache = {};
+  let currentLang = 'en';
+  let currentLocaleData = {};
+  let enLocaleData = {};
+  let tvAuthHandler = null;
+
+  async function loadLocale(lang) {
+    if (localesCache[lang]) return localesCache[lang];
+    try {
+      const url = chrome.runtime.getURL(`locales/${lang}.json`);
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        localesCache[lang] = data;
+        return data;
+      }
+    } catch (e) {
+      log('Failed to load locale: ' + lang);
+    }
+    return {};
+  }
+
+  function t(key, params = {}) {
+    let str = currentLocaleData[key] || enLocaleData[key] || key;
+    if (typeof str !== 'string') return key;
+    for (const [k, v] of Object.entries(params)) {
+      str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+    }
+    return str;
+  }
+
+  function applyTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (key && (currentLocaleData[key] || enLocaleData[key])) {
+        el.textContent = t(key);
+      }
+    });
+
+    const langSelect = $('#langSelect');
+    if (langSelect && langSelect.value !== currentLang) {
+      langSelect.value = currentLang;
+    }
+
+    if (tvAuthHandler && typeof tvAuthHandler.renderAuth === 'function') {
+      tvAuthHandler.renderAuth();
+    }
+
+    applyUI();
+    pollStatus();
+  }
+
+  async function setLanguage(lang) {
+    if (!['en', 'vi'].includes(lang)) lang = 'en';
+    currentLang = lang;
+    currentLocaleData = await loadLocale(lang);
+    chrome.storage.local.set({ uiLanguage: lang });
+    applyTranslations();
+  }
+
+  async function initI18n() {
+    enLocaleData = await loadLocale('en');
+    chrome.storage.local.get(['uiLanguage'], async (res) => {
+      let lang = res?.uiLanguage;
+      if (!lang) {
+        const sysLang = (navigator.language || '').toLowerCase();
+        lang = sysLang.startsWith('vi') ? 'vi' : 'en';
+      }
+      await setLanguage(lang);
+    });
+
+    $('#langSelect')?.addEventListener('change', (e) => {
+      setLanguage(e.target.value);
+    });
+  }
+
+  initI18n();
+
   // ─── SETTINGS ────────────────────────────────────────────────────
   const KEYS = {
     enabled: '#en',
@@ -92,7 +171,7 @@
     const stText = $('#stText');
     const stBadge = $('#stBadge');
     if (!isEnabled) {
-      if (stText) stText.textContent = 'Disabled';
+      if (stText) stText.textContent = t('statusDisabled');
       if (stBadge) {
         stBadge.style.background = 'rgba(120, 120, 120, 0.2)';
         stBadge.style.color = '#aaa';
@@ -143,66 +222,135 @@
 
   // ─── CLIENT OAUTH HANDLERS ─────────────────────────────────────────
   function setupAuthControl(clientKey, statusElId, codeContId, codeElId, loginBtnId, logoutBtnId, labelName) {
+    let lastAuth = null;
+
+    function renderAuth() {
+      const statusEl = $(statusElId);
+      const loginBtn = $(loginBtnId);
+      const logoutBtn = $(logoutBtnId);
+      const codeCont = $(codeContId);
+      const codeEl = $(codeElId);
+      const enterCodeEl = $('#tvEnterCodeText');
+
+      if (enterCodeEl) {
+        enterCodeEl.innerHTML = t('tvEnterCode', {
+          url: '<a href="https://youtube.com/activate" target="_blank" style="color: var(--accent);">youtube.com/activate</a>'
+        });
+      }
+
+      if (!lastAuth) {
+        if (statusEl) {
+          statusEl.textContent = t('tvStatusChecking');
+          statusEl.style.color = 'var(--dim)';
+        }
+        return;
+      }
+
+      if (lastAuth.isAuth) {
+        if (statusEl) {
+          statusEl.textContent = t('tvStatusLoggedIn', { label: labelName });
+          statusEl.style.color = 'var(--green)';
+        }
+        if (loginBtn) loginBtn.style.display = 'none';
+        if (logoutBtn) {
+          logoutBtn.style.display = 'block';
+          logoutBtn.textContent = t('tvBtnLogout');
+        }
+        if (codeCont) codeCont.style.display = 'none';
+      } else if (lastAuth.waiting) {
+        if (statusEl) {
+          statusEl.textContent = t('tvStatusWaiting');
+          statusEl.style.color = 'var(--gold)';
+        }
+        if (loginBtn) {
+          loginBtn.style.display = 'block';
+          loginBtn.disabled = false;
+          loginBtn.textContent = t('tvBtnLogin', { label: labelName });
+        }
+        if (logoutBtn) logoutBtn.style.display = 'none';
+        if (codeCont) codeCont.style.display = 'block';
+        if (codeEl && lastAuth.code) codeEl.textContent = lastAuth.code;
+      } else if (lastAuth.error) {
+        if (statusEl) {
+          statusEl.textContent = t('tvStatusError', { error: lastAuth.error });
+          statusEl.style.color = 'var(--accent)';
+        }
+        if (loginBtn) {
+          loginBtn.style.display = 'block';
+          loginBtn.disabled = false;
+          loginBtn.textContent = t('tvBtnLogin', { label: labelName });
+        }
+        if (logoutBtn) logoutBtn.style.display = 'none';
+      } else {
+        if (statusEl) {
+          statusEl.textContent = t('tvStatusNotLoggedIn');
+          statusEl.style.color = 'var(--dim)';
+        }
+        if (loginBtn) {
+          loginBtn.style.display = 'block';
+          loginBtn.disabled = false;
+          loginBtn.textContent = t('tvBtnLogin', { label: labelName });
+        }
+        if (logoutBtn) logoutBtn.style.display = 'none';
+        if (codeCont) codeCont.style.display = 'none';
+      }
+    }
+
     function checkAuth() {
       chrome.runtime.sendMessage({ type: 'CHECK_CLIENT_AUTH', client: clientKey }, (res) => {
-        if (res && res.isAuth) {
-          $(statusElId).textContent = `Status: Logged In (${labelName} Authenticated)`;
-          $(statusElId).style.color = 'var(--green)';
-          $(loginBtnId).style.display = 'none';
-          $(logoutBtnId).style.display = 'block';
-          $(codeContId).style.display = 'none';
-        } else {
-          $(statusElId).textContent = `Status: Not Logged In`;
-          $(statusElId).style.color = 'var(--dim)';
-          $(loginBtnId).style.display = 'block';
-          $(logoutBtnId).style.display = 'none';
-        }
+        lastAuth = { isAuth: !!(res && res.isAuth) };
+        renderAuth();
       });
     }
 
     $(loginBtnId)?.addEventListener('click', () => {
-      $(loginBtnId).disabled = true;
-      $(loginBtnId).textContent = 'Loading...';
+      const loginBtn = $(loginBtnId);
+      if (loginBtn) {
+        loginBtn.disabled = true;
+        loginBtn.textContent = t('tvBtnLoading');
+      }
 
       chrome.runtime.sendMessage({ type: 'START_CLIENT_AUTH', client: clientKey }, (res) => {
-        $(loginBtnId).disabled = false;
-        $(loginBtnId).textContent = `Login to ${labelName}`;
+        if (loginBtn) {
+          loginBtn.disabled = false;
+          loginBtn.textContent = t('tvBtnLogin', { label: labelName });
+        }
         if (res && res.success && res.data) {
           const d = res.data;
-          $(statusElId).textContent = 'Status: Waiting for you to activate...';
-          $(statusElId).style.color = 'var(--gold)';
-
-          $(codeElId).textContent = d.user_code;
-          $(codeContId).style.display = 'block';
+          lastAuth = { isAuth: false, waiting: true, code: d.user_code };
+          renderAuth();
 
           const pollUI = setInterval(() => {
             chrome.runtime.sendMessage({ type: 'CHECK_CLIENT_AUTH', client: clientKey }, (check) => {
               if (check && check.isAuth) {
                 clearInterval(pollUI);
-                checkAuth();
+                lastAuth = { isAuth: true };
+                renderAuth();
                 log(`${labelName} Auth Successful!`);
               }
             });
           }, 3000);
         } else {
-          $(statusElId).textContent = 'Status: Error - ' + (res?.error || 'Unknown');
-          $(statusElId).style.color = 'var(--accent)';
+          lastAuth = { isAuth: false, error: res?.error || 'Unknown' };
+          renderAuth();
         }
       });
     });
 
     $(logoutBtnId)?.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'LOGOUT_CLIENT', client: clientKey }, () => {
-        checkAuth();
+        lastAuth = { isAuth: false };
+        renderAuth();
         log(`${labelName} Logged out.`);
       });
     });
 
     checkAuth();
+    return { renderAuth, checkAuth };
   }
 
   // Set up auth for TVHTML5
-  setupAuthControl('TVHTML5', '#tvAuthStatus', '#tvAuthCodeContainer', '#tvAuthCode', '#btnTvLogin', '#btnTvLogout', 'TVHTML5');
+  tvAuthHandler = setupAuthControl('TVHTML5', '#tvAuthStatus', '#tvAuthCodeContainer', '#tvAuthCode', '#btnTvLogin', '#btnTvLogout', 'TVHTML5');
 
   // ─── EVENT LISTENERS ──────────────────────────────────────────────
   for (const sel of Object.values(KEYS)) {
@@ -254,12 +402,16 @@
         // Status badge
         const badge = $('#stBadge');
         const text = $('#stText');
-        if (d.activeAudioItag) {
+        const isEnabled = !!settings.enabled;
+        if (!isEnabled) {
+          badge?.classList.add('off');
+          if (text) text.textContent = t('statusDisabled');
+        } else if (d.activeAudioItag) {
           badge?.classList.remove('off');
-          if (text) text.textContent = 'Active';
+          if (text) text.textContent = t('statusActive');
         } else {
           badge?.classList.add('off');
-          if (text) text.textContent = 'Inactive';
+          if (text) text.textContent = t('statusInactive');
         }
 
         // SW status ping
@@ -267,10 +419,10 @@
           const swEl = $('#swSt');
           if (swEl) {
             if (resp && resp.ready) {
-              swEl.textContent = `SW: v${resp.version} Active`;
+              swEl.textContent = t('swActive', { version: resp.version });
               swEl.style.color = '#00c853';
             } else {
-              swEl.textContent = 'SW: Offline (Reload required)';
+              swEl.textContent = t('swOffline');
               swEl.style.color = '#e94560';
             }
           }
@@ -290,7 +442,7 @@
 
         if (d.fallbackReason) {
           if (methodEl) {
-            methodEl.textContent = 'FALLBACK TO ORIGINAL';
+            methodEl.textContent = t('statusFallback');
             methodEl.style.color = '#e94560';
           }
           if (audioEl) {
@@ -301,12 +453,12 @@
         } else {
           if (methodEl) {
             methodEl.style.color = 'var(--gold)';
-            methodEl.textContent = d.activeMethod ? `${d.activeMethod} (Active)` : 'Original';
+            methodEl.textContent = d.activeMethod ? t('statusMethodActive', { method: d.activeMethod }) : t('statusOriginal');
           }
           if (audioEl) {
             audioEl.style.color = '';
             audioEl.style.fontSize = '';
-            audioEl.textContent = d.bestAudioInfo || '—';
+            audioEl.textContent = d.bestAudioInfo || t('statusNoAudio');
           }
         }
 
@@ -324,12 +476,12 @@
 
             const formatName = (name) => {
               switch (name) {
-                case 'WEB_REMIX': return 'Web Remix (Music)';
-                case 'TVHTML5': return 'TVHTML5 (YouTube TV)';
-                case 'ANDROID': return 'Android (Mobile)';
-                case 'ANDROID_MUSIC': return 'Android Music';
-                case 'ANDROID_VR': return 'Android VR';
-                case 'CACHE': return 'Session Cache';
+                case 'WEB_REMIX': return t('clientWebRemix');
+                case 'TVHTML5': return t('clientTvHtml5');
+                case 'ANDROID': return t('clientAndroid');
+                case 'ANDROID_MUSIC': return t('clientAndroidMusic');
+                case 'ANDROID_VR': return t('clientAndroidVr');
+                case 'CACHE': return t('clientCache');
                 default: return name;
               }
             };

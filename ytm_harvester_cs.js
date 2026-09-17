@@ -19,7 +19,7 @@
   function notifyAbort(reason) {
     if (isAborted) return;
     isAborted = true;
-    console.warn(TAG, `[ABORT] Harvest aborted for ${urlVid}: ${reason}`);
+    console.log(TAG, `[ABORT] Harvest aborted for ${urlVid}: ${reason}`);
     try {
       window.parent.postMessage({
         type: 'HARVEST_ABORT',
@@ -66,7 +66,7 @@
     }
 
     // No 774 stream available for this video -> Abort harvest and let native audio play
-    console.warn(TAG, `Video ${urlVid} has NO ITAG 774 stream. Aborting harvest.`);
+    console.log(TAG, `Video ${urlVid} has NO ITAG 774 stream. Aborting harvest.`);
     notifyAbort('NO_774_STREAM');
     json.streamingData = null;
     return json;
@@ -78,7 +78,7 @@
 
     if (json.playabilityStatus?.status && json.playabilityStatus.status !== 'OK') {
       const reason = json.playabilityStatus.reason || json.playabilityStatus.status;
-      console.warn(TAG, `Track ${urlVid} is UNPLAYABLE on YTM (${reason}). Cancelling.`);
+      console.log(TAG, `Track ${urlVid} is UNPLAYABLE on YTM (${reason}). Cancelling.`);
       notifyAbort(`UNPLAYABLE: ${reason}`);
       return false;
     }
@@ -86,7 +86,7 @@
     // STRICT CHECK: Verify videoId matches urlVid EXACTLY.
     // YouTube Music auto-skips to similar tracks on unavailable videos. We must BLOCK this!
     if (videoId && urlVid && videoId !== urlVid) {
-      console.warn(TAG, `YTM attempted to substitute ${urlVid} with different track ${videoId}! BLOCKING.`);
+      console.log(TAG, `YTM attempted to substitute ${urlVid} with different track ${videoId}! BLOCKING.`);
       notifyAbort(`TRACK_MISMATCH: YTM skipped to ${videoId}`);
       return false;
     }
@@ -173,7 +173,7 @@
       const u = new URL(streamUrl);
       const docid = u.searchParams.get('docid');
       if (docid && urlVid && docid !== urlVid) {
-        console.warn(TAG, `Ignored ITAG 774 stream for mismatched track docid=${docid} (expected ${urlVid})`);
+        console.log(TAG, `Ignored ITAG 774 stream for mismatched track docid=${docid} (expected ${urlVid})`);
         return;
       }
     } catch (e) {}

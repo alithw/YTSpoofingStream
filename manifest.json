@@ -74,5 +74,15 @@
       "all_frames": true,
       "world": "MAIN"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "locales/*.json"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ]
 }

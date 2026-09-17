@@ -620,7 +620,7 @@ async function fetchFromClient(videoId, client) {
   if (isTVClient) {
     bearerToken = await getClientAccessToken('TVHTML5');
     if (!bearerToken) {
-      console.warn(TAG, `[${client.name}] TV client requires login (Premium) -> Skipping fetch.`);
+      console.log(TAG, `[${client.name}] TV client requires login (Premium) -> Skipping fetch.`);
       return { source: client.name, error: 'NO_TV_LOGIN', audioFormats: [] };
     }
     auth = `Bearer ${bearerToken}`;
@@ -805,7 +805,7 @@ async function ensureOffscreenDocument() {
       console.log(TAG, '[Harvester] Offscreen document created');
     } catch (err) {
       if (!err.message?.includes('Only a single offscreen document may be created')) {
-        console.warn(TAG, '[Harvester] Offscreen creation error:', err);
+        console.log(TAG, '[Harvester] Offscreen creation notice:', err);
       }
     }
   }
@@ -924,7 +924,7 @@ async function harvestViaYtm(videoId, title = null, author = null) {
     try {
       return await _doHarvest(videoId, title, author);
     } catch (e) {
-      console.warn(TAG, `[YTM_HARVEST] Error harvesting ${videoId}:`, e);
+      console.log(TAG, `[YTM_HARVEST] Error harvesting ${videoId}:`, e);
       return [];
     }
   })().finally(() => {
@@ -977,7 +977,7 @@ async function _doHarvest(videoId, title = null, author = null) {
       type: 'OFFSCREEN_HARVEST_YTM',
       videoId: targetId
     }).catch(err => {
-      console.warn(TAG, '[YTM_HARVEST] Offscreen message error:', err);
+      console.log(TAG, '[YTM_HARVEST] Offscreen message error:', err);
       resolve([]);
     });
   });
@@ -1125,7 +1125,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               return { source: PROV_YTM, audioFormats: ytmFormats, streamingContext: null };
             }
           } catch (e) {
-            console.warn(TAG, `[FETCH_HQ] [Hybrid] YTM Harvester error:`, e);
+            console.log(TAG, `[FETCH_HQ] [Hybrid] YTM Harvester fallback:`, e);
           }
           return null;
         };
@@ -1144,7 +1144,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               console.log(TAG, `[FETCH_HQ] [Hybrid] TV client skipped (no TV login)`);
             }
           } catch (e) {
-            console.warn(TAG, `[FETCH_HQ] [Hybrid] TV client error:`, e);
+            console.log(TAG, `[FETCH_HQ] [Hybrid] TV client fallback:`, e);
           }
           return null;
         };
@@ -1232,7 +1232,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Check TV login first; skip if not logged in with Premium
         const tvToken = await getClientAccessToken('TVHTML5');
         if (!tvToken) {
-          console.warn(TAG, `[FETCH_HQ] Mode 1: No TV login (Premium required) -> Stopping.`);
+          console.log(TAG, `[FETCH_HQ] Mode 1: No TV login (Premium required) -> Stopping.`);
           sendResponse({ success: false, results: [], error: 'NO_TV_LOGIN', opMode: 'TV_HEADLESS' });
           return;
         }
