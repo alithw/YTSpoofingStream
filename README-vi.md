@@ -31,8 +31,6 @@
 > 2. Đảm bảo đăng nhập đúng tài khoản Google có YouTube Premium.
 > 3. Sau khi xác thực thành công, extension sẽ hoạt động với độ khả dụng luồng 774 cao nhất!
 
-<sub>**Lưu ý về Firefox**: Phiên bản Mozilla Firefox đã ngừng hỗ trợ do các giới hạn kỹ thuật của Gecko (xem chi tiết thông báo tại [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100)). Vui lòng sử dụng các trình duyệt nhân Chromium.</sub>
-
 *Đọc bằng ngôn ngữ khác: [English](README.md).*
 
 ---
@@ -176,18 +174,28 @@ Kết quả kiểm thử thực tế thời gian thực 100% thời lượng tr�
 4. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `YTSpoofingStream`.
 5. Mở YouTube, đảm bảo đã đăng nhập tài khoản có Premium, và thưởng thức âm thanh chuẩn phòng thu với huy hiệu `★ 774` trên trình phát!
 
-### Trình duyệt Mozilla Firefox / Firefox ESR (v128+)
-Bạn có thể cài đặt vĩnh viễn bằng gói đã ký số chính thức hoặc nạp từ mã nguồn:
+### Trình duyệt Mozilla Firefox / Firefox ESR
+> [!WARNING]
+> Phiên bản Mozilla Firefox đã chính thức **ngừng hỗ trợ** kể từ [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100) do các giới hạn kỹ thuật của nền tảng Gecko (CORS khắt khe, chặn iframe ngầm `X-Frame-Options` và các giới hạn luồng của WebExtensions MV3). Vui lòng sử dụng các trình duyệt nhân Chromium (Google Chrome, Microsoft Edge, Brave, Cốc Cốc, Opera,...).
 
-- **Cài đặt nhanh (Gói XPI đã ký số chính thức bởi Mozilla)**:
-  Tải file cài đặt [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) từ mục [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) (hoặc trực tiếp từ nhánh [`firefox`](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-firefox-0.1.5.1.xpi)), kéo thả trực tiếp vào cửa sổ Firefox (hoặc nhấn `Ctrl + O` để mở file), sau đó bấm **Thêm (Add)** để cài đặt vĩnh viễn (không bao giờ bị mất khi khởi động lại).
-- **Chạy từ mã nguồn (Tiện ích tạm thời)**:
-  1. Chuyển sang nhánh `firefox`:
-     ```bash
-     git checkout firefox
-     ```
-  2. Mở Firefox và truy cập `about:debugging#/runtime/this-firefox`.
-  3. Bấm **Tải tiện ích tạm thời (Load Temporary Add-on...)** và chọn file `manifest.json`.
+---
+
+## 🌐 Hỗ trợ Đa Ngôn Ngữ & Hướng dẫn Đóng góp Bản dịch
+
+YTSpoofingStream hỗ trợ đa ngôn ngữ ngay khi cài đặt (hiện có sẵn Tiếng Anh và Tiếng Việt) cùng tính năng tự động nhận diện ngôn ngữ trình duyệt.
+
+### Bạn muốn bổ sung ngôn ngữ của mình?
+Chúng tôi rất hoan nghênh các bản dịch từ cộng đồng! Bạn có thể đóng góp ngôn ngữ mới chỉ với 3 bước đơn giản:
+
+1. **Sao chép file mẫu (Template)**:  
+   Nhân bản file [`locales/template.json`](locales/template.json) và đổi tên thành mã ngôn ngữ chuẩn ISO 639-1 của bạn (ví dụ: `ja.json` cho tiếng Nhật, `ko.json` cho tiếng Hàn, `fr.json` cho tiếng Pháp, `de.json` cho tiếng Đức, `es.json` cho tiếng Tây Ban Nha...) đặt trong thư mục `locales/`.
+2. **Dịch các chuỗi văn bản**:  
+   - Điền thông tin vào trường `_meta` (tên ngôn ngữ, tên bản địa, mã ngôn ngữ, tác giả/GitHub handle).
+   - Dịch chính xác từng giá trị tương ứng sang ngôn ngữ của bạn.
+   - **Lưu ý quan trọng**: Giữ nguyên các biến placeholder (như `{version}`, `{method}`, `{label}`, `{error}`, `{url}`) và các biểu tượng đặc biệt (★, •, ↻, ⟳). Hạn chế dùng dịch máy thô để đảm bảo câu từ tự nhiên và chuẩn xác.
+3. **Khai báo & Tạo Pull Request**:  
+   - Thêm thẻ `<option value="mã_ngôn_ngữ">Tên ngôn ngữ</option>` vào menu dropdown `#langSelect` trong `popup.html`.
+   - Gửi Pull Request (PR) lên repository! Chúng tôi sẽ kiểm tra, merge và phát hành ngay trong phiên bản kế tiếp.
 
 ---
 

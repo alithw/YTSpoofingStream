@@ -31,8 +31,6 @@
 > 2. Ensure you sign in with the Google account that has active YouTube Premium.
 > 3. Once authenticated, the extension operates with maximum stream availability!
 
-<sub>**Note on Firefox**: Support for Mozilla Firefox has been discontinued due to Gecko engine constraints (see [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100)). Please use Chromium-based browsers.</sub>
-
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
 
 ---
@@ -166,7 +164,7 @@ Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks
 
 ## 🚀 Installation
 
-### Chromium Browsers (Google Chrome, Brave, Edge, Opera)
+### Chromium Browsers (Google Chrome, Brave, Edge, Opera, Cốc Cốc)
 1. Clone or download the repository (`main` branch):
    ```bash
    git clone https://github.com/alithw/YTSpoofingStream.git
@@ -175,18 +173,28 @@ Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks
 3. Click **Load unpacked** and select the `YTSpoofingStream` folder.
 4. Open YouTube, ensure you are logged into your Premium account, and verify the `★ 774` badge in the player control bar!
 
-### Mozilla Firefox / Firefox ESR (v128+)
-You can install the officially signed package permanently, or run from source:
+### Mozilla Firefox / Firefox ESR
+> [!WARNING]
+> Support for Mozilla Firefox has been officially **discontinued** as of [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100) due to technical constraints on the Gecko engine (strict CORS enforcement, background iframe blocking, and MV3 streaming limitations). Please use Chromium-based browsers (Google Chrome, Microsoft Edge, Brave, Opera, Cốc Cốc).
 
-- **Quick Install (Signed Package)**:
-  Download the signed [**`YTSS-firefox-0.1.5.1.xpi`**](https://github.com/alithw/YTSpoofingStream/releases/latest/download/YTSS-firefox-0.1.5.1.xpi) package from [GitHub Releases](https://github.com/alithw/YTSpoofingStream/releases) (or direct from the [`firefox`](https://github.com/alithw/YTSpoofingStream/raw/firefox/YTSS-firefox-0.1.5.1.xpi) branch), drag and drop it into Firefox (or open it via `Ctrl+O`), and click **Add** to install it permanently.
-- **Run from Source (Temporary Add-on)**:
-  1. Switch to the `firefox` branch:
-     ```bash
-     git checkout firefox
-     ```
-  2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
-  3. Click **Load Temporary Add-on...** and select `manifest.json`.
+---
+
+## 🌐 Localization & Adding Your Language
+
+YTSpoofingStream supports multiple languages out of the box (currently English and Tiếng Việt) with automatic browser language detection.
+
+### Want to contribute your language?
+We welcome community translations! You can easily add your native language in 3 steps:
+
+1. **Copy the Template**:  
+   Duplicate [`locales/template.json`](locales/template.json) and rename it to your ISO 639-1 language code (e.g. `ja.json` for Japanese, `es.json` for Spanish, `ko.json` for Korean, `de.json` for German, etc.) inside the `locales/` directory.
+2. **Translate the Strings**:  
+   - Fill in the `_meta` section with your language details and your GitHub username for credit.
+   - Translate each value accurately.
+   - **Important**: Keep placeholder tokens intact (such as `{version}`, `{method}`, `{label}`, `{error}`, `{url}`) and preserve symbols (★, •, ↻, ⟳).
+3. **Register & Submit**:  
+   - Add your language `<option value="code">Language Name</option>` to the `#langSelect` dropdown in `popup.html`.
+   - Submit a Pull Request (PR)! We will review, merge, and include it in the next release.
 
 ---
 
