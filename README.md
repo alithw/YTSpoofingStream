@@ -4,7 +4,7 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.1.7-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.0-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="License Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -17,8 +17,8 @@
 </div>
 
 > [!IMPORTANT]
-> **RECOMMENDED: UPDATE TO [v0.1.7](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.7)**  
-> **v0.1.7** is now the official production-grade stable release. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.1.7) for full changelog and details.
+> **RECOMMENDED: UPDATE TO [v0.2.0](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0)**  
+> **v0.2.0** is now the official production-grade stable release. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0) for full changelog and details.
 
 > [!WARNING]
 > **Requirement: Active YouTube Premium Subscription**

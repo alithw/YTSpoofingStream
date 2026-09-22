@@ -1,5 +1,5 @@
 {
-  "headerSubtitle": "v0.1.7 • Động cơ luồng kép Studio 774",
+  "headerSubtitle": "v0.2.0 • Động cơ luồng kép Studio 774",
   "enableExtension": "Bật tiện ích",
   "opModeTitle": "Chế độ hoạt động",
   "opModeHybridTitle": "Chế độ: Hỗn hợp Hybrid (774 Opus ★)",
@@ -48,5 +48,15 @@
   "tvEnterCode": "Nhập mã tại {url}",
   "tvBtnLogin": "Đăng nhập {label}",
   "tvBtnLogout": "Đăng xuất",
-  "tvBtnLoading": "Đang xử lý..."
+  "tvBtnLoading": "Đang xử lý...",
+  "audioOnly": "Chế độ chỉ nghe nhạc",
+  "audioOnlyDesc": "Tắt video, chỉ phát âm thanh HQ để tiết kiệm tối đa RAM & CPU",
+  "statusAudioBuffer": "Bộ đệm âm thanh",
+  "badgeTooltipNative": "ITAG 774 ({bitrate}) • Phương thức: {method} • Cơ chế: Native SABR 774",
+  "badgeTooltipStudio": "ITAG 774 ({bitrate}) • Phương thức: {method} • Cơ chế: Studio Engine 774",
+  "badgeTooltip251": "ITAG 251 (160kbps) • Luồng gốc YouTube (Không có 774)",
+  "audioOnlyActive": "ĐANG BẬT CHẾ ĐỘ CHỈ NGHE NHẠC",
+  "audioOnlyHint": "Đã ẩn hình ảnh để tiết kiệm tối đa RAM & CPU • Nhấp vào đây để xem lại hình ảnh",
+  "hudAudioOnlyOn": "Chế độ chỉ nghe nhạc: ĐANG BẬT (Bấm để xem video)",
+  "hudAudioOnlyOff": "Chế độ chỉ nghe nhạc: ĐANG TẮT (Bấm để bật)"
 }

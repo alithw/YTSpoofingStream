@@ -41,7 +41,31 @@
     rawItag: false,
     shadowPlayer: true,
     shadowVolume: 1.0,
+    audioOnly: false,
+    uiLanguage: 'en',
   };
+
+  let currentLocale = {};
+  const DEFAULT_STRINGS = {
+    audioOnlyActive: 'AUDIO-ONLY MODE ACTIVE',
+    audioOnlyHint: 'Video rendering paused to save RAM & CPU • Click anywhere to restore video',
+    hudAudioOnlyOn: 'Audio-Only Mode: ACTIVE (Click to restore video)',
+    hudAudioOnlyOff: 'Audio-Only Mode: OFF (Click to enable)',
+    badgeTooltipNative: 'ITAG {itag} ({bitrate}) • Method: {method} • Engine: Native SABR 774',
+    badgeTooltipStudio: 'ITAG 774 ({bitrate}) • Method: {method} • Engine: Studio Engine 774',
+    badgeTooltip251: 'ITAG 251 (160kbps) • Original YouTube Stream',
+    statusAudioBuffer: 'Audio Buffer',
+  };
+
+  function t(key, params = {}) {
+    let str = currentLocale[key] || DEFAULT_STRINGS[key] || key;
+    if (params && typeof params === 'object') {
+      for (const [k, v] of Object.entries(params)) {
+        str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+      }
+    }
+    return str;
+  }
 
   // Keys that may live in `S`. Earlier builds pushed the whole extension storage
   // area into this world, which meant the TV OAuth token (access_token +
@@ -77,11 +101,13 @@
     }
   } catch (e) { }
 
+  let lastOpMode = S.operationMode;
   function handleSettingsChange() {
     if (!S.enabled) {
       if (typeof StudioEngine774 !== 'undefined') StudioEngine774.stopAndUnmute('Extension Disabled');
       const container = document.getElementById('ytss-vol-container');
       if (container) container.style.display = 'none';
+      if (typeof applyAudioOnlyState === 'function') applyAudioOnlyState();
       status.activeMethod = 'original';
       status.activeAudioItag = 251;
       status.fallbackReason = 'Extension Disabled';
@@ -90,18 +116,28 @@
     } else {
       const container = document.getElementById('ytss-vol-container');
       if (container) container.style.display = 'inline-flex';
-      hqCache.clear();
-      confirmedNo774Videos.clear();
-      try {
-        for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
-          const k = window.sessionStorage.key(i);
-          if (k && k.startsWith('ytss_hq_')) window.sessionStorage.removeItem(k);
+      if (typeof applyAudioOnlyState === 'function') applyAudioOnlyState();
+
+      // ONLY invalidate cache if operation mode ACTUALLY changed!
+      // Changing audioOnly, uiLanguage, or shadowPlayer must NEVER drop the active 774 stream!
+      if (S.operationMode !== lastOpMode) {
+        lastOpMode = S.operationMode;
+        hqCache.clear();
+        confirmedNo774Videos.clear();
+        try {
+          for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+            const k = window.sessionStorage.key(i);
+            if (k && k.startsWith('ytss_hq_')) window.sessionStorage.removeItem(k);
+          }
+        } catch (e) {}
+        const curVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+        if (curVid) {
+          console.log(TAG, `[SettingsChange] Switched to ${S.operationMode} -> Triggering HQ harvest for ${curVid}`);
+          prewarmCache(curVid);
         }
-      } catch (e) {}
-      const curVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
-      if (curVid) {
-        console.log(TAG, `[SettingsChange] Switched to ${S.operationMode} -> Triggering HQ harvest for ${curVid}`);
-        prewarmCache(curVid);
+      }
+      if (typeof PlayerBadgeUI !== 'undefined') {
+        PlayerBadgeUI.update();
       }
       if (typeof window.__ytssUpdateBadge === 'function') {
         window.__ytssUpdateBadge();
@@ -117,6 +153,20 @@
       Object.assign(S, pickSettings(e.data.settings));
       persistSettings();
       handleSettingsChange();
+    }
+    if (e.data?.type === 'YTSS_LOCALE_DATA' && e.data.strings) {
+      currentLocale = e.data.strings;
+      if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+      if (typeof applyAudioOnlyState === 'function') applyAudioOnlyState();
+    }
+    if (e.data?.type === 'YTSS_SET_AUDIO_ONLY') {
+      const targetState = typeof e.data.audioOnly === 'boolean' ? e.data.audioOnly : !S.audioOnly;
+      if (typeof toggleAudioOnly === 'function') {
+        toggleAudioOnly(targetState);
+      } else {
+        S.audioOnly = targetState;
+        persistSettings();
+      }
     }
   });
 
@@ -152,6 +202,7 @@
     bestAudioInfo: '—',
     activeMethod: '—',
     activeAudioItag: '—',
+    activeBitrate: '—',
     fallbackReason: null,
     lastError: null,
     activeMode: S.audioMode,
@@ -159,11 +210,59 @@
     clientFallback: null,   // set when the chosen Spoofing Method returned no HQ
     noUrlDrop: null,        // set when HQ formats arrived as metadata only (SABR-only, no url)
     prewarmStatus: '—',
+    audioBufferSec: null,
   };
+
+  function getAudioBufferSec() {
+    try {
+      if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive && StudioEngine774.audio) {
+        const a = StudioEngine774.audio;
+        const cur = a.currentTime;
+        const b = a.buffered;
+        for (let i = 0; i < b.length; i++) {
+          if (b.start(i) <= cur && cur <= b.end(i)) {
+            return Math.max(0, b.end(i) - cur);
+          }
+        }
+        return 0;
+      }
+      const isReal774 = Number(status.activeAudioItag) === 774 && !status.fallbackReason;
+      if (isReal774) {
+        const v = (typeof getMainVideoElement === 'function' ? getMainVideoElement() : document.querySelector('video'));
+        if (v) {
+          const cur = v.currentTime;
+          const b = v.buffered;
+          for (let i = 0; i < b.length; i++) {
+            if (b.start(i) <= cur && cur <= b.end(i)) {
+              return Math.max(0, b.end(i) - cur);
+            }
+          }
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function getActiveBitrate() {
+    if (status.activeBitrate && status.activeBitrate !== '—') return status.activeBitrate;
+    if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.best774Candidate) {
+      try { return formatBitrate(StudioEngine774.best774Candidate); } catch (e) {}
+    }
+    const match = (status.bestAudioInfo || '').match(/Opus\s+(\d+\s*k?bps)/i);
+    if (match) return match[1];
+    return Number(status.activeAudioItag) === 774 ? '272kbps' : '160kbps';
+  }
 
   let lastReportJson = '';
   function report() {
     status.activeMode = S.audioMode;
+    const isReal774 = Number(status.activeAudioItag) === 774 && !status.fallbackReason;
+    if (isReal774) {
+      const buf = getAudioBufferSec();
+      status.audioBufferSec = (buf !== null && !isNaN(buf)) ? Number(buf.toFixed(1)) : null;
+    } else {
+      status.audioBufferSec = null;
+    }
     const currentJson = JSON.stringify(status);
     if (currentJson === lastReportJson) return;
     lastReportJson = currentJson;
@@ -173,6 +272,17 @@
       try { window.__ytssUpdateBadge(); } catch (e) { }
     }
   }
+
+  // Periodic 5s Audio Buffer sync for popup and background
+  setInterval(() => {
+    if (Number(status.activeAudioItag) === 774 && !status.fallbackReason) {
+      const buf = getAudioBufferSec();
+      if (buf !== null && !isNaN(buf)) {
+        status.audioBufferSec = Number(buf.toFixed(1));
+        try { localStorage.setItem('ytSpoofingStream_status', JSON.stringify(status)); } catch (e) {}
+      }
+    }
+  }, 5000);
 
   // ─── HQ FORMAT CACHE (per videoId, 25s TTL) ─────────────────────
   // Cache HQ formats so they can be merged SYNCHRONOUSLY when player initializes.
@@ -836,6 +946,7 @@
     _userPaused: false,
     _isAudioBuffering: false,
     _isInternalVideoSync: false,
+    _isTabResyncing: false,
     _isSeeking: false,
     _seekDebounceTimer: null,
     _waitingPauseTimer: null,
@@ -1268,7 +1379,7 @@
         }
 
         if (e.type === 'seeked') {
-          if (this._isVolScrubbing || this._isInternalVideoSync) return;
+          if (this._isVolScrubbing || this._isInternalVideoSync || this._isTabResyncing) return;
           if (this._seekDebounceTimer) {
             clearTimeout(this._seekDebounceTimer);
             this._seekDebounceTimer = null;
@@ -1279,7 +1390,11 @@
           if (!this.isAdActive()) {
             this._silenceElement(video);
             this.syncVol(video);
-            this.audio.currentTime = video.currentTime;
+            // Master Clock Lock: only sync audio to video if drift is significant (manual user scrubbing)
+            const drift = Math.abs(this.audio.currentTime - video.currentTime);
+            if (drift > 0.35) {
+              this.audio.currentTime = video.currentTime;
+            }
             this.audio.playbackRate = video.playbackRate;
             if (!video.paused && this.audio.paused) {
               this.audio.play().catch(() => {});
@@ -1773,20 +1888,44 @@
       if (!this.audio.paused && !this.audio.ended) {
         if (video.paused) {
           const drift = this.audio.currentTime - video.currentTime;
-          // Only seek video if Chrome throttled background video significantly (> 1.0s)
-          if (drift > 1.0) {
+          // Only seek video if Chrome throttled background video significantly (> 0.8s)
+          if (drift > 0.8) {
             this._isInternalVideoSync = true;
+            this._isTabResyncing = true;
             video.currentTime = this.audio.currentTime;
-            setTimeout(() => { this._isInternalVideoSync = false; }, 250);
+            const onSeeked = () => {
+              video.removeEventListener('seeked', onSeeked);
+              setTimeout(() => {
+                this._isInternalVideoSync = false;
+                this._isTabResyncing = false;
+              }, 200);
+            };
+            video.addEventListener('seeked', onSeeked, { once: true });
+            setTimeout(() => {
+              this._isInternalVideoSync = false;
+              this._isTabResyncing = false;
+            }, 1200);
           }
           video.play().catch(() => {});
           this._silenceElement(video);
         } else {
           const drift = this.audio.currentTime - video.currentTime;
-          if (drift > 1.5) {
+          if (drift > 1.2) {
             this._isInternalVideoSync = true;
+            this._isTabResyncing = true;
             video.currentTime = this.audio.currentTime;
-            setTimeout(() => { this._isInternalVideoSync = false; }, 250);
+            const onSeeked = () => {
+              video.removeEventListener('seeked', onSeeked);
+              setTimeout(() => {
+                this._isInternalVideoSync = false;
+                this._isTabResyncing = false;
+              }, 200);
+            };
+            video.addEventListener('seeked', onSeeked, { once: true });
+            setTimeout(() => {
+              this._isInternalVideoSync = false;
+              this._isTabResyncing = false;
+            }, 1200);
           }
           this._silenceElement(video);
         }
@@ -2701,8 +2840,9 @@
 
       if (streamUrl) {
         // Direct playable HTTP stream (e.g. harvested from YTM) handled exclusively by StudioEngine774 (the 2nd player):
-        // Strip 251 and all audio formats from native player's streamingData so native player never requests or plays 251!
-        json.streamingData.adaptiveFormats = [...videoFormats];
+        // Retain origAudio in adaptiveFormats so YouTube player initializes MSE normally with full HD/4K adaptive video qualities.
+        // Stripping origAudio causes YouTube to abort MSE and fall back to progressive format 18 (locked to 360p).
+        json.streamingData.adaptiveFormats = [...videoFormats, ...origAudio];
       } else {
         // TVHTML5 Authenticated 774 Stream: upgrade 251 and retain SABR pipeline
         const preciseBps = getPreciseBitrate(best774);
@@ -3313,22 +3453,95 @@
       if (this.timer) return;
       this.timer = setInterval(() => {
         if (document.hidden) return;
-        if (!S.shadowPlayer && !S.sfnSpoof) return;
-        const override = this.getCodecText();
-        if (!override) return;
+        if (!S.shadowPlayer) return;
 
         const panel = document.querySelector('.html5-video-info-panel-content, .ytp-sfn-content');
         if (!panel) return;
 
-        const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while ((node = walker.nextNode())) {
-          const txt = node.nodeValue || '';
-          if (txt.includes('/') && (txt.includes('opus (') || txt.includes('mp4a.') || txt.includes('251') || txt.includes('140')) && !txt.includes('774')) {
-            node.nodeValue = txt.replace(/\/\s*[\w.-]+\s*\(\d+\)/, override);
+        const override = this.getCodecText();
+        if (override) {
+          const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT, null, false);
+          let node;
+          while ((node = walker.nextNode())) {
+            const txt = node.nodeValue || '';
+            if (txt.includes('/') && (txt.includes('opus (') || txt.includes('mp4a.') || txt.includes('251') || txt.includes('140')) && !txt.includes('774')) {
+              node.nodeValue = txt.replace(/\/\s*[\w.-]+\s*\(\d+\)/, override);
+            }
           }
         }
-      }, 1000);
+
+        // Stats for Nerds Audio Buffer Row (774 stream health)
+        const isReal774 = Number(status.activeAudioItag) === 774 && !status.fallbackReason;
+        let audioRow = document.getElementById('ytss-sfn-audio-row');
+        if (isReal774) {
+          const bufSec = getAudioBufferSec();
+          const valText = (bufSec !== null && !isNaN(bufSec)) ? `${bufSec.toFixed(2)} s` : '—';
+          const engineLabel = (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive) ? 'Studio Engine 774' : 'Native SABR 774';
+          const newFullVal = ` ${valText}`;
+          const newTag = `(Opus 774 ★ ${engineLabel})`;
+
+          if (!audioRow) {
+            audioRow = document.createElement('div');
+            audioRow.id = 'ytss-sfn-audio-row';
+            audioRow.style.cssText = 'color: #00e5ff; font-weight: bold; margin-top: 1px;';
+
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'ytss-sfn-label';
+            labelDiv.textContent = t('statusAudioBuffer') || 'Audio Buffer';
+
+            const span = document.createElement('span');
+            const valSpan = document.createElement('span');
+            valSpan.className = 'ytss-sfn-val';
+            valSpan.style.color = '#00e5ff';
+            valSpan.style.fontWeight = 'bold';
+            valSpan.textContent = newFullVal;
+
+            const tagSpan = document.createElement('span');
+            tagSpan.className = 'ytss-sfn-tag';
+            tagSpan.style.opacity = '0.75';
+            tagSpan.style.fontSize = '0.88em';
+            tagSpan.style.fontWeight = 'normal';
+            tagSpan.style.marginLeft = '4px';
+            tagSpan.textContent = newTag;
+
+            span.appendChild(valSpan);
+            span.appendChild(tagSpan);
+            audioRow.appendChild(labelDiv);
+            audioRow.appendChild(span);
+
+            let bufHealthRow = null;
+            for (const child of panel.children) {
+              const txt = child.textContent || '';
+              if (txt.includes('Buffer Health') || txt.includes('Bộ đệm') || txt.includes('Buffer')) {
+                bufHealthRow = child;
+                break;
+              }
+            }
+            if (bufHealthRow && bufHealthRow.nextSibling) {
+              panel.insertBefore(audioRow, bufHealthRow.nextSibling);
+            } else {
+              panel.appendChild(audioRow);
+            }
+          } else {
+            // Only update text content if changed (zero re-layout, zero overhead)
+            const valSpan = audioRow.querySelector('.ytss-sfn-val');
+            if (valSpan && valSpan.textContent !== newFullVal) {
+              valSpan.textContent = newFullVal;
+            }
+            const tagSpan = audioRow.querySelector('.ytss-sfn-tag');
+            if (tagSpan && tagSpan.textContent !== newTag) {
+              tagSpan.textContent = newTag;
+            }
+            const labelDiv = audioRow.querySelector('.ytss-sfn-label');
+            const expectedLabel = t('statusAudioBuffer') || 'Audio Buffer';
+            if (labelDiv && labelDiv.textContent !== expectedLabel) {
+              labelDiv.textContent = expectedLabel;
+            }
+          }
+        } else if (audioRow) {
+          audioRow.remove();
+        }
+      }, 350);
     }
   };
 
@@ -3444,6 +3657,111 @@
   };
 
   // ═══════════════════════════════════════════════════════════════════
+  // AUDIO-ONLY MODE CONTROLLER (Disable video render, pure HQ stream)
+  // ═══════════════════════════════════════════════════════════════════
+  function applyAudioOnlyState() {
+    const player = document.getElementById('movie_player');
+    let overlay = document.getElementById('ytss-audio-only-overlay');
+    const video = (typeof getMainVideoElement === 'function' ? getMainVideoElement() : document.querySelector('video'));
+
+    if (S.audioOnly && S.enabled) {
+      if (!overlay && player) {
+        overlay = document.createElement('div');
+        overlay.id = 'ytss-audio-only-overlay';
+        // Solid opaque background, NO backdrop-filter blur -> 0% GPU shader cost
+        overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#0a0a0a;z-index:15;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;color:#fff;font-family:Roboto,Arial,sans-serif;';
+
+        const icon = document.createElement('div');
+        icon.id = 'ytss-ao-icon';
+        icon.style.cssText = 'font-size:52px;margin-bottom:12px;color:#00e5ff;';
+        icon.textContent = '🎧';
+
+        const title = document.createElement('div');
+        title.id = 'ytss-ao-title';
+        title.style.cssText = 'font-size:16px;font-weight:700;letter-spacing:1px;color:#00e5ff;text-transform:uppercase;margin-bottom:6px;';
+        title.textContent = t('audioOnlyActive');
+
+        const desc = document.createElement('div');
+        desc.id = 'ytss-ao-desc';
+        desc.style.cssText = 'font-size:12px;color:#888;max-width:85%;text-align:center;line-height:1.5;';
+        desc.textContent = t('audioOnlyHint');
+
+        overlay.replaceChildren(icon, title, desc);
+        overlay.onclick = (ev) => {
+          ev.stopPropagation();
+          toggleAudioOnly(false);
+        };
+        player.appendChild(overlay);
+      } else if (overlay) {
+        overlay.style.display = 'flex';
+        const title = document.getElementById('ytss-ao-title');
+        if (title) title.textContent = t('audioOnlyActive');
+        const desc = document.getElementById('ytss-ao-desc');
+        if (desc) desc.textContent = t('audioOnlyHint');
+      }
+
+      if (video) {
+        video.style.opacity = '0';
+        video.style.visibility = 'hidden';
+        video.style.pointerEvents = 'none';
+      }
+
+      // Request 144p video to minimize video decoding CPU/GPU load
+      if (player && typeof player.setPlaybackQuality === 'function') {
+        try { player.setPlaybackQuality('tiny'); } catch (e) {}
+      }
+    } else {
+      if (overlay) {
+        overlay.style.display = 'none';
+      }
+      if (video) {
+        video.style.opacity = '1';
+        video.style.visibility = 'visible';
+        video.style.pointerEvents = '';
+        if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive && StudioEngine774.audio) {
+          const diff = Math.abs(video.currentTime - StudioEngine774.audio.currentTime);
+          if (diff > 0.2) {
+            video.currentTime = StudioEngine774.audio.currentTime;
+          }
+          if (video.paused && !StudioEngine774.audio.paused) {
+            video.play().catch(() => {});
+          }
+        }
+      }
+      if (player && typeof player.setPlaybackQuality === 'function') {
+        try { player.setPlaybackQuality('auto'); } catch (e) {}
+      }
+      if (player && typeof player.wakeUp === 'function') {
+        try { player.wakeUp(); } catch (e) {}
+      }
+    }
+
+    const audioOnlyBtn = document.getElementById('ytss-audio-only-btn');
+    if (audioOnlyBtn) {
+      if (S.audioOnly && S.enabled) {
+        audioOnlyBtn.style.color = '#00e5ff';
+        audioOnlyBtn.style.borderColor = '#00e5ff';
+        audioOnlyBtn.style.background = 'rgba(0, 229, 255, 0.25)';
+        audioOnlyBtn.style.boxShadow = '0 0 6px rgba(0, 229, 255, 0.4)';
+        audioOnlyBtn.title = t('hudAudioOnlyOn');
+      } else {
+        audioOnlyBtn.style.color = '#aaa';
+        audioOnlyBtn.style.borderColor = '#555';
+        audioOnlyBtn.style.background = 'rgba(0, 0, 0, 0.5)';
+        audioOnlyBtn.style.boxShadow = 'none';
+        audioOnlyBtn.title = t('hudAudioOnlyOff');
+      }
+    }
+  }
+
+  function toggleAudioOnly(forceState) {
+    S.audioOnly = (typeof forceState === 'boolean') ? forceState : !S.audioOnly;
+    persistSettings();
+    window.postMessage({ type: 'YTSS_AUDIO_ONLY_CHANGED', audioOnly: S.audioOnly }, '*');
+    applyAudioOnlyState();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // IN-PLAYER HUD BADGE UI (Shows ★ 774 or 251 directly inside YouTube Controls)
   // ═══════════════════════════════════════════════════════════════════
   const PlayerBadgeUI = {
@@ -3465,14 +3783,25 @@
         if (!container) {
           container = document.createElement('div');
           container.id = 'ytss-vol-container';
-          container.className = 'ytp-button';
-          container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: middle; cursor: pointer; user-select: none; z-index: 999; height: 100%;';
+          container.className = 'ytss-controls-container';
+          container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; user-select: none; z-index: 999; height: 100%; gap: 5px; width: auto !important; overflow: visible !important;';
 
           const badge = document.createElement('div');
           badge.id = 'ytss-badge';
-          badge.style.cssText = 'font-size: 11px; font-weight: 800; color: #ff334b; background: rgba(0,0,0,0.65); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff334b; white-space: nowrap; line-height: 14px; transition: color 0.2s, border-color 0.2s;';
+          badge.style.cssText = 'font-size: 11px; font-weight: 800; color: #ff334b; background: rgba(0,0,0,0.65); padding: 2px 6px; border-radius: 4px; border: 1px solid #ff334b; white-space: nowrap; line-height: 16px; transition: color 0.2s, border-color 0.2s; cursor: pointer; display: inline-flex; align-items: center;';
           badge.textContent = '251';
           container.appendChild(badge);
+
+          const audioOnlyBtn = document.createElement('div');
+          audioOnlyBtn.id = 'ytss-audio-only-btn';
+          audioOnlyBtn.style.cssText = 'font-size: 13px; line-height: 16px; padding: 2px 6px; border-radius: 4px; border: 1px solid #555; background: rgba(0,0,0,0.5); color: #aaa; cursor: pointer; transition: all 0.2s; user-select: none; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;';
+          audioOnlyBtn.textContent = '🎧';
+          audioOnlyBtn.title = 'Audio-Only Mode';
+          audioOnlyBtn.onclick = (e) => {
+            e.stopPropagation();
+            toggleAudioOnly();
+          };
+          container.appendChild(audioOnlyBtn);
         }
 
         if (settingsBtn && settingsBtn.parentElement) {
@@ -3481,6 +3810,23 @@
           subBtn.parentElement.insertBefore(container, subBtn);
         } else {
           rightControls.insertBefore(container, rightControls.firstChild);
+        }
+      } else {
+        container.className = 'ytss-controls-container';
+        container.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; position: relative; margin: 0 4px; vertical-align: top; user-select: none; z-index: 999; height: 100%; gap: 5px; width: auto !important; overflow: visible !important;';
+
+        let audioOnlyBtn = document.getElementById('ytss-audio-only-btn');
+        if (!audioOnlyBtn && container) {
+          audioOnlyBtn = document.createElement('div');
+          audioOnlyBtn.id = 'ytss-audio-only-btn';
+          audioOnlyBtn.style.cssText = 'font-size: 13px; line-height: 16px; padding: 2px 6px; border-radius: 4px; border: 1px solid #555; background: rgba(0,0,0,0.5); color: #aaa; cursor: pointer; transition: all 0.2s; user-select: none; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;';
+          audioOnlyBtn.textContent = '🎧';
+          audioOnlyBtn.title = 'Audio-Only Mode';
+          audioOnlyBtn.onclick = (e) => {
+            e.stopPropagation();
+            toggleAudioOnly();
+          };
+          container.appendChild(audioOnlyBtn);
         }
       }
 
@@ -3498,15 +3844,23 @@
         badge.textContent = itag === 141 ? '★ 141' : '★ 774';
         badge.style.color = itag === 141 ? '#00e5ff' : '#ff334b';
         badge.style.borderColor = itag === 141 ? '#00e5ff' : '#ff334b';
-        badge.title = itag === 141
-          ? 'Studio Master AAC 141 (256kbps Full Fidelity) - Native Player'
-          : 'HQ Opus 774 (256k+ Full Frequency Spectrum) - Native Player';
+
+        const bitrate = getActiveBitrate();
+        const method = status.activeMethod || (S.operationMode === 'TV_HEADLESS' ? 'TVHTML5' : 'YTM_HARVESTER');
+        const isStudio = (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive);
+        badge.title = t(isStudio ? 'badgeTooltipStudio' : 'badgeTooltipNative', {
+          itag,
+          bitrate,
+          method,
+        });
       } else {
         badge.textContent = '251';
         badge.style.color = '#aaa';
         badge.style.borderColor = '#555';
-        badge.title = 'Native Audio (ITAG 251)';
+        badge.title = t('badgeTooltip251');
       }
+
+      applyAudioOnlyState();
 
       // Miniplayer HUD badge support
       const miniBar = document.querySelector('.ytdMiniplayerInfoBarContent') || document.querySelector('ytd-miniplayer-info-bar');
@@ -3546,6 +3900,7 @@
       StudioEngine774.init();
       StatsForNerdsSpoofer.init();
       PlayerBadgeUI.inject();
+      applyAudioOnlyState();
       const currentVid = getVideoIdFromUrl();
       const pLoudness = window.ytInitialPlayerResponse?.playerConfig?.audioConfig?.loudnessDb
         ?? document.getElementById('movie_player')?.getPlayerResponse?.()?.playerConfig?.audioConfig?.loudnessDb;

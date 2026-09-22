@@ -84,12 +84,16 @@ window.addEventListener('message', (event) => {
       }, '*');
     });
   }
+
+  if (event.data.type === 'YTSS_AUDIO_ONLY_CHANGED') {
+    chrome.storage.local.set({ audioOnly: !!event.data.audioOnly });
+  }
 });
 
 // SW → MAIN world: immediate HQ upgrade
 // Listen for messages from background/popup to forward to the page
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'YTSS_SW_TRIGGER' || msg.type === 'YTSS_DOWNLOAD_AUDIO') {
+  if (msg.type === 'YTSS_SW_TRIGGER' || msg.type === 'YTSS_DOWNLOAD_AUDIO' || msg.type === 'YTSS_SET_AUDIO_ONLY') {
     window.postMessage(msg, '*');
   }
 });
@@ -115,6 +119,8 @@ const EXPOSED_SETTINGS = [
   'shadowPlayer',
   'shadowVolume',
   'operationMode',
+  'audioOnly',
+  'uiLanguage',
 ];
 
 function pickSettings(data) {
@@ -126,12 +132,31 @@ function pickSettings(data) {
   return out;
 }
 
+async function pushLocaleData(lang) {
+  try {
+    const l = lang || 'en';
+    let url = chrome.runtime.getURL(`locales/${l}.json`);
+    let res = await fetch(url);
+    if (!res.ok && l !== 'en') {
+      url = chrome.runtime.getURL('locales/en.json');
+      res = await fetch(url);
+    }
+    if (res.ok) {
+      const strings = await res.json();
+      window.postMessage({ type: 'YTSS_LOCALE_DATA', lang: l, strings }, '*');
+    }
+  } catch (e) {
+    console.warn('[YTSS-Bridge] Failed to load locale data:', e);
+  }
+}
+
 function pushSettings() {
   chrome.storage.local.get(EXPOSED_SETTINGS, (data) => {
     const settings = pickSettings(data);
     if (Object.keys(settings).length > 0) {
       window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings }, '*');
     }
+    pushLocaleData(data?.uiLanguage || 'en');
   });
 }
 

@@ -791,7 +791,27 @@ async function fetchFromClient(videoId, client) {
 }
 
 // ─── OFFSCREEN HARVESTER & WEBREQUEST LISTENER ───────────────────────
+let offscreenIdleTimer = null;
+
+function scheduleOffscreenClose(delayMs = 10000) {
+  if (offscreenIdleTimer) clearTimeout(offscreenIdleTimer);
+  offscreenIdleTimer = setTimeout(async () => {
+    offscreenIdleTimer = null;
+    if (activeHarvestSession || pendingHarvests.size > 0) return;
+    if (chrome.offscreen && chrome.offscreen.hasDocument && await chrome.offscreen.hasDocument()) {
+      try {
+        await chrome.offscreen.closeDocument();
+        console.log(TAG, '[Harvester] Offscreen document auto-slept (closed to free 100% RAM)');
+      } catch (e) {}
+    }
+  }, delayMs);
+}
+
 async function ensureOffscreenDocument() {
+  if (offscreenIdleTimer) {
+    clearTimeout(offscreenIdleTimer);
+    offscreenIdleTimer = null;
+  }
   if (chrome.offscreen) {
     if (await chrome.offscreen.hasDocument?.()) {
       return;
@@ -802,7 +822,7 @@ async function ensureOffscreenDocument() {
         reasons: ['IFRAME_SCRIPTING', 'DOM_PARSER', 'AUDIO_PLAYBACK'],
         justification: 'Harvest HQ audio streams from YouTube Music and TV',
       });
-      console.log(TAG, '[Harvester] Offscreen document created');
+      console.log(TAG, '[Harvester] Offscreen document created on-demand');
     } catch (err) {
       if (!err.message?.includes('Only a single offscreen document may be created')) {
         console.log(TAG, '[Harvester] Offscreen creation notice:', err);
@@ -957,6 +977,7 @@ async function _doHarvest(videoId, title = null, author = null) {
         activeHarvestSession = null;
         console.log(TAG, `[YTM_HARVEST] Timeout for ${videoId} (session #${sessionId}), falling back to native`);
         chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+        scheduleOffscreenClose();
         resolve([]);
       }
     }, 8000);
@@ -1026,6 +1047,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const resolve = activeHarvestSession.resolve;
       activeHarvestSession = null;
       chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      scheduleOffscreenClose();
       resolve([fmt]);
     }
     sendResponse({ received: true });
@@ -1038,6 +1060,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const resolve = activeHarvestSession.resolve;
       activeHarvestSession = null;
       chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      scheduleOffscreenClose();
       resolve([]);
     }
     sendResponse({ received: true });
@@ -1075,6 +1098,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       activeHarvestSession = null;
     }
     chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+    scheduleOffscreenClose();
     sendResponse({ success: true });
     return true;
   }

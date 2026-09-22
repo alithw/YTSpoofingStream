@@ -6,8 +6,8 @@ Only the latest release of YTSpoofingStream receives security updates and patche
 
 | Version | Supported |
 |---|---|
-| >= 0.1.7 | :white_check_mark: |
-| < 0.1.7 | :x: |
+| >= 0.2.0 | :white_check_mark: |
+| < 0.2.0 | :x: |
 
 ---
 

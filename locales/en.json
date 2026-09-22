@@ -1,5 +1,5 @@
 {
-  "headerSubtitle": "v0.1.7 • Studio 774 Dual-Stream Engine",
+  "headerSubtitle": "v0.2.0 • Studio 774 Dual-Stream Engine",
   "enableExtension": "Enable Extension",
   "opModeTitle": "Operation Mode",
   "opModeHybridTitle": "Mode: Hybrid Mix (774 Opus ★)",
@@ -48,5 +48,15 @@
   "tvEnterCode": "Enter code at {url}",
   "tvBtnLogin": "Login to {label}",
   "tvBtnLogout": "Logout",
-  "tvBtnLoading": "Loading..."
+  "tvBtnLoading": "Loading...",
+  "audioOnly": "Audio-Only Mode",
+  "audioOnlyDesc": "Disable video, stream HQ audio only to save RAM & CPU",
+  "statusAudioBuffer": "Audio Buffer",
+  "badgeTooltipNative": "ITAG 774 ({bitrate}) • Method: {method} • Engine: Native SABR 774",
+  "badgeTooltipStudio": "ITAG 774 ({bitrate}) • Method: {method} • Engine: Studio Engine 774",
+  "badgeTooltip251": "ITAG 251 (160kbps) • Original YouTube Stream",
+  "audioOnlyActive": "AUDIO-ONLY MODE ACTIVE",
+  "audioOnlyHint": "Video rendering paused to save RAM & CPU • Click anywhere to restore video",
+  "hudAudioOnlyOn": "Audio-Only Mode: ACTIVE (Click to restore video)",
+  "hudAudioOnlyOff": "Audio-Only Mode: OFF (Click to enable)"
 }

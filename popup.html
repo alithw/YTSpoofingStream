@@ -406,8 +406,8 @@
 
     /* Client Stats Grid */
     .grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      display: flex;
+      flex-direction: column;
       gap: 4px;
       margin-top: 6px;
       padding-top: 6px;
@@ -419,9 +419,10 @@
       flex-direction: column;
       gap: 3px;
       background: rgba(0, 0, 0, 0.2);
-      padding: 6px 8px;
+      padding: 6px 10px;
       border-radius: 5px;
-      font-size: 9px;
+      font-size: 9.5px;
+      width: 100%;
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
     }
@@ -441,8 +442,11 @@
     .grid-item .cs {
       font-weight: 600;
       color: #ccc;
-      word-break: break-all;
-      line-height: 1.25;
+      word-break: normal;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.35;
     }
 
     .grid-item.ok .cs {
@@ -527,7 +531,7 @@
       </svg>
       <div>
         <h1>YTSpoofingStream</h1>
-        <div class="ver" data-i18n="headerSubtitle">v0.1.7 &bull; Studio 774 Dual-Stream Engine</div>
+        <div class="ver" data-i18n="headerSubtitle">v0.2.0 &bull; Studio 774 Dual-Stream Engine</div>
       </div>
     </div>
     <div class="hdr-lang">
@@ -538,16 +542,44 @@
     </div>
   </div>
 
-  <!-- MASTER ENABLE / DISABLE SECTION -->
+  <!-- MASTER ENABLE / DISABLE & AUDIO ONLY SECTION -->
   <div class="sec" style="border: 1px solid rgba(233, 69, 96, 0.3); background: rgba(233, 69, 96, 0.08);">
     <label class="row" for="en" style="cursor: pointer; margin: 0;">
       <span style="font-weight: 700; font-size: 13px; color: #fff;" data-i18n="enableExtension">Enable Extension</span>
       <span class="tog"><input type="checkbox" id="en" checked><span class="sl"></span></span>
     </label>
+    <div style="height: 1px; background: rgba(255, 255, 255, 0.08); margin: 7px 0;"></div>
+    <label class="row" for="ao" style="cursor: pointer; margin: 0;">
+      <div>
+        <span style="font-weight: 600; font-size: 12px; color: #00e5ff; display: inline-flex; align-items: center; gap: 4px;">
+          <span style="font-size: 13px;">🎧</span> <span data-i18n="audioOnly">Audio-Only Mode</span>
+        </span>
+        <div style="font-size: 9px; color: var(--dim);" data-i18n="audioOnlyDesc">Disable video, stream HQ audio only to save RAM & CPU</div>
+      </div>
+      <span class="tog"><input type="checkbox" id="ao"><span class="sl"></span></span>
+    </label>
   </div>
 
   <div id="mainContentWrapper">
-    <!-- OPERATION MODE (INDEPENDENT SWITCHES) -->
+    <!-- STATUS (MOVED TO TOP) -->
+    <div class="sec">
+      <div class="sec-title" data-i18n="statusTitle">Status</div>
+      <div class="row" style="margin-bottom: 8px; padding: 0; align-items: center; justify-content: space-between;">
+        <span class="st-badge" id="stBadge"><span class="st-dot"></span><span id="stText" data-i18n="statusActive">Active</span></span>
+        <span style="font-size: 11px; font-weight: 500; color: var(--green);" id="swSt">SW: —</span>
+      </div>
+      <div class="info"><span class="l" data-i18n="statusMode">Mode</span><span class="v" id="iMode" style="color:var(--gold);font-weight:700;">HYBRID_HQ (774)</span></div>
+      <div class="info"><span class="l" data-i18n="statusMethod">Active Method</span><span class="v" id="iMethod" style="color:var(--gold);font-weight:700;">—</span></div>
+      <div class="info"><span class="l" data-i18n="statusStreams">Streams</span><span class="v" id="iStreams">0</span></div>
+      <div class="info" id="rowAudioBuffer" style="display: none;"><span class="l" data-i18n="statusAudioBuffer">Audio Buffer</span><span class="v" id="iAudioBuffer" style="color: #00e5ff; font-weight: 600;">—</span></div>
+      <div class="info"><span class="l" data-i18n="statusAudio">Active Audio</span><span class="v" id="iAudio">—</span></div>
+
+      <div class="grid" id="statsGrid">
+        <!-- Generated dynamically in popup.js -->
+      </div>
+    </div>
+
+    <!-- OPERATION MODE (BELOW STATUS) -->
     <div class="sec">
       <div class="sec-title" data-i18n="opModeTitle">Operation Mode</div>
       <div class="op-modes" id="opModes">
@@ -583,23 +615,6 @@
             <div class="op-mode-desc" data-i18n="opModeTvDesc">Strict exact video • Requires TV Premium login • Native SABR 774 streaming • Cancels if no 774</div>
           </div>
         </label>
-      </div>
-    </div>
-
-    <!-- STATUS -->
-    <div class="sec">
-      <div class="sec-title" data-i18n="statusTitle">Status</div>
-      <div class="row">
-        <span class="st-badge" id="stBadge"><span class="st-dot"></span><span id="stText" data-i18n="statusActive">Active</span></span>
-        <span style="font-size:10px;color:var(--dim)" id="swSt">SW: —</span>
-      </div>
-      <div class="info"><span class="l" data-i18n="statusMode">Mode</span><span class="v" id="iMode" style="color:var(--gold);font-weight:700;">HYBRID_HQ (774)</span></div>
-      <div class="info"><span class="l" data-i18n="statusMethod">Active Method</span><span class="v" id="iMethod" style="color:var(--gold);font-weight:700;">—</span></div>
-      <div class="info"><span class="l" data-i18n="statusStreams">Streams</span><span class="v" id="iStreams">0</span></div>
-      <div class="info"><span class="l" data-i18n="statusAudio">Active Audio</span><span class="v" id="iAudio">—</span></div>
-
-      <div class="grid" id="statsGrid">
-        <!-- Generated dynamically in popup.js -->
       </div>
     </div>
 

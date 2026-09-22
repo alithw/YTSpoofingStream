@@ -8,6 +8,12 @@ const TAG = '[YTSpoofHarvester]';
 function teardownFrame() {
   const iframes = document.querySelectorAll('iframe');
   iframes.forEach(iframe => {
+    try {
+      const media = iframe.contentDocument?.querySelectorAll('video, audio');
+      media?.forEach(m => {
+        try { m.pause(); m.src = ''; m.load(); } catch (e) {}
+      });
+    } catch (e) {}
     try { iframe.src = 'about:blank'; } catch (e) {}
     try { iframe.remove(); } catch (e) {}
   });
