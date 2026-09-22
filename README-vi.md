@@ -18,7 +18,7 @@
 
 > [!IMPORTANT]
 > **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.2.0](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0)**  
-> **v0.2.0** hiện là phiên bản ổn định chính thức. Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0) để xem chi tiết danh sách thay đổi và sửa lỗi.
+> **v0.2.0** hiện là phiên bản ổn định chính thức. Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0) hoặc [**xem nhanh các điểm mới nổi bật bên dưới**](#recent-updates).
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
@@ -36,6 +36,7 @@
 ---
 
 ## 📑 Mục lục
+- [✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.0)](#recent-updates)
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
 - [✨ Tái cấu trúc Kiến trúc trong bản v0.1.3](#-tái-cấu-trúc-kiến-trúc-trong-bản-v013)
 - [🧠 Phân tích Chuyên sâu](#-phân-tích-chuyên-sâu)
@@ -53,6 +54,18 @@
 - [🤝 Đóng góp & Cộng đồng (Contributing)](#-đóng-góp--cộng-đồng-contributing)
 - [⚠️ Tuyên bố Từ chối Trách nhiệm (Disclaimer)](#️-tuyên-bố-từ-chối-trách-nhiệm-disclaimer)
 - [📄 Giấy phép (License)](#-giấy-phép-license)
+
+---
+
+<a id="recent-updates"></a>
+## ✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.0)
+
+Bản cập nhật **v0.2.0** tập trung cải thiện mạnh mẽ trải nghiệm người dùng, tối ưu hóa mức tiêu thụ tài nguyên và nâng cao độ ổn định:
+
+- 🎧 **Chế độ Chỉ phát nhạc (Audio-Only Mode)**: Nghe nhạc YouTube thuần túy, tiết kiệm tối đa tài nguyên máy tính. Tắt công đoạn render video và giảm mức tiêu thụ GPU về gần 0% mà vẫn duy trì liên tục luồng Studio Opus 774 không bị mất hay fallback về format thông thường.
+- 📊 **Bổ sung các thông số chi tiết hơn**: Đo đạc và hiển thị thời gian thực chỉ số bộ đệm âm thanh (`Audio Buffer`) độc lập trong bảng *Stats for Nerds* của YouTube, cùng tooltip trạng thái trực quan trên thanh điều khiển.
+- ⚡ **Cải thiện độ ổn định & Trải nghiệm người dùng**: Tự động đồng bộ đa ngôn ngữ (i18n) theo cài đặt extension, loại bỏ triệt để hiện tượng đơ lag player khi bật thống kê, và sửa lỗi co xén nút điều khiển trên player.
+- 👉 *Xem chi tiết đầy đủ toàn bộ thay đổi trong [**Ghi chú Phát hành (Release Notes v0.2.0)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0).*
 
 ---
 
@@ -165,13 +178,16 @@ Kết quả kiểm thử thực tế thời gian thực 100% thời lượng tr�
 ## 🚀 Hướng dẫn Cài đặt
  
 ### Trình duyệt Chromium (Google Chrome, Brave, Edge, Cốc Cốc, Opera)
-1. Tải mã nguồn về máy tính (nhánh `main`):
-   ```bash
-   git clone https://github.com/alithw/YTSpoofingStream.git
-   ```
+1. Tải hoặc clone mã nguồn về máy tính:
+   - **Dành cho người dùng phổ thông (không cần dùng Git)**:  
+     Nhấn vào nút **Code** màu xanh lá ở phía trên trang GitHub này rồi chọn **Download ZIP** (hoặc truy cập mục [Releases](https://github.com/alithw/YTSpoofingStream/releases), kéo xuống dưới cùng của bản phát hành mới nhất tại mục *Assets* và tải file `Source code (zip)`). Sau đó, hãy giải nén file ZIP đó vào một thư mục trên máy tính.
+   - **Dành cho người dùng biết sử dụng Git**:
+     ```bash
+     git clone https://github.com/alithw/YTSpoofingStream.git
+     ```
 2. Mở trình duyệt Chrome và truy cập `chrome://extensions/`.
 3. Bật **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
-4. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `YTSpoofingStream`.
+4. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `YTSpoofingStream` vừa giải nén.
 5. Mở YouTube, đảm bảo đã đăng nhập tài khoản có Premium, và thưởng thức âm thanh chuẩn phòng thu với huy hiệu `★ 774` trên trình phát!
 
 ### Trình duyệt Mozilla Firefox / Firefox ESR

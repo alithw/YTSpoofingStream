@@ -18,7 +18,7 @@
 
 > [!IMPORTANT]
 > **RECOMMENDED: UPDATE TO [v0.2.0](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0)**  
-> **v0.2.0** is now the official production-grade stable release. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0) for full changelog and details.
+> **v0.2.0** is now the official production-grade stable release. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0) or [**jump to recent update highlights below**](#recent-updates).
 
 > [!WARNING]
 > **Requirement: Active YouTube Premium Subscription**
@@ -36,6 +36,7 @@
 ---
 
 ## 📑 Table of Contents
+- [✨ Recent Update Highlights (v0.2.0)](#recent-updates)
 - [🌟 Why YTSpoofingStream?](#-why-ytspoofingstream)
 - [✨ Architectural Evolution in v0.1.3](#-architectural-evolution-in-v013)
 - [🧠 Architecture Deep Dive](#-architecture-deep-dive)
@@ -53,6 +54,18 @@
 - [🤝 Contributing & Community](#-contributing--community)
 - [⚠️ Disclaimer](#️-disclaimer)
 - [📄 License](#-license)
+
+---
+
+<a id="recent-updates"></a>
+## ✨ Recent Update Highlights (v0.2.0)
+
+The **v0.2.0** release focuses on user experience enhancements, ultra-low resource footprint, and system stability:
+
+- 🎧 **Audio-Only Mode**: Background music listening with minimal system resource consumption. Bypasses video rendering pipelines and cuts GPU usage to near-zero while strictly preserving continuous Studio Opus 774 playback without interruptions or stream fallback.
+- 📊 **Detailed Metrics**: Real-time independent audio buffer monitoring (`Audio Buffer`) integrated directly into YouTube's native *Stats for Nerds* overlay, complemented by rich HUD badge tooltips.
+- ⚡ **Stability & UX Enhancements**: Automatic dynamic multi-language synchronization (i18n), eliminated player freezing/lag when viewing statistics, and improved player control bar alignment.
+- 👉 *See the full changelog and details in the [**Release Notes (v0.2.0)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0).*
 
 ---
 
@@ -165,12 +178,15 @@ Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks
 ## 🚀 Installation
 
 ### Chromium Browsers (Google Chrome, Brave, Edge, Opera, Cốc Cốc)
-1. Clone or download the repository (`main` branch):
-   ```bash
-   git clone https://github.com/alithw/YTSpoofingStream.git
-   ```
+1. Download or clone the repository:
+   - **For standard users (No Git required)**:  
+     Click the green **Code** button at the top of this repository and select **Download ZIP** (or visit [Releases](https://github.com/alithw/YTSpoofingStream/releases), scroll down to the bottom of the latest release under *Assets*, and download `Source code (zip)`). Then extract the downloaded ZIP file to a folder on your computer.
+   - **For developers (using Git)**:
+     ```bash
+     git clone https://github.com/alithw/YTSpoofingStream.git
+     ```
 2. Open `chrome://extensions/` and toggle on **Developer mode** in the top-right corner.
-3. Click **Load unpacked** and select the `YTSpoofingStream` folder.
+3. Click **Load unpacked** and select the extracted `YTSpoofingStream` folder.
 4. Open YouTube, ensure you are logged into your Premium account, and verify the `★ 774` badge in the player control bar!
 
 ### Mozilla Firefox / Firefox ESR
