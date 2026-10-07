@@ -227,13 +227,70 @@
     }
   } catch (e) {}
 
-  // Hook XMLHttpRequest: capture 774 and drop telemetry requests
+  // Hook XMLHttpRequest: intercept /player, capture 774 and drop telemetry requests
   try {
+    const origResponseTextDesc = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'responseText');
+    const origResponseDesc = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'response');
+
+    function modifyPlayerText(xhr, rawText) {
+      if (xhr._ytssModifiedText !== undefined) return xhr._ytssModifiedText;
+      if (!rawText || typeof rawText !== 'string') return rawText;
+      try {
+        const json = JSON.parse(rawText);
+        if (!validatePlayerResponse(json)) {
+          xhr._ytssModifiedText = JSON.stringify({
+            playabilityStatus: { status: 'UNPLAYABLE', reason: 'Blocked track mismatch by YTSpoofingStream' }
+          });
+          return xhr._ytssModifiedText;
+        }
+        const modified = filterAndPrioritize774(json);
+        xhr._ytssModifiedText = JSON.stringify(modified);
+        return xhr._ytssModifiedText;
+      } catch (e) {
+        return rawText;
+      }
+    }
+
+    if (origResponseTextDesc && origResponseTextDesc.get) {
+      Object.defineProperty(XMLHttpRequest.prototype, 'responseText', {
+        get() {
+          const raw = origResponseTextDesc.get.call(this);
+          if (this._ytssIsPlayer) {
+            return modifyPlayerText(this, raw);
+          }
+          return raw;
+        },
+        configurable: true
+      });
+    }
+
+    if (origResponseDesc && origResponseDesc.get) {
+      Object.defineProperty(XMLHttpRequest.prototype, 'response', {
+        get() {
+          if (this._ytssIsPlayer) {
+            const type = this.responseType;
+            if (type === '' || type === 'text') {
+              return this.responseText;
+            }
+            if (type === 'json') {
+              const text = this.responseText;
+              try { return JSON.parse(text); } catch (e) {}
+            }
+          }
+          return origResponseDesc.get.call(this);
+        },
+        configurable: true
+      });
+    }
+
     const origXhrOpen = XMLHttpRequest.prototype.open;
     const origXhrSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url, ...rest) {
       this._ytssUrl = url;
       if (typeof url === 'string') {
+        if (url.includes('/player') && url.includes('youtubei/v1')) {
+          this._ytssIsPlayer = true;
+        }
         if (url.includes('videoplayback') && url.includes('itag=774')) {
           notify774Found(url);
         }
@@ -254,6 +311,13 @@
           this.dispatchEvent(new Event('load'));
         }, 10);
         return;
+      }
+      if (this._ytssIsPlayer) {
+        this.addEventListener('readystatechange', () => {
+          if (this.readyState === 4 && this.status === 200) {
+            try { const _ = this.responseText; } catch (e) {}
+          }
+        }, true);
       }
       return origXhrSend.apply(this, args);
     };
@@ -281,14 +345,14 @@
             playabilityStatus: { status: 'UNPLAYABLE', reason: 'Blocked track mismatch by YTSpoofingStream' }
           }), {
             status: 200,
-            headers: res.headers
+            headers: { 'Content-Type': 'application/json' }
           });
         }
         const modified = filterAndPrioritize774(json);
         return new Response(JSON.stringify(modified), {
           status: res.status,
           statusText: res.statusText,
-          headers: res.headers
+          headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {}
     }
@@ -305,10 +369,15 @@
       video.play().catch(() => {});
     }
     const moviePlayer = document.getElementById('movie_player');
-    if (moviePlayer && moviePlayer.playVideo) {
+    if (moviePlayer) {
       try {
         moviePlayer.mute?.();
-        moviePlayer.playVideo();
+        const curVid = moviePlayer.getVideoData?.()?.video_id;
+        if (curVid && urlVid && curVid !== urlVid) {
+          moviePlayer.loadVideoById?.(urlVid);
+        } else if (moviePlayer.playVideo) {
+          moviePlayer.playVideo();
+        }
       } catch (e) {}
     }
   }

@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.0-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.1-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="Giấy phép Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -16,9 +16,12 @@
   </p>
 </div>
 
+> [!TIP]
+> **Trải nghiệm âm nhạc tốt hơn?** Nếu tiện ích giúp bạn có trải nghiệm nghe nhạc tuyệt vời hơn trên YouTube, hãy cho mình xin 1 sao (⭐ **Star**) trên [GitHub](https://github.com/alithw/YTSpoofingStream) để ủng hộ dự án nhé!
+
 > [!IMPORTANT]
-> **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.2.0](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0)**  
-> **v0.2.0** hiện là phiên bản ổn định chính thức. Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0) hoặc [**xem nhanh các điểm mới nổi bật bên dưới**](#recent-updates).
+> **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.2.1](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.1)**  
+> **v0.2.1** hiện là phiên bản ổn định chính thức. Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.1) hoặc [**xem nhanh các điểm mới nổi bật bên dưới**](#recent-updates).
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
@@ -36,7 +39,7 @@
 ---
 
 ## 📑 Mục lục
-- [✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.0)](#recent-updates)
+- [✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.1)](#recent-updates)
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
 - [✨ Tái cấu trúc Kiến trúc trong bản v0.1.3](#-tái-cấu-trúc-kiến-trúc-trong-bản-v013)
 - [🧠 Phân tích Chuyên sâu](#-phân-tích-chuyên-sâu)
@@ -58,14 +61,14 @@
 ---
 
 <a id="recent-updates"></a>
-## ✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.0)
+## ✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.1)
 
-Bản cập nhật **v0.2.0** tập trung cải thiện mạnh mẽ trải nghiệm người dùng, tối ưu hóa mức tiêu thụ tài nguyên và nâng cao độ ổn định:
+Bản cập nhật **v0.2.1** khắc phục triệt để lỗi luồng âm thanh trên chế độ TV, mang lại trải nghiệm chuẩn phòng thu Opus 774:
 
-- 🎧 **Chế độ Chỉ phát nhạc (Audio-Only Mode)**: Nghe nhạc YouTube thuần túy, tiết kiệm tối đa tài nguyên máy tính. Tắt công đoạn render video và giảm mức tiêu thụ GPU về gần 0% mà vẫn duy trì liên tục luồng Studio Opus 774 không bị mất hay fallback về format thông thường.
-- 📊 **Bổ sung các thông số chi tiết hơn**: Đo đạc và hiển thị thời gian thực chỉ số bộ đệm âm thanh (`Audio Buffer`) độc lập trong bảng *Stats for Nerds* của YouTube, cùng tooltip trạng thái trực quan trên thanh điều khiển.
-- ⚡ **Cải thiện độ ổn định & Trải nghiệm người dùng**: Tự động đồng bộ đa ngôn ngữ (i18n) theo cài đặt extension, loại bỏ triệt để hiện tượng đơ lag player khi bật thống kê, và sửa lỗi co xén nút điều khiển trên player.
-- 👉 *Xem chi tiết đầy đủ toàn bộ thay đổi trong [**Ghi chú Phát hành (Release Notes v0.2.0)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0).*
+- 📺 **Cơ chế ghi đè nhị phân TVHTML5 SABR (Option C)**: Sửa dứt điểm lỗi chế độ TVHTML5 chỉ nhận được âm thanh 115–162 kbps (ITAG 251). Tích hợp bộ rewriter nhị phân Protobuf in-flight tự động điều chỉnh payload gửi tới Google Video CDN, ép máy chủ truyền phát đúng luồng Studio Opus 774 (256–301 kbps).
+- 🎯 **Sửa lỗi nhận nhầm URL trích xuất âm thanh**: Loại bỏ logic so khớp nhầm gán URL của ITAG 251 cho 774. Đường link âm thanh bắt được giờ đây đảm bảo 100% là Opus 774 thực sự.
+- 🛠️ **Cải thiện độ ổn định hệ thống**: Khắc phục lỗi văng script do lời gọi sót `NativeAudioBooster` trong hàm `applySettings` khi lưu cấu hình, đồng thời dọn dẹp các log cảnh báo XHR video-only không cần thiết trên console.
+- 👉 *Xem chi tiết đầy đủ toàn bộ thay đổi trong [**Ghi chú Phát hành (Release Notes v0.2.1)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.1).*
 
 ---
 

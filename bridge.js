@@ -88,6 +88,16 @@ window.addEventListener('message', (event) => {
   if (event.data.type === 'YTSS_AUDIO_ONLY_CHANGED') {
     chrome.storage.local.set({ audioOnly: !!event.data.audioOnly });
   }
+
+  if (event.data.type === 'YTSS_RELOAD_RULES') {
+    safeSend({ type: 'RELOAD_RULES' }, (res) => {
+      window.postMessage({ type: 'YTSS_RELOAD_RULES_RESULT', success: !!res?.success }, '*');
+    });
+  }
+
+  if (event.data.type === 'YTSS_RELOAD_EXTENSION') {
+    safeSend({ type: 'RELOAD_EXTENSION' });
+  }
 });
 
 // SW → MAIN world: immediate HQ upgrade

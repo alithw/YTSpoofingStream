@@ -296,6 +296,7 @@ const BLACKLIST_BLOCK_RULE_ID = 9201;
 const SW_BLOCK_RULE_ID     = 9300;
 const API_UA_RULE_ID_BASE  = 9400;
 const CORS_RULE_ID         = 9500;
+const CORS_YTM_RULE_ID     = 9501;
 
 // Escape a string for safe embedding in a DNR regexFilter.
 function reEscape(s) {
@@ -334,7 +335,7 @@ async function setupStaticRules() {
     const WEB_REMIX_MEDIA_RULE_ID = 9199;
     const TVHTML5_MEDIA_RULE_ID = 9193;
     const rulesToAdd = [];
-    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, TVHTML5_MEDIA_RULE_ID, ITAG_774_MEDIA_RULE_ID, YTM_STATS_BLOCK_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID];
+    const rulesToRemove = [...existingIds, ORIGIN_RULE_ID, TVHTML5_MEDIA_RULE_ID, ITAG_774_MEDIA_RULE_ID, YTM_STATS_BLOCK_RULE_ID, YTM_FRAME_RULE_ID, YTM_API_RULE_ID, WEB_REMIX_MEDIA_RULE_ID, SABR_BLOCK_RULE_ID, BLACKLIST_BLOCK_RULE_ID, SW_BLOCK_RULE_ID, CORS_RULE_ID, CORS_YTM_RULE_ID];
 
     // 1. Origin spoofing for www.youtube.com API requests.
     rulesToAdd.push({
@@ -450,6 +451,8 @@ async function setupStaticRules() {
         },
         condition: {
           regexFilter: `^https?://.*\\.googlevideo\\.com/(?:videoplayback|initplayback).*(?:[?&]c=|/c/)${c.clientName}(?:[&/]|$)`,
+          initiatorDomains: ['youtube.com'],
+          excludedInitiatorDomains: ['music.youtube.com'],
           resourceTypes: ['xmlhttprequest', 'media', 'other', 'main_frame', 'sub_frame'],
         },
       });
@@ -475,6 +478,8 @@ async function setupStaticRules() {
       },
       condition: {
         regexFilter: '^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]c=|/c/)WEB_REMIX(?:[&/]|.*)',
+        initiatorDomains: ['youtube.com'],
+        excludedInitiatorDomains: ['music.youtube.com'],
         resourceTypes: ['media', 'xmlhttprequest', 'other'],
       },
     });
@@ -500,6 +505,8 @@ async function setupStaticRules() {
       },
       condition: {
         regexFilter: '^https?://.*\\.googlevideo\\.com/videoplayback.*(?:[?&]itag=|/itag/)774(?:[&/]|.*)',
+        initiatorDomains: ['youtube.com'],
+        excludedInitiatorDomains: ['music.youtube.com'],
         resourceTypes: ['media', 'xmlhttprequest', 'other'],
       },
     });
@@ -552,7 +559,7 @@ async function setupStaticRules() {
       },
     });
 
-    // 6. Enable CORS headers for googlevideo.com so Web Audio API FFT analyser can measure full spectrum
+    // 6a. Enable CORS headers for googlevideo.com so Web Audio API FFT analyser can measure full spectrum on YouTube
     rulesToRemove.push(CORS_RULE_ID);
     rulesToAdd.push({
       id: CORS_RULE_ID,
@@ -569,6 +576,30 @@ async function setupStaticRules() {
       },
       condition: {
         urlFilter: '||googlevideo.com',
+        initiatorDomains: ['youtube.com'],
+        excludedInitiatorDomains: ['music.youtube.com'],
+        resourceTypes: ['xmlhttprequest', 'media', 'other']
+      }
+    });
+
+    // 6b. Enable CORS headers for music.youtube.com so YTM harvester iframe & YTM playback don't fail
+    rulesToRemove.push(CORS_YTM_RULE_ID);
+    rulesToAdd.push({
+      id: CORS_YTM_RULE_ID,
+      priority: 10,
+      action: {
+        type: 'modifyHeaders',
+        responseHeaders: [
+          { header: 'Access-Control-Allow-Origin', operation: 'set', value: 'https://music.youtube.com' },
+          { header: 'Access-Control-Allow-Credentials', operation: 'set', value: 'true' },
+          { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
+          { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' },
+          { header: 'Access-Control-Expose-Headers', operation: 'set', value: 'Content-Length, Content-Range, Accept-Ranges' }
+        ]
+      },
+      condition: {
+        urlFilter: '||googlevideo.com',
+        initiatorDomains: ['music.youtube.com'],
         resourceTypes: ['xmlhttprequest', 'media', 'other']
       }
     });
@@ -1099,6 +1130,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
     scheduleOffscreenClose();
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (msg.type === 'RELOAD_RULES') {
+    setupStaticRules().then(() => sendResponse({ success: true })).catch(() => sendResponse({ success: false }));
+    return true;
+  }
+
+  if (msg.type === 'RELOAD_EXTENSION') {
+    chrome.runtime.reload();
     sendResponse({ success: true });
     return true;
   }

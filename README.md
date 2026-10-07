@@ -4,7 +4,7 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.0-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.1-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="License Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -16,9 +16,12 @@
   </p>
 </div>
 
+> [!TIP]
+> **Enjoying studio-grade sound on YouTube?** If this extension improves your music listening experience, please consider giving it a ⭐ **Star** on [GitHub](https://github.com/alithw/YTSpoofingStream) to support the project!
+
 > [!IMPORTANT]
-> **RECOMMENDED: UPDATE TO [v0.2.0](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0)**  
-> **v0.2.0** is now the official production-grade stable release. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0) or [**jump to recent update highlights below**](#recent-updates).
+> **RECOMMENDED: UPDATE TO [v0.2.1](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.1)**  
+> **v0.2.1** is now the official stable release. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.1) or [**jump to recent update highlights below**](#recent-updates).
 
 > [!WARNING]
 > **Requirement: Active YouTube Premium Subscription**
@@ -36,7 +39,7 @@
 ---
 
 ## 📑 Table of Contents
-- [✨ Recent Update Highlights (v0.2.0)](#recent-updates)
+- [✨ Recent Update Highlights (v0.2.1)](#recent-updates)
 - [🌟 Why YTSpoofingStream?](#-why-ytspoofingstream)
 - [✨ Architectural Evolution in v0.1.3](#-architectural-evolution-in-v013)
 - [🧠 Architecture Deep Dive](#-architecture-deep-dive)
@@ -58,14 +61,14 @@
 ---
 
 <a id="recent-updates"></a>
-## ✨ Recent Update Highlights (v0.2.0)
+## ✨ Recent Update Highlights (v0.2.1)
 
-The **v0.2.0** release focuses on user experience enhancements, ultra-low resource footprint, and system stability:
+The **v0.2.1** release resolves a critical TV mode issue and delivers genuine Studio Opus 774 audio:
 
-- 🎧 **Audio-Only Mode**: Background music listening with minimal system resource consumption. Bypasses video rendering pipelines and cuts GPU usage to near-zero while strictly preserving continuous Studio Opus 774 playback without interruptions or stream fallback.
-- 📊 **Detailed Metrics**: Real-time independent audio buffer monitoring (`Audio Buffer`) integrated directly into YouTube's native *Stats for Nerds* overlay, complemented by rich HUD badge tooltips.
-- ⚡ **Stability & UX Enhancements**: Automatic dynamic multi-language synchronization (i18n), eliminated player freezing/lag when viewing statistics, and improved player control bar alignment.
-- 👉 *See the full changelog and details in the [**Release Notes (v0.2.0)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.0).*
+- 📺 **TVHTML5 Native SABR Rewriter (Option C)**: Fixed an issue where TVHTML5 mode yielded only 115–162 kbps (ITAG 251). Built-in in-flight Protobuf body rewriting patches requests to Google Video CDN in real-time, delivering legitimate Studio Opus 774 (256–301 kbps) audio streams.
+- 🎯 **Accurate Download URL Capture**: Removed flawed fallback matching that incorrectly captured ITAG 251 URLs as 774. Audio URLs captured for extraction are now authentic 774.
+- 🛠️ **Settings & Console Stability**: Eliminated orphaned `NativeAudioBooster` call that could cause runtime errors in `applySettings`, and silenced irrelevant video-only XHR console logs.
+- 👉 *See the full changelog and details in the [**Release Notes (v0.2.1)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.1).*
 
 ---
 
