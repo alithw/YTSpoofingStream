@@ -281,6 +281,12 @@
       border: 1px solid rgba(255, 82, 119, 0.4);
     }
 
+    .op-badge.ump {
+      background: rgba(168, 85, 247, 0.22);
+      color: #d8b4fe;
+      border: 1px solid rgba(168, 85, 247, 0.5);
+    }
+
     /* Toggle */
     .row {
       display: flex;
@@ -531,13 +537,17 @@
       </svg>
       <div>
         <h1>YTSpoofingStream</h1>
-        <div class="ver" data-i18n="headerSubtitle">v0.2.1 &bull; Studio 774 Dual-Stream Engine</div>
+        <div class="ver" data-i18n="headerSubtitle">v0.2.2 &bull; Studio 774 Dual-Stream Engine</div>
       </div>
     </div>
     <div class="hdr-lang">
       <select id="langSelect" class="lang-select" aria-label="Language / Ngôn ngữ">
         <option value="en">English</option>
         <option value="vi">Tiếng Việt</option>
+        <option value="ja">日本語</option>
+        <option value="ru">Русский</option>
+        <option value="zh-cn">简体中文</option>
+        <option value="zh-tw">繁體中文</option>
       </select>
     </div>
   </div>
@@ -590,7 +600,7 @@
               <span data-i18n="opModeHybridTitle">Mode: Hybrid Mix (774 Opus ★)</span>
               <span class="op-badge hybrid" data-i18n="opModeHybridBadge">Recommended</span>
             </div>
-            <div class="op-mode-desc" data-i18n="opModeHybridDesc">Strict exact video • Dual-engine: YTM Harvester & Native TV SABR 774 • Cancels if no 774</div>
+            <div class="op-mode-desc" data-i18n="opModeHybridDesc">Smart Dual-Engine: Prioritizes TV UMP MSE 774 (0MB RAM) when TV is linked, auto-failovers to YTM Harvester</div>
           </div>
         </label>
 
@@ -609,10 +619,10 @@
           <input type="radio" name="opmode" value="TV_HEADLESS">
           <div class="op-mode-info">
             <div class="op-mode-name">
-              <span data-i18n="opModeTvTitle">Smart TV Relay Only (774 Opus ★)</span>
+              <span data-i18n="opModeTvTitle">Smart TV UMP Only (774 Opus ★)</span>
               <span class="op-badge tv" data-i18n="opModeTvBadge">TV Premium</span>
             </div>
-            <div class="op-mode-desc" data-i18n="opModeTvDesc">Strict exact video • Requires TV Premium login • Native SABR 774 streaming • Cancels if no 774</div>
+            <div class="op-mode-desc" data-i18n="opModeTvDesc">Zero-delay • Requires TV Premium login • Direct TVHTML5 UMP/SABR 774 demuxer via MediaSource</div>
           </div>
         </label>
       </div>

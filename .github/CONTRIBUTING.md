@@ -33,9 +33,9 @@ This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDU
    - Click **Load unpacked** and select the root directory of this repository (`YTSpoofingStream`).
 
 3. **Reloading After Code Changes**:
-   - For changes to `popup.html`, `popup.js`: Close and reopen the popup.
-   - For changes to `inject.js`, `bridge.js`: Refresh the YouTube page (`Ctrl+F5` or `Cmd+Shift+R`).
-   - For changes to `background.js`, `manifest.json`: Click the refresh/reload icon on the extension card in `chrome://extensions/`.
+   - For changes to `src/popup.html`, `src/popup.js`: Close and reopen the popup.
+   - For changes to `src/inject.js`, `src/bridge.js`: Refresh the YouTube page (`Ctrl+F5` or `Cmd+Shift+R`).
+   - For changes to `src/background.js`, `manifest.json`: Click the refresh/reload icon on the extension card in `chrome://extensions/`.
 
 ---
 
@@ -45,20 +45,23 @@ YTSpoofingStream is built using **pure vanilla JavaScript (ES6+)** without bundl
 
 ```
 YTSpoofingStream/
-├── manifest.json          # Extension manifest (MV3), host permissions & DNR declarations
-├── background.js          # MV3 Service Worker: InnerTube resolver & DNR ruleset manager
-├── inject.js              # MAIN world script: Dual-stream player engine & clock sync
-├── bridge.js              # ISOLATED world bridge: Relays messages between inject.js & background
-├── ytm_harvester_cs.js    # MAIN world script inside harvester iframe: Extracts 774 streams
-├── harvester.html/.js     # Headless harvester frame container
-├── popup.html/.js         # Popup configuration UI & status monitor
-└── logo.svg, icon*.png    # Extension branding assets
+├── manifest.json            # Extension manifest (MV3), host permissions & DNR declarations
+├── src/
+│   ├── background.js        # MV3 Service Worker: InnerTube resolver & DNR ruleset manager
+│   ├── inject.js            # MAIN world script: Dual-stream player engine, UMP-MSE demuxer & clock sync
+│   ├── bridge.js            # ISOLATED world bridge: Relays messages between inject.js & background
+│   ├── ytm_harvester_cs.js  # MAIN world script inside harvester iframe: Extracts 774 streams
+│   ├── harvester.html/.js   # Headless harvester frame container
+│   └── popup.html/.js       # Popup configuration UI & status monitor
+├── assets/
+│   └── logo.svg, icon*.png  # Extension branding & toolbar icons
+└── locales/                 # Localization dictionaries (en, vi, ja, ru, zh-cn, zh-tw, template)
 ```
 
 ### Core Components
-- **`background.js`**: Manages client profiles (`ANDROID_MUSIC`, `TVHTML5`, `WEB_REMIX`), dynamically updates `chrome.declarativeNetRequest` session rules to bypass CORS/origin checks, and processes stream decipher requests.
-- **`inject.js`**: Injected into the page's MAIN execution world. Implements the **Studio 774 Dual-Stream Engine**, silences the native video player using descriptor routing (`HTMLMediaElement.prototype.volume`), creates the parallel `<audio>` engine, and maintains bit-perfect 1.0x master clock alignment.
-- **`ytm_harvester_cs.js`**: Operates in an isolated background subframe pointing to YouTube Music, intercepting `ytInitialPlayerResponse` and `/player` API calls under an active Premium session to extract unthrottled ITAG 774 Opus URLs.
+- **`src/background.js`**: Manages client profiles (`ANDROID_MUSIC`, `TVHTML5`, `WEB_REMIX`), dynamically updates `chrome.declarativeNetRequest` session rules to bypass CORS/origin checks, and processes stream decipher requests.
+- **`src/inject.js`**: Injected into the page's MAIN execution world. Implements the **Studio 774 Dual-Stream Engine** and **Direct UMP-to-MSE Demuxer (`UmpMseController774`)**, silences the native video player using descriptor routing (`HTMLMediaElement.prototype.volume`), creates the parallel `<audio>` engine, and maintains bit-perfect 1.0x master clock alignment.
+- **`src/ytm_harvester_cs.js`**: Operates in an isolated background subframe pointing to YouTube Music, intercepting `ytInitialPlayerResponse` and `/player` API calls under an active Premium session to extract unthrottled ITAG 774 Opus URLs.
 
 ---
 
@@ -113,4 +116,4 @@ When reporting a bug, please use our **[Bug Report Template](https://github.com/
 
 4. **Submit the PR**:
    - Push your branch to GitHub and open a Pull Request targeting `main`.
-   - Fill out the provided [Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md).
+   - Fill out the provided [Pull Request Template](PULL_REQUEST_TEMPLATE.md).

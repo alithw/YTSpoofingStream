@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
   "name": "YTSpoofingStream",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Force 100% genuine Studio Opus 774 on YouTube via Dual-Stream Synchronization Engine (YTM Harvester / TV Living Room)",
   "icons": {
-    "16": "icon16.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
   },
   "permissions": [
     "scripting",
@@ -27,14 +27,14 @@
     "*://*.googleusercontent.com/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "src/background.js"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "src/popup.html",
     "default_icon": {
-      "16": "icon16.png",
-      "48": "icon48.png",
-      "128": "icon128.png"
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
     }
   },
   "content_scripts": [
@@ -46,7 +46,7 @@
         "*://music.youtube.com/*"
       ],
       "js": [
-        "inject.js"
+        "src/inject.js"
       ],
       "run_at": "document_start",
       "world": "MAIN"
@@ -59,7 +59,7 @@
         "*://music.youtube.com/*"
       ],
       "js": [
-        "bridge.js"
+        "src/bridge.js"
       ],
       "run_at": "document_start"
     },
@@ -68,7 +68,7 @@
         "*://music.youtube.com/*"
       ],
       "js": [
-        "ytm_harvester_cs.js"
+        "src/ytm_harvester_cs.js"
       ],
       "run_at": "document_start",
       "all_frames": true,

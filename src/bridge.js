@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.0.8 — Bridge (ISOLATED world)               ║
+// ║  YTSpoofingStream v0.2.2 — Bridge (ISOLATED world)               ║
 // ║  Relays messages between MAIN world and Service Worker.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
@@ -156,8 +156,18 @@ async function pushLocaleData(lang) {
       window.postMessage({ type: 'YTSS_LOCALE_DATA', lang: l, strings }, '*');
     }
   } catch (e) {
-    console.warn('[YTSS-Bridge] Failed to load locale data:', e);
+    console.log('[YTSS-Bridge] Failed to load locale data:', e);
   }
+}
+
+function detectBrowserLang() {
+  const sysLang = (navigator.language || '').toLowerCase();
+  if (sysLang.startsWith('vi')) return 'vi';
+  if (sysLang.startsWith('ja')) return 'ja';
+  if (sysLang.startsWith('ru')) return 'ru';
+  if (sysLang === 'zh-tw' || sysLang === 'zh-hk' || sysLang === 'zh-mo' || sysLang.includes('hant')) return 'zh-tw';
+  if (sysLang.startsWith('zh')) return 'zh-cn';
+  return 'en';
 }
 
 function pushSettings() {
@@ -166,7 +176,7 @@ function pushSettings() {
     if (Object.keys(settings).length > 0) {
       window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings }, '*');
     }
-    pushLocaleData(data?.uiLanguage || 'en');
+    pushLocaleData(data?.uiLanguage || detectBrowserLang());
   });
 }
 

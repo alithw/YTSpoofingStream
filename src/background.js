@@ -610,7 +610,7 @@ async function setupStaticRules() {
     });
     console.log(TAG, `Static DNR rules enabled (${rulesToAdd.length} rules: Origin + per-client API UA + Media UA + Blacklist/SW Block + CORS).`);
   } catch (e) {
-    console.error(TAG, 'Failed to setup static rules:', e);
+    console.log(TAG, 'Failed to setup static rules:', e);
   }
 }
 
@@ -767,7 +767,7 @@ async function fetchFromClient(videoId, client) {
     if (!resp.ok) {
       let body = '';
       try { body = (await resp.text()).slice(0, 500); } catch (e) { }
-      console.warn(TAG, `[${client.name}] HTTP ${resp.status} | Auth: ${auth ? auth.split(' ')[0] : 'none'} | Body: ${body}`);
+      console.log(TAG, `[${client.name}] HTTP ${resp.status} | Auth: ${auth ? auth.split(' ')[0] : 'none'} | Body: ${body}`);
       return { source: client.name, error: `HTTP ${resp.status}`, audioFormats: [] };
     }
 
@@ -793,13 +793,16 @@ async function fetchFromClient(videoId, client) {
       //    endpoint. Only capture for TVHTML5 — WEB/Android configs are useless
       //    for Option D (their signed tables omit 774).
       if (isTVClient && data.streamingData.serverAbrStreamingUrl) {
+        const ustreamerCfg = data.streamingData.ustreamerConfig
+          || data.playerConfig?.mediaCommonConfig?.mediaUstreamerRequestConfig?.videoPlaybackUstreamerConfig
+          || null;
         result.streamingContext = {
           source: client.name,
           clientVersion: client.clientVersion,
           serverAbrStreamingUrl: data.streamingData.serverAbrStreamingUrl,
           // ustreamerConfig is the signed SABR config blob. May be a base64 string
           // or an object depending on InnerTube variant; preserve as-is.
-          ustreamerConfig: data.streamingData.ustreamerConfig || null,
+          ustreamerConfig: ustreamerCfg,
           // poToken / visitorData the TV session was negotiated under. Option D
           // must echo these in its SABR POST headers to avoid opaque 403s.
           poToken: pageContext.poToken || null,
@@ -808,7 +811,7 @@ async function fetchFromClient(videoId, client) {
           sts: pageContext.sts || 20696,
           ts: Date.now(),
         };
-        console.log(TAG, `[${client.name}] captured streamingContext: sabrUrl=${data.streamingData.serverAbrStreamingUrl.slice(0, 80)}... ustreamerConfig=${data.streamingData.ustreamerConfig ? 'present' : 'absent'}`);
+        console.log(TAG, `[${client.name}] captured streamingContext: sabrUrl=${data.streamingData.serverAbrStreamingUrl.slice(0, 80)}... ustreamerConfig=${ustreamerCfg ? 'present' : 'absent'}`);
       }
 
       return result;
@@ -849,7 +852,7 @@ async function ensureOffscreenDocument() {
     }
     try {
       await chrome.offscreen.createDocument({
-        url: 'harvester.html',
+        url: chrome.runtime.getURL('src/harvester.html'),
         reasons: ['IFRAME_SCRIPTING', 'DOM_PARSER', 'AUDIO_PLAYBACK'],
         justification: 'Harvest HQ audio streams from YouTube Music and TV',
       });
@@ -910,6 +913,13 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
 
       if (activeHarvestSession && !activeHarvestSession.cancelled) {
         const currentSession = activeHarvestSession;
+        try {
+          const uCheck = new URL(url);
+          const docid = uCheck.searchParams.get('docid');
+          if (docid && currentSession.videoId && docid !== currentSession.videoId) {
+            return;
+          }
+        } catch (e) {}
         console.log(TAG, `[WebRequest] Intercepted deciphered ITAG 774 stream for ${currentSession.videoId} (session #${currentSession.sessionId})`);
 
         // Strip range and chunking params to get full base stream URL
@@ -993,7 +1003,9 @@ async function _doHarvest(videoId, title = null, author = null) {
   if (activeHarvestSession) {
     console.log(TAG, `[YTM_HARVEST] Aborting existing harvest for ${activeHarvestSession.videoId} (new target: ${videoId})`);
     activeHarvestSession.cancelled = true;
-    try { activeHarvestSession.resolve([]); } catch (e) {}
+    const cancelledRes = [];
+    cancelledRes._cancelled = true;
+    try { activeHarvestSession.resolve(cancelledRes); } catch (e) {}
     clearTimeout(activeHarvestSession.timer);
     activeHarvestSession = null;
     chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
@@ -1009,7 +1021,9 @@ async function _doHarvest(videoId, title = null, author = null) {
         console.log(TAG, `[YTM_HARVEST] Timeout for ${videoId} (session #${sessionId}), falling back to native`);
         chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
         scheduleOffscreenClose();
-        resolve([]);
+        const timedOutRes = [];
+        timedOutRes._timedOut = true;
+        resolve(timedOutRes);
       }
     }, 8000);
 
@@ -1092,7 +1106,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       activeHarvestSession = null;
       chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
       scheduleOffscreenClose();
-      resolve([]);
+      const abortRes = [];
+      if (msg.reason === 'NO_774_STREAM' || String(msg.reason || '').startsWith('UNPLAYABLE')) {
+        abortRes._confirmedNo774 = true;
+      }
+      resolve(abortRes);
     }
     sendResponse({ received: true });
     return true;
@@ -1124,7 +1142,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'OFFSCREEN_STOP_HARVEST') {
     if (activeHarvestSession) {
       activeHarvestSession.cancelled = true;
-      try { activeHarvestSession.resolve([]); } catch (e) {}
+      const cancelledRes = [];
+      cancelledRes._cancelled = true;
+      try { activeHarvestSession.resolve(cancelledRes); } catch (e) {}
       clearTimeout(activeHarvestSession.timer);
       activeHarvestSession = null;
     }
@@ -1176,17 +1196,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
 
-      const opMode = msg.opMode || storage.operationMode || 'HYBRID_HQ';
+      let opMode = msg.opMode || storage.operationMode || 'HYBRID_HQ';
+      if (opMode === 'TV_UMP_MSE') opMode = 'TV_HEADLESS';
 
-      // ── HYBRID MODE: HYBRID_HQ (Bidirectional Smart Failover: YTM Harvester <-> TV Relay)
+      // ── HYBRID MODE: HYBRID_HQ (Bidirectional Smart Failover: TV UMP MSE <-> YTM Harvester)
       if (opMode === 'HYBRID_HQ') {
         const PROV_YTM = 'YTM_HARVESTER';
         const PROV_TV = 'TVHTML5';
+
+        let wasCancelled = false;
+        let wasTimedOut = false;
 
         const tryYtm = async () => {
           console.log(TAG, `[FETCH_HQ] [Hybrid] Hunting for 774 via YTM Harvester on ${videoId}...`);
           try {
             const ytmFormats = await harvestViaYtm(videoId, title, author);
+            if (ytmFormats?._cancelled) wasCancelled = true;
+            if (ytmFormats?._timedOut) wasTimedOut = true;
             if (ytmFormats && ytmFormats.length > 0 && ytmFormats.some(f => f.itag === 774)) {
               return { source: PROV_YTM, audioFormats: ytmFormats, streamingContext: null };
             }
@@ -1215,8 +1241,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return null;
         };
 
-        let firstProv = PROV_YTM;
-        let secondProv = PROV_TV;
+        const tvTokenAvailable = Boolean(await getClientAccessToken('TVHTML5'));
+        let firstProv = tvTokenAvailable ? PROV_TV : PROV_YTM;
+        let secondProv = tvTokenAvailable ? PROV_YTM : null;
 
         if (excludeSource === PROV_YTM) {
           firstProv = PROV_TV;
@@ -1224,7 +1251,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } else if (excludeSource === PROV_TV) {
           firstProv = PROV_YTM;
           secondProv = null;
-        } else if (preferredSource === PROV_TV || storage.preferredClient === 'TVHTML5') {
+        } else if (preferredSource === PROV_YTM) {
+          firstProv = PROV_YTM;
+          secondProv = tvTokenAvailable ? PROV_TV : null;
+        } else if (preferredSource === PROV_TV) {
           firstProv = PROV_TV;
           secondProv = PROV_YTM;
         }
@@ -1235,8 +1265,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log(TAG, `[FETCH_HQ] [Hybrid] Step 1: Trying primary candidate (${firstProv}) for ${videoId}`);
         let result = await runProvider(firstProv);
 
-        // Step 2: If first candidate failed or has no 774, automatically attempt alternate provider
-        if (!result && secondProv) {
+        // Step 2: If first candidate failed or has no 774 (and wasn't superseded by another track), attempt alternate provider
+        if (!result && secondProv && !wasCancelled) {
           console.log(TAG, `[FETCH_HQ] [Hybrid] Step 2: Primary (${firstProv}) failed or has no 774 -> Smart Failover to alternate (${secondProv}) for ${videoId}...`);
           result = await runProvider(secondProv);
         }
@@ -1265,6 +1295,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
+        if (wasCancelled || wasTimedOut) {
+          console.log(TAG, `[FETCH_HQ] [Hybrid] Harvest ${wasCancelled ? 'cancelled' : 'timed out'} for ${videoId} (not marking confirmedNo774).`);
+          sendResponse({ success: false, results: [], error: wasCancelled ? 'HARVEST_CANCELLED' : 'HARVEST_TIMEOUT', confirmedNo774: false, cancelled: wasCancelled, opMode: 'HYBRID_HQ' });
+          return;
+        }
+
         // Step 3: Both modes failed or video has NO 774 -> Retaining native YouTube stream (ITAG 251)
         console.log(TAG, `[FETCH_HQ] [Hybrid] Both modes failed or video has NO 774 -> Retaining native YouTube stream (ITAG 251).`);
         confirmedNo774Videos.add(videoId);
@@ -1272,13 +1308,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
 
-      // ── MODE 4: YTM_HARVESTER (Direct 774 Opus from YouTube Music)
+      // ── MODE: YTM_HARVESTER (Direct 774 Opus from YouTube Music)
       if (opMode === 'YTM_HARVESTER') {
-        console.log(TAG, `[FETCH_HQ] Mode 4 (YTM_HARVESTER) harvesting for exact video ${videoId}...`);
+        console.log(TAG, `[FETCH_HQ] Mode (YTM_HARVESTER) harvesting for exact video ${videoId}...`);
         const formats = await harvestViaYtm(videoId, title, author);
         const has774 = formats && formats.some(f => f.itag === 774);
         if (has774) {
-          console.log(TAG, `[FETCH_HQ] Mode 4 successfully harvested 774 for exact video ${videoId}!`);
+          console.log(TAG, `[FETCH_HQ] YTM_HARVESTER successfully harvested 774 for exact video ${videoId}!`);
           const results = [{ source: 'YTM_HARVESTER', audioFormats: formats }];
           chrome.storage.session.set({
             [`hq_${videoId}`]: { videoId, formats, streamingContext: null, ts: Date.now() }
@@ -1286,19 +1322,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ success: true, results, streamingContext: null, opMode: 'YTM_HARVESTER' });
           return;
         }
-        console.log(TAG, `[FETCH_HQ] Mode 4: No 774 stream found for ${videoId} -> Cancelled.`);
+        if (formats?._cancelled || formats?._timedOut) {
+          console.log(TAG, `[FETCH_HQ] YTM_HARVESTER: Harvest ${formats._cancelled ? 'cancelled' : 'timed out'} for ${videoId} (not marking confirmedNo774).`);
+          sendResponse({ success: false, results: [], error: formats._cancelled ? 'HARVEST_CANCELLED' : 'HARVEST_TIMEOUT', confirmedNo774: false, cancelled: Boolean(formats._cancelled), opMode: 'YTM_HARVESTER' });
+          return;
+        }
+        console.log(TAG, `[FETCH_HQ] YTM_HARVESTER: No 774 stream found for ${videoId} -> Cancelled.`);
         confirmedNo774Videos.add(videoId);
         sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'YTM_HARVESTER' });
         return;
       }
 
-      // ── MODE 1: TV_HEADLESS (TV SABR 774 Relay)
+      // ── MODE: TV_HEADLESS (TV SABR 774 UMP Demuxer + MSE Engine)
       if (opMode === 'TV_HEADLESS') {
-        console.log(TAG, `[FETCH_HQ] Mode 1 (TV_HEADLESS) resolving for ${videoId}...`);
+        console.log(TAG, `[FETCH_HQ] Mode (TV_HEADLESS) resolving for ${videoId}...`);
         // Check TV login first; skip if not logged in with Premium
         const tvToken = await getClientAccessToken('TVHTML5');
         if (!tvToken) {
-          console.log(TAG, `[FETCH_HQ] Mode 1: No TV login (Premium required) -> Stopping.`);
+          console.log(TAG, `[FETCH_HQ] TV_HEADLESS: No TV login (Premium required) -> Stopping.`);
           sendResponse({ success: false, results: [], error: 'NO_TV_LOGIN', opMode: 'TV_HEADLESS' });
           return;
         }
@@ -1312,14 +1353,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         if (!tvHas774) {
-          console.log(TAG, `[FETCH_HQ] Mode 1: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
+          console.log(TAG, `[FETCH_HQ] TV_HEADLESS: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
           confirmedNo774Videos.add(videoId);
           sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'TV_HEADLESS' });
           return;
         }
 
         // TV confirmed 774 is available! Delivering authenticated TVHTML5 ITAG 774
-        console.log(TAG, `[FETCH_HQ] Mode 1 (TV_HEADLESS): Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
+        console.log(TAG, `[FETCH_HQ] TV_HEADLESS: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
         const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
         chrome.storage.session.set({
           [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
@@ -1381,7 +1422,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ success: true, data: codeData });
         if (codeData.device_code) {
           startPollingToken(clientType, codeData.device_code, codeData.interval || 5)
-            .catch(err => console.error(TAG, `${clientType} OAuth error:`, err));
+            .catch(err => console.log(TAG, `${clientType} OAuth error:`, err));
         }
       } catch (err) {
         sendResponse({ success: false, error: err.message });

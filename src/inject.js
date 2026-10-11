@@ -27,7 +27,7 @@
   };
   const HQ_ITAGS = [774];
 
-  const OP_MODES = { HYBRID_HQ: 'HYBRID_HQ', YTM_HARVESTER: 'YTM_HARVESTER', TV_HEADLESS: 'TV_HEADLESS' };
+  const OP_MODES = { HYBRID_HQ: 'HYBRID_HQ', YTM_HARVESTER: 'YTM_HARVESTER', TV_HEADLESS: 'TV_HEADLESS', TV_UMP_MSE: 'TV_UMP_MSE' };
 
   // ─── SETTINGS ────────────────────────────────────────────────────
   let S = {
@@ -80,6 +80,9 @@
     for (const key of SETTING_KEYS) {
       if (obj[key] !== undefined) out[key] = obj[key];
     }
+    if (out.operationMode === OP_MODES.TV_UMP_MSE) {
+      out.operationMode = OP_MODES.TV_HEADLESS;
+    }
     return out;
   }
 
@@ -92,11 +95,11 @@
     if (stored) {
       const parsed = JSON.parse(stored);
       Object.assign(S, pickSettings(parsed));
-      // Rewrite immediately if the stored blob carried anything it shouldn't.
-      if (Object.keys(parsed).some(k => !SETTING_KEYS.includes(k))) {
+      // Rewrite immediately if the stored blob carried anything it shouldn't or legacy mode name.
+      if (Object.keys(parsed).some(k => !SETTING_KEYS.includes(k)) || parsed.operationMode === OP_MODES.TV_UMP_MSE) {
         persistSettings();
         try { localStorage.removeItem('ytSpoofingStream_settings'); } catch (e) { }
-        console.warn(TAG, 'Purged non-settings keys from stored config.');
+        console.log(TAG, 'Normalized stored settings config.');
       }
     }
   } catch (e) { }
@@ -124,6 +127,7 @@
         lastOpMode = S.operationMode;
         hqCache.clear();
         confirmedNo774Videos.clear();
+        failedFetches.clear();
         try {
           for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
             const k = window.sessionStorage.key(i);
@@ -133,7 +137,7 @@
         const curVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
         if (curVid) {
           console.log(TAG, `[SettingsChange] Switched to ${S.operationMode} -> Triggering HQ harvest for ${curVid}`);
-          prewarmCache(curVid);
+          prewarmCache(curVid, { forceFresh: true });
         }
       }
       if (typeof PlayerBadgeUI !== 'undefined') {
@@ -273,21 +277,28 @@
     }
   }
 
-  // Single writer for TV-native 774 status.
-  // Arms the SABR body rewriter so the player's UMP request asks for real 774.
-  const sabrRewrite = { on: false, lastModified: 0, videoId: null };
-  function noteTvNative774(best774, streamCount, videoId) {
-    const label = 'TVHTML5 (Native SABR 774)';
-    status.activeAudioItag = 774;
-    status.activeMethod = label;
-    status.fallbackReason = null;
-    status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${label}`;
-    status.injectedStreams = streamCount > 0 ? streamCount : 1;
-    sabrRewrite.on = true;
-    sabrRewrite.videoId = videoId || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
-    sabrRewrite.lastModified = Number(best774?.lastModified || best774?.last_modified || 0);
-    report();
-    if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+  // Single writer for TV 774 status — activates UmpMseController774 (UMP Demuxer + MSE)
+  const sabrRewrite = {
+    on: false,
+    lastModified: 0,
+    xtags: null,
+    ustreamerConfig: null,
+    serverAbrStreamingUrl: null,
+    swapUstreamer: false,
+    videoId: null,
+    verified774: false,
+    downgradedCount: 0,
+    downgradedVideoId: null,
+  };
+  function noteTvNative774(best774, streamCount, videoId, streamingContext = null) {
+    const vId = videoId || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+    const cachedEntry = vId ? cacheGet(vId) : null;
+    const tvCtx = streamingContext || cachedEntry?.streamingContext || null;
+    sabrRewrite.on = false;
+    if (vId && best774 && tvCtx) {
+      status.injectedStreams = streamCount > 0 ? streamCount : 1;
+      UmpMseController774.attachAndLoad(vId, best774, tvCtx);
+    }
   }
 
   // Periodic 5s Audio Buffer sync for popup and background
@@ -328,14 +339,31 @@
 
   function isCurrentWatchVideo(vid) {
     if (!vid) return false;
+    if (typeof StudioEngine774 !== 'undefined' && StudioEngine774._isTransitioning && StudioEngine774._transitionTargetVid) {
+      return vid === StudioEngine774._transitionTargetVid;
+    }
+    const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+    if (navTargetVideoId && urlVid && navTargetVideoId === urlVid) {
+      return vid === urlVid;
+    }
+    if (navTargetVideoId && navTargetVideoId === vid) return true;
     const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
     if (playerVid && playerVid === vid) return true;
-    if (navTargetVideoId && navTargetVideoId === vid) return true;
-    const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
     if (urlVid && urlVid === vid) return true;
     return false;
   }
   const isCurrentTarget = isCurrentWatchVideo;
+
+  function getVideoTimeFor(videoId) {
+    const player = document.getElementById('movie_player');
+    const playerVid = player?.getVideoData?.()?.video_id;
+    if (playerVid && videoId && playerVid !== videoId) {
+      return 0; // Player DOM still holds outgoing video's timestamp during transition!
+    }
+    const v = (typeof getMainVideoElement === 'function' ? getMainVideoElement() : document.querySelector('video'));
+    if (!v || isNaN(v.currentTime) || v.ended) return 0;
+    return v.currentTime;
+  }
 
   // A cache hit used to overwrite status.clientStats wholesale with a single CACHE
   // entry. The popup's client grid is the only place that reports which clients
@@ -454,47 +482,8 @@
       // 12s timeout: SW may need to restart after being killed by Chrome (~30s idle).
       setTimeout(() => {
         window.removeEventListener('message', onMessage);
-        resolve({ results: [], streamingContext: null });
+        resolve({ results: [], streamingContext: null, error: 'HARVEST_TIMEOUT' });
       }, 12000);
-    });
-  }
-
-  // ── Phase 1 (Option D): TV streaming context cache + fetcher.
-  const TVCTX_CACHE_TTL_MS = 3600000;
-  const tvCtxCache = new Map(); // videoId → { ctx, ts }
-
-  function getTvContext(videoId) {
-    if (!videoId || !VIDEO_ID_RE.test(videoId)) return Promise.resolve(null);
-
-    // 1. Check memory / hqCache first
-    const hqEntry = hqCache.get(videoId);
-    if (hqEntry?.streamingContext) return Promise.resolve(hqEntry.streamingContext);
-
-    const mem = tvCtxCache.get(videoId);
-    if (mem && (Date.now() - mem.ts <= TVCTX_CACHE_TTL_MS)) {
-      return Promise.resolve(mem.ctx);
-    }
-
-    // 2. Ask SW via bridge (async)
-    return new Promise((resolve) => {
-      const requestId = 'tvctx_' + Math.random().toString(36).substr(2, 9);
-
-      function onMessage(e) {
-        if (e.data?.type === 'YTSS_TVCTX_RESULT' && e.data.requestId === requestId) {
-          window.removeEventListener('message', onMessage);
-          const ctx = e.data.streamingContext || null;
-          if (ctx) tvCtxCache.set(videoId, { ctx, ts: Date.now() });
-          resolve(ctx);
-        }
-      }
-      window.addEventListener('message', onMessage);
-
-      window.postMessage({ type: 'YTSS_FETCH_TVCTX', videoId, requestId }, '*');
-
-      setTimeout(() => {
-        window.removeEventListener('message', onMessage);
-        resolve(null);
-      }, 3000);
     });
   }
 
@@ -527,12 +516,22 @@
       report();
     }
 
-    const fetchPromise = fetchHQViaSW(videoId, opts).then(({ results, streamingContext, confirmedNo774 }) => {
+    const fetchPromise = fetchHQViaSW(videoId, opts).then(({ results, streamingContext, confirmedNo774, error }) => {
+      if (error === 'HARVEST_CANCELLED' || error === 'HARVEST_TIMEOUT') {
+        pendingFetches.delete(videoId);
+        return { formats: [], streamingContext: null, cancelled: true };
+      }
+
       if (confirmedNo774) {
-        confirmedNo774Videos.add(videoId);
-        failedFetches.set(videoId, Date.now());
+        if (isCurrentWatchVideo(videoId)) {
+          confirmedNo774Videos.add(videoId);
+          failedFetches.set(videoId, Date.now());
+        }
         pendingFetches.delete(videoId);
         console.log(TAG, `[HQ] Video ${videoId} reported NO 774 from SW. Marked as confirmedNo774.`);
+        if (isCurrentWatchVideo(videoId) && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
+          StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
+        }
         return { formats: [], streamingContext: null };
       }
 
@@ -575,26 +574,29 @@
       }
 
       hqCache.delete(videoId);
-      const has774 = merged.some(f => (f.itag === 774 || f._origItag === 774));
+      const only774 = merged.filter(f => f.itag === 774 || f._origItag === 774);
+      const has774 = only774.length > 0;
       if (has774) {
         // Strip 251 and non-774 audio formats so 251 never goes into the player after fetch
-        const only774 = merged.filter(f => f.itag === 774 || f._origItag === 774);
         cacheSet(videoId, only774, tvCtx, statsForVideo);
         failedFetches.delete(videoId);
-        if (isCurrentVideo) {
+        if (isCurrentWatchVideo(videoId)) {
           tryUpgradeVideo(videoId, 'FetchComplete');
         }
-      } else {
+      } else if (isCurrentWatchVideo(videoId)) {
         failedFetches.set(videoId, Date.now());
         confirmedNo774Videos.add(videoId);
         console.log(TAG, `[HQ] Video ${videoId} has NO 774. Marked as confirmedNo774 (SW and extension will not touch further).`);
         try {
           window.postMessage({ type: 'YTSS_CONFIRM_NO_774', videoId }, '*');
         } catch (e) {}
+        if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
+          StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
+        }
       }
       pendingFetches.delete(videoId);
 
-      if (isCurrentVideo) {
+      if (isCurrentWatchVideo(videoId)) {
         status.clientStats = statsForVideo;
         report();
       }
@@ -691,6 +693,23 @@
     set(v) { this.muted = v; }
   };
 
+  function readStoredYoutubeVolumeState() {
+    try {
+      const raw = window.sessionStorage?.getItem('yt-player-volume') || window.localStorage?.getItem('yt-player-volume');
+      if (raw) {
+        const outer = JSON.parse(raw);
+        const inner = typeof outer?.data === 'string' ? JSON.parse(outer.data) : (outer?.data || outer);
+        if (inner && typeof inner === 'object') {
+          const vol = (typeof inner.volume === 'number' && !isNaN(inner.volume) && inner.volume > 0)
+            ? Math.max(0.05, Math.min(1.0, inner.volume / 100))
+            : 1.0;
+          return { volume: vol, muted: Boolean(inner.muted) };
+        }
+      }
+    } catch (e) {}
+    return { volume: 1.0, muted: false };
+  }
+
   // Prototype-level Volume & Mute Interception
   // Enforces hardware silence across all <video> elements on YouTube while keeping player UI volume intact
   try {
@@ -699,8 +718,11 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descVolume.get.call(this);
         }
-        if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive) {
-          return this._userVol !== undefined ? this._userVol : descVolume.get.call(this);
+        if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
+          if (typeof this._userVol === 'number' && !isNaN(this._userVol) && (this._userVol > 0 || StudioEngine774._userMuted)) {
+            return this._userVol;
+          }
+          return StudioEngine774._userVol || readStoredYoutubeVolumeState().volume || 1.0;
         }
         return descVolume.get.call(this);
       },
@@ -708,33 +730,39 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descVolume.set.call(this, v);
         }
-        this._userVol = v;
         const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
                             (this.closest && this.closest('#movie_player, .html5-video-player'));
         if (!isMainVideo) {
+          this._userVol = v;
           try { descVolume.set.call(this, v); } catch (e) {}
           return;
         }
+        const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(1.0, v)) : 1.0;
         if (typeof StudioEngine774 !== 'undefined') {
-          if (v > 0) {
-            this._userMuted = false;
-            StudioEngine774._userMuted = false;
-          } else {
+          if (numV > 0) {
+            this._userVol = numV;
+            StudioEngine774._userVol = numV;
+            if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+              this._userMuted = false;
+              StudioEngine774._userMuted = false;
+            }
+          } else if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+            this._userVol = 0;
             this._userMuted = true;
             StudioEngine774._userMuted = true;
           }
+        } else {
+          this._userVol = numV;
         }
-        if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
+        if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
           if (typeof StudioEngine774._silenceElement === 'function') {
             StudioEngine774._silenceElement(this);
           }
-          try { descVolume.set.call(this, 0); } catch (e) {}
-          try { descMuted.set.call(this, true); } catch (e) {}
           if (StudioEngine774.audio && StudioEngine774.isActive) {
-            StudioEngine774.syncVolDirect(v);
+            StudioEngine774.syncVolDirect(this._userVol ?? numV);
           }
         } else {
-          try { descVolume.set.call(this, v); } catch (e) {}
+          try { descVolume.set.call(this, numV); } catch (e) {}
         }
       },
       configurable: true
@@ -747,8 +775,8 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descMuted.get.call(this);
         }
-        if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive) {
-          return this._userMuted !== undefined ? this._userMuted : StudioEngine774.isUserMuted();
+        if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
+          return Boolean(StudioEngine774._userMuted);
         }
         return descMuted.get.call(this);
       },
@@ -756,32 +784,38 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descMuted.set.call(this, m);
         }
-        this._userMuted = !!m;
-        if (typeof StudioEngine774 !== 'undefined') {
-          StudioEngine774._userMuted = !!m;
-        }
         const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
                             (this.closest && this.closest('#movie_player, .html5-video-player'));
         if (!isMainVideo) {
+          this._userMuted = !!m;
           try { descMuted.set.call(this, m); } catch (e) {}
           return;
         }
-        if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
+        let targetMuted = !!m;
+        if (typeof StudioEngine774 !== 'undefined') {
+          if (targetMuted && !StudioEngine774._userMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent() && (StudioEngine774._isTransitioning || StudioEngine774.isInTransitionWindow())) {
+            // Suppress spurious YouTube auto-mute during track selection / transition
+            targetMuted = false;
+          }
+          this._userMuted = targetMuted;
+          StudioEngine774._userMuted = targetMuted;
+        } else {
+          this._userMuted = targetMuted;
+        }
+        if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
           if (typeof StudioEngine774._silenceElement === 'function') {
             StudioEngine774._silenceElement(this);
           }
-          try { descVolume.set.call(this, 0); } catch (e) {}
-          try { descMuted.set.call(this, true); } catch (e) {}
           if (StudioEngine774.audio && StudioEngine774.isActive) {
             if (StudioEngine774.isUserMuted()) {
               StudioEngine774.audio.volume = 0;
             } else {
-              const curVol = (this._userVol !== undefined) ? this._userVol : 1.0;
-              if (curVol > 0) StudioEngine774.syncVolDirect(curVol);
+              const curVol = (typeof this._userVol === 'number' && this._userVol > 0) ? this._userVol : (StudioEngine774._userVol || 1.0);
+              StudioEngine774.syncVolDirect(curVol);
             }
           }
         } else {
-          try { descMuted.set.call(this, m); } catch (e) {}
+          try { descMuted.set.call(this, targetMuted); } catch (e) {}
         }
       },
       configurable: true
@@ -791,15 +825,14 @@
   // Hardware play interceptor: ensures native video is completely silent whenever playback begins/resumes
   const origPlay = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function(...args) {
-    if (typeof StudioEngine774 !== 'undefined' && this !== StudioEngine774.audio && StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
-      try { descVolume.set.call(this, 0); } catch (e) {}
-      try { descMuted.set.call(this, true); } catch (e) {}
+    if (typeof StudioEngine774 !== 'undefined' && this !== StudioEngine774.audio && (StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+      StudioEngine774._silenceElement(this);
     }
     return origPlay.apply(this, args);
   };
 
   function cleanStreamUrl(rawUrl) {
-    if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+    if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.startsWith('blob:')) return rawUrl;
     try {
       const u = new URL(rawUrl);
       u.searchParams.delete('range');
@@ -831,7 +864,7 @@
       return fmt.bitrate;
     }
     const rawUrl = fmt.url || fmt._directUrl;
-    if (typeof rawUrl === 'string') {
+    if (typeof rawUrl === 'string' && !rawUrl.startsWith('blob:')) {
       try {
         const u = new URL(rawUrl);
         const clen = u.searchParams.get('clen');
@@ -878,7 +911,8 @@
 
     console.log(TAG, `[HybridFailover] Mode HYBRID_HQ: ${failedSource} failed on ${videoId} (${reason}) -> Smart Failover to ${targetSource}...`);
 
-    // Reset StudioEngine774 if active and restore native player audio
+    // Reset StudioEngine774 & UmpMseController774 if active and restore native player audio
+    UmpMseController774.stop();
     if (StudioEngine774.isActive) {
       StudioEngine774.isActive = false;
       if (StudioEngine774.audio) {
@@ -898,6 +932,7 @@
     // Invalidate stale caches so failed stream is never re-used
     hqCache.delete(videoId);
     try {
+      window.sessionStorage.removeItem(CACHE_PREFIX + videoId);
       window.sessionStorage.removeItem(`ytss_hq_${videoId}`);
     } catch (e) {}
     window.postMessage({ type: 'YTSS_CLEAR_VIDEO_CACHE', videoId }, '*');
@@ -921,15 +956,8 @@
         console.log(TAG, `[HybridFailover] Smart failover SUCCESS: Playing direct 774 stream via ${targetSource}`);
         StudioEngine774.load774(videoId, playable[0]);
       } else if (all774.length > 0) {
-        console.log(TAG, `[HybridFailover] Smart failover SUCCESS: Delivering TV 774 stream via ${targetSource} (Native SABR 774)`);
-        StudioEngine774.stopAndUnmute('Native TV 774 SABR stream');
-        const best774 = all774[0];
-        status.activeAudioItag = 774;
-        status.activeMethod = 'TVHTML5 (Native SABR 774)';
-        status.fallbackReason = null;
-        status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: TVHTML5 (Native SABR 774)`;
-        report();
-        if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+        console.log(TAG, `[HybridFailover] Smart failover SUCCESS: Delivering TV 774 stream via ${targetSource} (UMP 774 MSE)`);
+        noteTvNative774(all774[0], all774.length, videoId, hqData?.streamingContext || null);
       } else {
         console.log(TAG, `[HybridFailover] Alternate source ${targetSource} also failed / has no 774 for ${videoId}. Cleanly retaining native YouTube stream (ITAG 251).`);
         failedSet.add(targetSource);
@@ -943,9 +971,555 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // PROPOSAL 4 — UMP-TO-MSE DIRECT DEMUXER FOR TVHTML5 ITAG 774
+  // Deciphers TVHTML5 serverAbrStreamingUrl `n` param, sends AUDIO_ONLY
+  // SABR POSTs (f40=1), and demuxes UMP Part 20/21 WebM/Opus 774 frames
+  // directly into MediaSource SourceBuffer on StudioEngine774.audio.
+  // ═══════════════════════════════════════════════════════════════════
+  function umpReadVarint(u8, pos) {
+    if (pos >= u8.length) return null;
+    const b0 = u8[pos];
+    if ((b0 & 0x80) === 0) return [b0, pos + 1];
+    if ((b0 & 0xc0) === 0x80) {
+      if (pos + 1 >= u8.length) return null;
+      return [(b0 & 0x3f) | (u8[pos + 1] << 6), pos + 2];
+    }
+    if ((b0 & 0xe0) === 0xc0) {
+      if (pos + 2 >= u8.length) return null;
+      return [(b0 & 0x1f) | (u8[pos + 1] << 5) | (u8[pos + 2] << 13), pos + 3];
+    }
+    if ((b0 & 0xf0) === 0xe0) {
+      if (pos + 3 >= u8.length) return null;
+      return [((b0 & 0x0f) | (u8[pos + 1] << 4) | (u8[pos + 2] << 12) | (u8[pos + 3] << 20)) >>> 0, pos + 4];
+    }
+    if (pos + 4 >= u8.length) return null;
+    return [(u8[pos + 1] | (u8[pos + 2] << 8) | (u8[pos + 3] << 16) | (u8[pos + 4] << 24)) >>> 0, pos + 5];
+  }
+
+  const UmpMseController774 = {
+    session: null,
+    isActive: false,
+    videoId: null,
+
+    decipherSabrUrl(rawUrl) {
+      if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+      try {
+        const ytp = window._yt_player;
+        if (!ytp) return null;
+        if (typeof ytp.NT === 'function') {
+          const inst = new ytp.NT(rawUrl, true);
+          if (typeof inst.kZ === 'function') {
+            const v = inst.kZ();
+            if (typeof v === 'string' && v.startsWith('https://')) return v;
+          }
+          for (const k of Object.getOwnPropertyNames(ytp.NT.prototype || {})) {
+            if (k !== 'constructor' && typeof inst[k] === 'function' && inst[k].length === 0) {
+              try {
+                const v = inst[k]();
+                if (typeof v === 'string' && v.startsWith('https://')) return v;
+              } catch (e) {}
+            }
+          }
+        }
+        const origN = new URL(rawUrl).searchParams.get('n');
+        for (const [, fn] of Object.entries(ytp)) {
+          if (typeof fn === 'function' && fn.prototype && typeof fn.prototype.set === 'function' && typeof fn.prototype.get === 'function') {
+            try {
+              const inst = new fn(rawUrl, true);
+              for (const mk of Object.getOwnPropertyNames(fn.prototype)) {
+                if (mk !== 'constructor' && typeof inst[mk] === 'function' && inst[mk].length === 0) {
+                  const v = inst[mk]();
+                  if (typeof v === 'string' && v.startsWith('https://')) {
+                    const newN = new URL(v).searchParams.get('n');
+                    if (!origN || (newN && newN !== origN)) {
+                      ytp.NT = fn;
+                      return v;
+                    }
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (e) {
+        console.log(TAG, '[UmpMse774] decipherSabrUrl error:', e);
+      }
+      return rawUrl;
+    },
+
+    async ensureDecipheredUrl(session) {
+      if (session.decipheredUrl) return session.decipheredUrl;
+      const startWait = Date.now();
+      while ((!window._yt_player || Object.keys(window._yt_player).length < 50) && Date.now() - startWait < 3500) {
+        if (session.aborted) return null;
+        await new Promise(r => setTimeout(r, 30));
+      }
+      if (session.aborted) return null;
+      session.decipheredUrl = this.decipherSabrUrl(session.tvCtx.serverAbrStreamingUrl) || session.tvCtx.serverAbrStreamingUrl;
+      return session.decipheredUrl;
+    },
+
+    buildAbrRequestBytes(session, playerTimeMs) {
+      const wrapVarint = (fn, val) => new Uint8Array([...pbEncodeVarint((fn << 3) | 0), ...pbEncodeVarint(val)]);
+      const wrapBytes = (fn, u8) => pbWrapLengthDelimited(fn, u8);
+      const wrapStr = (fn, str) => pbWrapLengthDelimited(fn, new TextEncoder().encode(str));
+
+      const clientState = pbConcatChunks([
+        wrapVarint(28, Math.max(0, Math.floor(playerTimeMs))),
+        wrapVarint(40, 1) // 1 = AUDIO_ONLY
+      ]);
+
+      const parts = [wrapBytes(1, clientState)];
+      if (session.hasInit) {
+        parts.push(wrapBytes(2, session.fmt774Msg));
+      }
+      parts.push(
+        wrapBytes(5, session.ustreamerBytes),
+        wrapBytes(16, session.fmt774Msg)
+      );
+
+      const scParts = [wrapBytes(1, session.clientInfoMsg)];
+      if (session.playbackCookie && session.playbackCookie.length > 0) {
+        scParts.push(wrapBytes(3, session.playbackCookie));
+      }
+      parts.push(wrapBytes(19, pbConcatChunks(scParts)));
+      return pbConcatChunks(parts);
+    },
+
+    demuxUmp774(u8) {
+      const headersById = new Map();
+      let nextPlaybackCookie = null;
+      let redirectUrl = null;
+      let sabrError = null;
+      let off = 0;
+
+      while (off < u8.length) {
+        const pt = umpReadVarint(u8, off);
+        if (!pt) break;
+        const ps = umpReadVarint(u8, pt[1]);
+        if (!ps) break;
+        const pType = pt[0], pSize = ps[0], dOff = ps[1];
+        if (pSize < 0 || dOff + pSize > u8.length) break;
+
+        if (pType === 20) { // MediaHeader
+          const mh = pbParseMessage(u8, dOff, dOff + pSize);
+          if (mh) {
+            const hid = Number(mh.get(1)?.[0]?.value ?? 0);
+            const itag = Number(mh.get(3)?.[0]?.value ?? 0);
+            const isInit = Number(mh.get(8)?.[0]?.value ?? 0) === 1;
+            const seq = Number(mh.get(9)?.[0]?.value ?? 0);
+            const startMs = Number(mh.get(11)?.[0]?.value ?? 0);
+            const durMs = Number(mh.get(12)?.[0]?.value ?? 0);
+            headersById.set(hid, { hid, itag, isInit, seq, startMs, durMs, chunks: [] });
+          }
+        } else if (pType === 21) { // Media payload
+          const hidV = umpReadVarint(u8, dOff);
+          if (hidV) {
+            const hdr = headersById.get(hidV[0]);
+            if (hdr && hdr.itag === 774 && hidV[1] < dOff + pSize) {
+              hdr.chunks.push(u8.subarray(hidV[1], dOff + pSize));
+            }
+          }
+        } else if (pType === 35) { // NextRequestPolicy
+          const nrp = pbParseMessage(u8, dOff, dOff + pSize);
+          const f7 = nrp?.get(7)?.[0];
+          if (f7 && f7.wireType === 2) {
+            nextPlaybackCookie = u8.slice(f7.valueOff, f7.valueOff + f7.valueLen);
+          }
+        } else if (pType === 42 || pType === 33) { // SabrRedirect (only if f1 is an https://.../videoplayback URL)
+          const sr = pbParseMessage(u8, dOff, dOff + pSize);
+          const f1 = sr?.get(1)?.[0];
+          if (f1 && f1.wireType === 2 && f1.valueLen > 24 && f1.valueLen < 4096) {
+            const candidate = new TextDecoder().decode(u8.subarray(f1.valueOff, f1.valueOff + f1.valueLen));
+            if (/^https:\/\/[^/\s]+\/videoplayback\?/.test(candidate)) {
+              redirectUrl = candidate;
+            }
+          }
+        } else if (pType === 43) { // SabrError
+          sabrError = true;
+        }
+        off = dOff + pSize;
+      }
+
+      const segments = [];
+      for (const h of headersById.values()) {
+        if (h.itag === 774 && h.chunks.length > 0) {
+          segments.push({
+            isInit: h.isInit,
+            seq: h.seq,
+            startMs: h.startMs,
+            durMs: h.durMs,
+            data: pbConcatChunks(h.chunks)
+          });
+        }
+      }
+      return { segments, nextPlaybackCookie, redirectUrl, sabrError };
+    },
+
+    getBufferedEndFor(sb, timeSec) {
+      if (!sb) return null;
+      try {
+        const b = sb.buffered;
+        for (let i = 0; i < b.length; i++) {
+          const s = b.start(i);
+          const e = b.end(i);
+          if (timeSec >= s - 0.8 && timeSec <= e + 0.4) {
+            return e;
+          }
+        }
+      } catch (e) {}
+      return null;
+    },
+
+    flushQueue(session) {
+      if (!session || session.aborted || !session.sourceBuffer) return;
+      if (session.sourceBuffer.updating || session.appendQueue.length === 0) return;
+      if (session.mediaSource.readyState !== 'open') return;
+      const chunk = session.appendQueue.shift();
+      try {
+        session.sourceBuffer.appendBuffer(chunk);
+      } catch (err) {
+        console.log(TAG, '[UmpMse774] appendBuffer error:', err);
+      }
+    },
+
+    async pump(session) {
+      if (!session || session.aborted || this.session !== session) return;
+      const isOwnedByEngine = (StudioEngine774.isActive && StudioEngine774.activeVideoId === session.videoId) ||
+                              (StudioEngine774.pending774 && StudioEngine774.pending774.videoId === session.videoId);
+      if (!isOwnedByEngine) {
+        this.stopSession(session);
+        return;
+      }
+      if (!session.sourceBuffer || session.inFlight) return;
+
+      const video = getMainVideoElement();
+      const audio = StudioEngine774.audio;
+      const vTime = getVideoTimeFor(session.videoId);
+      const curSec = vTime > 0
+        ? vTime
+        : (audio && !isNaN(audio.currentTime) ? audio.currentTime : 0);
+
+      let targetMs = 0;
+      const bufEndSec = this.getBufferedEndFor(session.sourceBuffer, curSec);
+
+      if (!session.hasInit || bufEndSec === null) {
+        targetMs = Math.max(0, Math.floor(curSec * 1000));
+        session.reachedEof = false;
+      } else {
+        const durSec = session.durationSec || (video && video.duration > 0 ? video.duration : 0);
+        if (session.reachedEof || (durSec > 0 && bufEndSec >= durSec - 0.8)) {
+          if (!session.endedStream && !session.sourceBuffer.updating && session.appendQueue.length === 0 && session.mediaSource.readyState === 'open' && curSec >= (durSec || bufEndSec) - 2.0) {
+            try {
+              session.mediaSource.endOfStream();
+              session.endedStream = true;
+            } catch (e) {}
+          }
+          return;
+        }
+        const aheadSec = bufEndSec - curSec;
+        if (aheadSec >= 25.0) {
+          return; // Plenty of 774 Opus buffer ahead
+        }
+        targetMs = Math.round(bufEndSec * 1000) + 15;
+        if (session.lastContigEndMs && Math.abs(bufEndSec * 1000 - session.lastContigEndMs) < 600) {
+          targetMs = Math.max(targetMs, session.lastContigEndMs + 15);
+        }
+        if (durSec > 0 && targetMs >= durSec * 1000 - 200) {
+          session.reachedEof = true;
+          return;
+        }
+      }
+
+      session.inFlight = true;
+      const abortCtrl = new AbortController();
+      session.abortCtrl = abortCtrl;
+
+      try {
+        const baseUrl = await this.ensureDecipheredUrl(session);
+        if (!baseUrl || session.aborted) return;
+
+        const reqBytes = this.buildAbrRequestBytes(session, targetMs);
+        const u = new URL(baseUrl);
+        u.searchParams.set('alr', 'yes');
+        u.searchParams.set('rn', String(++session.rn));
+
+        const resp = await ORIGINAL_FETCH.call(window, u.toString(), {
+          method: 'POST',
+          body: reqBytes,
+          signal: abortCtrl.signal
+        });
+
+        if (session.aborted) return;
+        if (!resp.ok) {
+          console.log(TAG, `[UmpMse774] SABR POST HTTP ${resp.status} for ${session.videoId}`);
+          session.errorCount = (session.errorCount || 0) + 1;
+          if (session.errorCount >= 3) {
+            if (S.operationMode === OP_MODES.HYBRID_HQ && canHybridFailover(session.videoId, 'TVHTML5', 'YTM_HARVESTER')) {
+              handleHybridRuntimeFailover(session.videoId, 'TVHTML5', 'YTM_HARVESTER', `TV UMP HTTP ${resp.status}`);
+              return;
+            }
+            StudioEngine774.stopAndUnmute(`TV UMP HTTP ${resp.status}`);
+          }
+          return;
+        }
+
+        const buf = new Uint8Array(await resp.arrayBuffer());
+        if (session.aborted) return;
+
+        const demuxed = this.demuxUmp774(buf);
+        if (demuxed.nextPlaybackCookie) {
+          session.playbackCookie = demuxed.nextPlaybackCookie;
+        }
+        if (demuxed.redirectUrl) {
+          console.log(TAG, '[UmpMse774] Following SabrRedirect (part 42)...');
+          session.decipheredUrl = this.decipherSabrUrl(demuxed.redirectUrl) || demuxed.redirectUrl;
+          session.inFlight = false;
+          this.pump(session);
+          return;
+        }
+
+        if (demuxed.segments.length === 0) {
+          if (demuxed.sabrError) {
+            session.errorCount = (session.errorCount || 0) + 1;
+            if (session.errorCount >= 3) {
+              if (S.operationMode === OP_MODES.HYBRID_HQ && canHybridFailover(session.videoId, 'TVHTML5', 'YTM_HARVESTER')) {
+                handleHybridRuntimeFailover(session.videoId, 'TVHTML5', 'YTM_HARVESTER', 'TV UMP SabrError');
+                return;
+              }
+              StudioEngine774.stopAndUnmute('TV UMP SabrError');
+            }
+          } else if (session.hasInit && targetMs > 5000) {
+            session.reachedEof = true;
+          }
+          return;
+        }
+
+        session.errorCount = 0;
+        for (const seg of demuxed.segments) {
+          if (seg.isInit) {
+            if (!session.hasInit) {
+              session.appendQueue.push(seg.data);
+              session.hasInit = true;
+              console.log(TAG, `[UmpMse774] Queued 774 WebM Init Segment (${seg.data.length}B) for ${session.videoId}`);
+            }
+          } else {
+            if (session.lastAppendedSeq === seg.seq && bufEndSec !== null) {
+              session.lastContigEndMs = Math.max(session.lastContigEndMs || 0, seg.startMs + seg.durMs + 500);
+            } else {
+              session.appendQueue.push(seg.data);
+              session.lastAppendedSeq = seg.seq;
+              session.lastContigEndMs = seg.startMs + seg.durMs;
+              console.log(TAG, `[UmpMse774] ★ Demuxed 774 segment seq=${seg.seq} (${(seg.startMs / 1000).toFixed(2)}s..${((seg.startMs + seg.durMs) / 1000).toFixed(2)}s, ${seg.data.length}B)`);
+            }
+          }
+        }
+
+        this.flushQueue(session);
+      } catch (err) {
+        if (err?.name !== 'AbortError') {
+          console.log(TAG, '[UmpMse774] pump fetch error:', err);
+        }
+      } finally {
+        if (session.abortCtrl === abortCtrl) {
+          session.abortCtrl = null;
+        }
+        session.inFlight = false;
+      }
+    },
+
+    onSeek(targetSec) {
+      const session = this.session;
+      if (!session || session.aborted || !this.isActive || !session.sourceBuffer) return;
+      const cov = this.getBufferedEndFor(session.sourceBuffer, targetSec);
+      if (cov === null) {
+        // Target seek time is outside current MSE buffer -> abort any old in-flight fetch (if init already done) and pump immediately!
+        session.lastContigEndMs = 0;
+        session.lastAppendedSeq = -1;
+        session.reachedEof = false;
+        if (session.hasInit && session.abortCtrl) {
+          try { session.abortCtrl.abort(); } catch (e) {}
+          session.inFlight = false;
+        }
+        this.pump(session);
+      }
+    },
+
+    stopSession(session) {
+      if (!session || session.aborted) return;
+      session.aborted = true;
+      if (session.timer) {
+        clearInterval(session.timer);
+        session.timer = null;
+      }
+      if (session.abortCtrl) {
+        try { session.abortCtrl.abort(); } catch (e) {}
+        session.abortCtrl = null;
+      }
+      if (session.blobUrl) {
+        const oldUrl = session.blobUrl;
+        session.blobUrl = null;
+        setTimeout(() => {
+          try { URL.revokeObjectURL(oldUrl); } catch (e) {}
+        }, 1000);
+      }
+      if (this.session === session) {
+        this.session = null;
+        this.isActive = false;
+        this.videoId = null;
+      }
+    },
+
+    stop() {
+      if (this.session) {
+        this.stopSession(this.session);
+      }
+      this.isActive = false;
+      this.videoId = null;
+    },
+
+    attachAndLoad(videoId, best774, tvCtx) {
+      if (!videoId || !best774 || !tvCtx?.serverAbrStreamingUrl || !tvCtx?.ustreamerConfig) {
+        return false;
+      }
+      const isEngineHolding = (StudioEngine774.isActive && StudioEngine774.activeVideoId === videoId) ||
+                              (StudioEngine774.pending774 && StudioEngine774.pending774.videoId === videoId);
+      if (this.isActive && this.videoId === videoId && this.session && !this.session.aborted && isEngineHolding) {
+        return true;
+      }
+
+      this.stop();
+
+      const ustreamerBytes = pbDecodeBase64ToU8(tvCtx.ustreamerConfig);
+      if (!ustreamerBytes || ustreamerBytes.length < 16) {
+        console.log(TAG, '[UmpMse774] Invalid ustreamerConfig bytes');
+        return false;
+      }
+
+      const wrapVarint = (fn, val) => new Uint8Array([...pbEncodeVarint((fn << 3) | 0), ...pbEncodeVarint(val)]);
+      const wrapStr = (fn, str) => pbWrapLengthDelimited(fn, new TextEncoder().encode(str));
+      const lmt = BigInt(best774.lastModified || best774.last_modified || 0);
+      const fmtParts = [wrapVarint(1, 774), wrapVarint(2, lmt)];
+      if (typeof best774.xtags === 'string' && best774.xtags.length > 0) {
+        fmtParts.push(wrapStr(3, best774.xtags));
+      }
+      const fmt774Msg = pbConcatChunks(fmtParts);
+      const clientInfoMsg = pbConcatChunks([
+        wrapStr(1, 'vi'),
+        wrapStr(2, 'VN'),
+        wrapVarint(16, 7),
+        wrapStr(17, tvCtx.clientVersion || '7.20260728.17.00')
+      ]);
+
+      const mediaSource = new MediaSource();
+      const blobUrl = URL.createObjectURL(mediaSource);
+      const durationSec = Number(best774.approxDurationMs || 0) > 0
+        ? Number(best774.approxDurationMs) / 1000
+        : 0;
+
+      const session = {
+        videoId,
+        best774,
+        tvCtx,
+        ustreamerBytes,
+        fmt774Msg,
+        clientInfoMsg,
+        mediaSource,
+        blobUrl,
+        sourceBuffer: null,
+        decipheredUrl: null,
+        playbackCookie: null,
+        appendQueue: [],
+        hasInit: false,
+        inFlight: false,
+        aborted: false,
+        endedStream: false,
+        reachedEof: false,
+        rn: 0,
+        lastAppendedSeq: -1,
+        lastContigEndMs: 0,
+        durationSec,
+        abortCtrl: null,
+        timer: null,
+      };
+
+      this.session = session;
+      this.isActive = true;
+      this.videoId = videoId;
+
+      mediaSource.addEventListener('sourceopen', () => {
+        if (session.aborted || this.session !== session) return;
+        try {
+          if (session.durationSec > 0 && isFinite(session.durationSec)) {
+            mediaSource.duration = session.durationSec;
+          }
+          const sb = mediaSource.addSourceBuffer('audio/webm; codecs="opus"');
+          sb.mode = 'segments';
+          session.sourceBuffer = sb;
+
+          sb.addEventListener('updateend', () => {
+            if (session.aborted || this.session !== session) return;
+            if (session.appendQueue.length > 0) {
+              this.flushQueue(session);
+              return;
+            }
+            const v = getMainVideoElement();
+            const a = StudioEngine774.audio;
+            const cur = getVideoTimeFor(session.videoId);
+            const cov = this.getBufferedEndFor(sb, cur);
+            if (cov !== null) {
+              if (v && a && StudioEngine774.isActive) {
+                const audioCov = this.getBufferedEndFor(sb, a.currentTime);
+                // Only align audio.currentTime on initial segment or when audio is outside buffered range (e.g. after seek).
+                // NEVER seek audio while it is actively playing inside a valid buffered range!
+                if ((!session.initialSyncDone || audioCov === null) && !a.seeking) {
+                  session.initialSyncDone = true;
+                  if (cur > 0.8 || audioCov === null) {
+                    try { a.currentTime = cur; } catch (e) {}
+                  }
+                }
+                if (!v.paused && a.paused && !StudioEngine774.isAdActive()) {
+                  a.play().catch(() => {});
+                }
+              }
+              report();
+              // Pre-buffer up to 25s ahead immediately after initial segment arrives
+              if (cov - cur < 18.0 && !session.inFlight && !session.reachedEof) {
+                this.pump(session);
+              }
+            }
+          });
+
+          this.pump(session);
+          session.timer = setInterval(() => {
+            this.pump(session);
+          }, 400);
+        } catch (err) {
+          console.log(TAG, '[UmpMse774] sourceopen init error:', err);
+          StudioEngine774.stopAndUnmute('MSE SourceBuffer init failed');
+        }
+      }, { once: true });
+
+      const umpFmt = {
+        ...best774,
+        itag: 774,
+        _origItag: 774,
+        url: blobUrl,
+        _directUrl: blobUrl,
+        _isUmpMse: true,
+        _src: 'TVHTML5 (UMP 774)'
+      };
+
+      console.log(TAG, `[UmpMse774] Attaching MediaSource UMP 774 engine for ${videoId} (dur=${durationSec.toFixed(1)}s)`);
+      return StudioEngine774.load774(videoId, umpFmt);
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
   // STUDIO ENGINE 774 — Sophisticated High-Fidelity Audio Engine
   // Direct Hardware Opus Playback • Flawless Sync • Unified Player Binding
   // ═══════════════════════════════════════════════════════════════════
+  const initialVolState = readStoredYoutubeVolumeState();
   const StudioEngine774 = {
     audio: null,
     activeVideoId: null,
@@ -953,12 +1527,18 @@
     pending774: null,
     isActive: false,
     _isTransitioning: false,
+    _transitionTargetVid: null,
+    _transitionStartedAt: 0,
     _lastSeekTime: 0,
+    _lastUserMuteOrVolIntentAt: 0,
+    _lastUserSeekIntentAt: 0,
+    _initialMetaSynced: false,
     _waiterTimer: null,
     _watchdogTimer: null,
     _inSyncVol: false,
     _globalEventsHooked: false,
     _hookedVideos: new WeakSet(),
+    _userVol: initialVolState.volume,
     _userMuted: false,
     _userPaused: false,
     _isAudioBuffering: false,
@@ -974,6 +1554,31 @@
     _lastAudioAdvance: 0,
     _audioStalledAt: 0,
     _currentNormGain: 1.0,
+
+    hasRecentUserMuteOrVolIntent() {
+      return (Date.now() - (this._lastUserMuteOrVolIntentAt || 0)) < 1500;
+    },
+
+    hasRecentUserSeekIntent() {
+      return (Date.now() - (this._lastUserSeekIntentAt || 0)) < 2500;
+    },
+
+    isInTransitionWindow() {
+      return (Date.now() - (this._transitionStartedAt || 0)) < 3500;
+    },
+
+    isTimeBuffered(mediaEl, timeSec) {
+      if (!mediaEl || !mediaEl.buffered) return false;
+      try {
+        const b = mediaEl.buffered;
+        for (let i = 0; i < b.length; i++) {
+          if (timeSec >= b.start(i) - 0.25 && timeSec <= b.end(i) - 0.15) {
+            return true;
+          }
+        }
+      } catch (e) {}
+      return false;
+    },
 
     init() {
       if (!this.audio) {
@@ -999,8 +1604,9 @@
             return;
           }
           const currentVid = this.activeVideoId || getVideoIdFromUrl();
-          const currentSrc = this.best774Candidate?._src || status.activeMethod || 'YTM_HARVESTER';
-          console.warn(TAG, `[StudioEngine774] Stream error (code: ${err?.code}, message: ${err?.message}) on source: ${currentSrc}`);
+          const rawSrc = this.best774Candidate?._src || status.activeMethod || 'YTM_HARVESTER';
+          const currentSrc = String(rawSrc).includes('TVHTML5') ? 'TVHTML5' : 'YTM_HARVESTER';
+          console.log(TAG, `[StudioEngine774] Stream error (code: ${err?.code}, message: ${err?.message}) on source: ${currentSrc}`);
 
           if (err && (err.code === MediaError.MEDIA_ERR_NETWORK || err.code === MediaError.MEDIA_ERR_DECODE || err.code === 4)) {
             if ((this._reconnectAttempts || 0) < 3) {
@@ -1029,7 +1635,13 @@
           if (!this.isActive || this.isAdActive()) return;
           const video = getMainVideoElement();
           if (video) {
-            this.audio.currentTime = video.currentTime;
+            if (!this._initialMetaSynced) {
+              this._initialMetaSynced = true;
+              const vTime = getVideoTimeFor(this.activeVideoId);
+              if (vTime > 0.8 && Math.abs(this.audio.currentTime - vTime) > 0.35) {
+                try { this.audio.currentTime = vTime; } catch (e) {}
+              }
+            }
             this.audio.playbackRate = video.playbackRate || 1.0;
           }
         });
@@ -1043,21 +1655,16 @@
           if (this._isAudioBuffering) {
             this._isAudioBuffering = false;
             this._audioStalledAt = 0;
-            console.log(TAG, '[StudioEngine774] Audio buffer replenished. Resuming video sync...');
+            console.log(TAG, '[StudioEngine774] Audio buffer replenished. Master clock continues seamlessly.');
           }
-          const video = getMainVideoElement();
-          if (video && !video.seeking && !this._isSeeking && !this.audio.seeking) {
-            const diff = Math.abs(this.audio.currentTime - video.currentTime);
-            if (diff > 0.15) {
-              this.audio.currentTime = video.currentTime;
-            }
-          }
+          // CRITICAL: Never seek this.audio.currentTime = video.currentTime here!
+          // Seeking audio on canplay/canplaythrough causes a feedback loop of re-buffering and audio jumps.
         };
 
         this.audio.addEventListener('canplay', onAudioBufferReady);
         this.audio.addEventListener('canplaythrough', onAudioBufferReady);
 
-        // When 774 audio is ACTUALLY playing, seamlessly silence native video
+        // When 774 audio is ACTUALLY playing, seamlessly silence native video and align silent video to Master Clock audio
         this.audio.addEventListener('playing', () => {
           this._reconnectAttempts = 0;
           this._lastAudioTime = this.audio.currentTime;
@@ -1067,6 +1674,16 @@
             const video = getMainVideoElement();
             if (video) {
               this._silenceElement(video);
+              const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+              // Align silent video to master audio clock if video drifted while audio was buffering
+              if ((!playerVid || playerVid === this.activeVideoId) && !video.seeking && !this._isSeeking && !this._isInternalVideoSync) {
+                const diff = Math.abs(video.currentTime - this.audio.currentTime);
+                if (diff > 0.40 && this.isTimeBuffered(video, this.audio.currentTime)) {
+                  this._isInternalVideoSync = true;
+                  try { video.currentTime = this.audio.currentTime; } catch (e) {}
+                  setTimeout(() => { this._isInternalVideoSync = false; }, 250);
+                }
+              }
             }
           }
         });
@@ -1075,16 +1692,12 @@
           if (!this.isActive || this.isAdActive()) return;
           this._audioStalledAt = Date.now();
           this._isAudioBuffering = true;
-          // Never pause video during audio buffering: let video play smoothly
-          // and let micro-rate sync catch up when buffer arrives!
         });
 
         this.audio.addEventListener('stalled', () => {
           if (!this.isActive || this.isAdActive()) return;
           this._audioStalledAt = Date.now();
           this._isAudioBuffering = true;
-          // Network stall: normal progressive download pause by browser.
-          // NEVER pause video here to maintain buttery smooth playback!
         });
 
         this.audio.addEventListener('pause', () => {
@@ -1219,45 +1832,67 @@
     },
 
     _silenceElement(el) {
-      if (!el || el === this.audio || !this.isActive || this.isAdActive()) return;
+      if (!el || el === this.audio || (!this.isActive && !this._isTransitioning) || this.isAdActive()) return;
       this.hookVideoVolume(el);
-      try { descVolume.set.call(el, 0); } catch (e) {}
-      try { descMuted.set.call(el, true); } catch (e) {}
+      try {
+        if (descVolume.get.call(el) !== 0) {
+          descVolume.set.call(el, 0);
+        }
+      } catch (e) {}
+      try {
+        const targetMuted = Boolean(this._userMuted);
+        if (descMuted.get.call(el) !== targetMuted) {
+          descMuted.set.call(el, targetMuted);
+        }
+      } catch (e) {}
     },
 
     hookVideoVolume(video) {
       if (!video || video._ytssVolHooked) return;
       video._ytssVolHooked = true;
       try {
-        video._userVol = descVolume.get.call(video);
+        const rawV = descVolume.get.call(video);
+        video._userVol = (typeof rawV === 'number' && !isNaN(rawV) && rawV > 0)
+          ? rawV
+          : (this._userVol || readStoredYoutubeVolumeState().volume || 1.0);
       } catch (e) {
-        video._userVol = 1.0;
+        video._userVol = this._userVol || 1.0;
       }
+      video._userMuted = Boolean(this._userMuted);
 
       // 1. Intercept volume setter/getter
       try {
         Object.defineProperty(video, 'volume', {
           get() {
-            if (StudioEngine774.isActive) {
-              return this._userVol !== undefined ? this._userVol : 1.0;
+            if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
+              if (typeof this._userVol === 'number' && !isNaN(this._userVol) && (this._userVol > 0 || StudioEngine774._userMuted)) {
+                return this._userVol;
+              }
+              return StudioEngine774._userVol || 1.0;
             }
             return descVolume.get.call(this);
           },
           set(v) {
-            this._userVol = v;
-            if (v > 0 && !StudioEngine774.isUserMuted()) {
-              this._userMuted = false;
-              StudioEngine774._userMuted = false;
+            const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(1.0, v)) : 1.0;
+            if (numV > 0) {
+              this._userVol = numV;
+              StudioEngine774._userVol = numV;
+              if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+                this._userMuted = false;
+                StudioEngine774._userMuted = false;
+              }
+            } else if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+              this._userVol = 0;
+              this._userMuted = true;
+              StudioEngine774._userMuted = true;
             }
-            if (StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
+            if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
               StudioEngine774._silenceElement(this);
-              try { descVolume.set.call(this, 0); } catch (e) {}
-              try { descMuted.set.call(this, true); } catch (e) {}
-              if (StudioEngine774.audio) {
-                StudioEngine774.syncVolDirect(v);
+              if (StudioEngine774.audio && StudioEngine774.isActive) {
+                StudioEngine774.syncVolDirect(this._userVol ?? numV);
               }
             } else {
-              try { descVolume.set.call(this, v); } catch (e) {}
+              try { descVolume.set.call(this, numV); } catch (e) {}
             }
           },
           configurable: true
@@ -1268,28 +1903,31 @@
       try {
         Object.defineProperty(video, 'muted', {
           get() {
-            if (StudioEngine774.isActive) {
-              return this._userMuted !== undefined ? this._userMuted : StudioEngine774.isUserMuted();
+            if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
+              return Boolean(StudioEngine774._userMuted);
             }
             return descMuted.get.call(this);
           },
           set(m) {
-            this._userMuted = !!m;
-            StudioEngine774._userMuted = !!m;
-            if (StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
+            let targetMuted = !!m;
+            if (targetMuted && !StudioEngine774._userMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent() && (StudioEngine774._isTransitioning || StudioEngine774.isInTransitionWindow())) {
+              // Ignore spurious YouTube auto-mute during track transition
+              targetMuted = false;
+            }
+            this._userMuted = targetMuted;
+            StudioEngine774._userMuted = targetMuted;
+            if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
               StudioEngine774._silenceElement(this);
-              try { descVolume.set.call(this, 0); } catch (e) {}
-              try { descMuted.set.call(this, true); } catch (e) {}
-              if (StudioEngine774.audio) {
+              if (StudioEngine774.audio && StudioEngine774.isActive) {
                 if (StudioEngine774.isUserMuted()) {
                   StudioEngine774.audio.volume = 0;
                 } else {
-                  const curVol = (this._userVol !== undefined) ? this._userVol : 1.0;
-                  if (curVol > 0) StudioEngine774.syncVolDirect(curVol);
+                  const curVol = (typeof this._userVol === 'number' && this._userVol > 0) ? this._userVol : (StudioEngine774._userVol || 1.0);
+                  StudioEngine774.syncVolDirect(curVol);
                 }
               }
             } else {
-              try { descMuted.set.call(this, m); } catch (e) {}
+              try { descMuted.set.call(this, targetMuted); } catch (e) {}
             }
           },
           configurable: true
@@ -1314,8 +1952,8 @@
         if (!v || v === this.audio) return;
         const savedVol = (typeof v._userVol === 'number' && !isNaN(v._userVol) && v._userVol > 0)
           ? v._userVol
-          : null;
-        const isMuted = this.isUserMuted();
+          : (this._userVol || 1.0);
+        const isMuted = Boolean(this._userMuted);
 
         delete v._ytssVolHooked;
         delete v.volume;
@@ -1356,6 +1994,36 @@
       if (this._globalEventsHooked) return;
       this._globalEventsHooked = true;
 
+      // Track explicit user interactions for Mute/Volume vs Seek so we never confuse
+      // internal YouTube transition/buffer glitches with genuine user actions
+      const markPointerIntent = (e) => {
+        const t = e.target;
+        if (!t || typeof t.closest !== 'function') return;
+        if (t.closest('.ytp-mute-button, .ytp-volume-panel, .ytp-volume-area, .ytp-volume-slider, .ytp-volume-slider-handle')) {
+          this._lastUserMuteOrVolIntentAt = Date.now();
+        }
+        if (t.closest('.ytp-progress-bar, .ytp-progress-bar-container, .ytp-scrubber-container, .ytp-chapter-container, .ytp-fine-scrubbing-container, a[href*="t="], ytd-macro-markers-list-item-renderer')) {
+          this._lastUserSeekIntentAt = Date.now();
+        }
+      };
+      ['pointerdown', 'mousedown', 'touchstart', 'click', 'wheel'].forEach(evt => {
+        document.addEventListener(evt, markPointerIntent, { capture: true, passive: true });
+      });
+
+      document.addEventListener('keydown', (e) => {
+        const tag = e.target?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+        const k = e.key;
+        const c = e.code;
+        if (k === 'm' || k === 'M' || c === 'KeyM' || k === 'AudioVolumeMute' || k === 'ArrowUp' || k === 'ArrowDown') {
+          this._lastUserMuteOrVolIntentAt = Date.now();
+        }
+        if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'j' || k === 'J' || k === 'l' || k === 'L' ||
+            k === 'Home' || k === 'End' || k === ',' || k === '.' || (k >= '0' && k <= '9')) {
+          this._lastUserSeekIntentAt = Date.now();
+        }
+      }, { capture: true, passive: true });
+
       // HTML5 video events do not bubble, so we capture them at the document root
       const onVideoEvent = (e) => {
         if (!e.target || e.target.tagName !== 'VIDEO' || e.target.id === 'ytss-studio-774') return;
@@ -1365,6 +2033,9 @@
         if (!video.closest('#movie_player, ytd-miniplayer, .html5-video-player') && !video.classList.contains('html5-main-video')) return;
         const curVid = getVideoIdFromUrl();
         if (curVid && confirmedNo774Videos.has(curVid)) {
+          if (this.isActive || this._isTransitioning) {
+            this.stopAndUnmute('Video has no 774', curVid);
+          }
           return; // Confirmed NO 774: do not touch native video!
         }
         this.hookVideo(video);
@@ -1377,15 +2048,28 @@
           }
         }
 
-        if (this.isActive && !this.isAdActive()) {
+        if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
           this._silenceElement(video);
         }
 
         if (!this.isActive || !this.audio) return;
 
+        // Guard: if StudioEngine774 is already attached to the new target video while #movie_player
+        // is still tearing down the outgoing video, ignore outgoing video's time/seek/pause events!
+        const activePlayerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+        if (activePlayerVid && this.activeVideoId && activePlayerVid !== this.activeVideoId) {
+          if (!isCurrentWatchVideo(this.activeVideoId)) {
+            this.prepareTransition(getVideoIdFromUrl());
+          }
+          return;
+        }
+
         // 1. Seeking & Seeked — Process BEFORE document.hidden check so background seeking works!
         if (e.type === 'seeking') {
-          if (this._isVolScrubbing || this._isInternalVideoSync) return;
+          if (this._isVolScrubbing || this._isInternalVideoSync || this._isTabResyncing) return;
+          const drift = Math.abs(this.audio.currentTime - video.currentTime);
+          const isRealSeek = this.hasRecentUserSeekIntent() || drift > 1.8;
+          if (!isRealSeek) return;
           this._isSeeking = true;
           this._hasDispatchedEnded = false;
           if (!this.isAdActive()) {
@@ -1403,14 +2087,20 @@
           }
           this._isSeeking = false;
           this._hasDispatchedEnded = false;
-          this._lastSeekTime = Date.now();
           if (!this.isAdActive()) {
             this._silenceElement(video);
             this.syncVol(video);
-            // Master Clock Lock: only sync audio to video if drift is significant (manual user scrubbing)
-            const drift = Math.abs(this.audio.currentTime - video.currentTime);
-            if (drift > 0.35) {
-              this.audio.currentTime = video.currentTime;
+            // Master Clock Lock: only seek audio to video if user explicitly sought or drift is large (> 1.8s).
+            // Never jump audio on small internal YouTube MSE/ABR video seeks caused by browser lag!
+            const vTargetSec = getVideoTimeFor(this.activeVideoId);
+            const drift = Math.abs(this.audio.currentTime - vTargetSec);
+            const isUserSeek = this.hasRecentUserSeekIntent();
+            if ((isUserSeek && drift > 0.25) || drift > 1.8) {
+              this._lastSeekTime = Date.now();
+              this.audio.currentTime = vTargetSec;
+              if (UmpMseController774.isActive) {
+                UmpMseController774.onSeek(vTargetSec);
+              }
             }
             this.audio.playbackRate = video.playbackRate;
             if (!video.paused && this.audio.paused) {
@@ -1449,8 +2139,9 @@
             this.syncVol(video);
             this.audio.playbackRate = video.playbackRate;
             if (this.audio.paused) {
-              if (Math.abs(this.audio.currentTime - video.currentTime) > 1.0) {
-                this.audio.currentTime = video.currentTime;
+              const vTargetSec = getVideoTimeFor(this.activeVideoId);
+              if (Math.abs(this.audio.currentTime - vTargetSec) > 1.0) {
+                this.audio.currentTime = vTargetSec;
               }
               this.audio.play().catch(() => {});
             }
@@ -1473,7 +2164,7 @@
           this._userPaused = false;
           // Playback Safety Guard: verify audio engine is playing for current active video
           if (this.isActive && this.activeVideoId && !isCurrentWatchVideo(this.activeVideoId)) {
-            console.warn(TAG, `[PlaybackSafetyGuard] Audio engine playing ${this.activeVideoId} but video is no longer active! Preparing transition.`);
+            console.log(TAG, `[PlaybackSafetyGuard] Audio engine playing ${this.activeVideoId} but video is no longer active! Preparing transition.`);
             this.prepareTransition(getVideoIdFromUrl());
             return;
           }
@@ -1488,9 +2179,11 @@
           this.audio.playbackRate = video.playbackRate;
 
           if (this.audio.paused) {
-            const diff = Math.abs(this.audio.currentTime - video.currentTime);
-            if (diff > 0.1) {
-              this.audio.currentTime = video.currentTime;
+            const vTargetSec = getVideoTimeFor(this.activeVideoId);
+            const diff = Math.abs(this.audio.currentTime - vTargetSec);
+            // Only align audio.currentTime when resuming from paused if drift is > 0.6s
+            if (diff > 0.6) {
+              this.audio.currentTime = vTargetSec;
             }
             this.audio.playbackRate = video.playbackRate || 1.0;
             this.audio.play().catch((err) => {
@@ -1508,6 +2201,11 @@
         } else if (e.type === 'pause') {
           if (video.ended) {
             // Video ended naturally; do NOT abruptly kill audio while audio is finishing
+            return;
+          }
+          // Ignore transient video pause if YouTube player is merely buffering (state === 3)
+          const pState = document.getElementById('movie_player')?.getPlayerState?.();
+          if (pState === 3) {
             return;
           }
           if (!document.hidden && !this._isInternalVideoSync) {
@@ -1553,8 +2251,8 @@
         player._ytssEventsHooked = true;
 
         const handleVolumeChange = (data) => {
-          const isMuted = data ? !!data.muted : (typeof player.isMuted === 'function' && player.isMuted());
-          let vol = 1.0;
+          let isMuted = data ? !!data.muted : (typeof player.isMuted === 'function' && player.isMuted());
+          let vol = this._userVol || 1.0;
           if (data && typeof data.volume === 'number' && !isNaN(data.volume)) {
             vol = data.volume / 100;
           } else if (typeof player.getVolume === 'function') {
@@ -1563,18 +2261,31 @@
           }
           vol = Math.max(0, Math.min(1.0, vol));
 
-          this._userMuted = isMuted;
+          // Guard against YouTube's spurious auto-mute during track selection / transition
+          if (isMuted && !this._userMuted && !this.hasRecentUserMuteOrVolIntent() && (this._isTransitioning || this.isInTransitionWindow())) {
+            isMuted = false;
+            if (typeof player.unMute === 'function') {
+              try { player.unMute(); } catch (e) {}
+            }
+          }
+
+          if (this.hasRecentUserMuteOrVolIntent() || !isMuted) {
+            this._userMuted = isMuted;
+          }
+          if (vol > 0) {
+            this._userVol = vol;
+          }
           const mainV = getMainVideoElement();
           if (mainV) {
-            mainV._userMuted = isMuted;
-            mainV._userVol = vol;
+            mainV._userMuted = this._userMuted;
+            if (vol > 0) mainV._userVol = vol;
           }
 
           if (this.isActive && !this.isAdActive() && this.audio) {
-            if (isMuted || vol <= 0) {
+            if (this._userMuted || vol <= 0) {
               this.audio.volume = 0;
             } else {
-              this.syncVolDirect(vol);
+              this.syncVolDirect(this._userVol);
             }
           }
         };
@@ -1583,8 +2294,31 @@
 
         let isPlaybackEnded = false;
         const handleVideoDataChange = () => {
-          const newVid = player.getVideoData?.()?.video_id || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
-          if (newVid && (newVid !== this.activeVideoId || !this.isActive)) {
+          const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+          const pVid = player.getVideoData?.()?.video_id || null;
+          // During SPA transition, player.getVideoData().video_id often lags on the outgoing track
+          // while onStateChange fires. Never let the outgoing track override the transition target!
+          if (this._isTransitioning && this._transitionTargetVid && pVid && pVid !== this._transitionTargetVid) {
+            return;
+          }
+          if (urlVid && pVid && pVid !== urlVid && navTargetVideoId === urlVid) {
+            return;
+          }
+          const newVid = pVid || urlVid;
+          if (!newVid) return;
+
+          if (confirmedNo774Videos.has(newVid)) {
+            this.activeVideoId = newVid;
+            if (this.isActive || this._isTransitioning) {
+              this.stopAndUnmute('Video has no 774', newVid);
+            }
+            return;
+          }
+
+          if (newVid !== this.activeVideoId || !this.isActive) {
+            if (this._transitionTargetVid === newVid && pendingFetches.has(newVid)) {
+              return;
+            }
             console.log(TAG, `[PlayerVideoDataChange] Video active inside player: ${newVid} (was ${this.activeVideoId}, active: ${this.isActive})`);
             navTargetVideoId = newVid;
             failedSourcesPerVideo.delete(newVid);
@@ -1593,15 +2327,7 @@
             NextVideoManager.reset(newVid);
             isPlaybackEnded = false;
 
-            if (confirmedNo774Videos.has(newVid)) {
-              this.activeVideoId = newVid;
-              if (this.isActive) {
-                this.stopAndUnmute('Video has no 774', newVid);
-              }
-              return;
-            }
-
-            if (newVid !== this.activeVideoId) {
+            if (newVid !== this.activeVideoId && this._transitionTargetVid !== newVid) {
               // Seamless transition: maintain native silence so 251 never blasts during track load
               this.prepareTransition(newVid);
             }
@@ -1625,14 +2351,7 @@
               if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0) {
                 this.load774(newVid, playable[0]);
               } else if (all774.length > 0) {
-                this.stopAndUnmute('Native TV 774 stream', newVid);
-                const best774 = all774[0];
-                status.activeAudioItag = 774;
-                status.activeMethod = best774._src || 'TVHTML5';
-                status.fallbackReason = null;
-                status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
-                report();
-                if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+                noteTvNative774(all774[0], all774.length, newVid, cached?.streamingContext || null);
               } else {
                 this.stopAndUnmute('No 774 stream available for this video', newVid);
               }
@@ -1694,23 +2413,39 @@
       if (!player._ytssMethodsHooked && typeof player.setVolume === 'function') {
         player._ytssMethodsHooked = true;
 
+        const origSeekTo = player.seekTo;
+        if (typeof origSeekTo === 'function') {
+          player.seekTo = (...args) => {
+            this._lastUserSeekIntentAt = Date.now();
+            return origSeekTo.apply(player, args);
+          };
+        }
+
         const origSetVol = player.setVolume;
         player.setVolume = (v) => {
           if (v > 0) {
+            this._userVol = Math.max(0, Math.min(1.0, v / 100));
             this._userMuted = false;
             const mainV = getMainVideoElement();
-            if (mainV) mainV._userMuted = false;
-          } else {
+            if (mainV) {
+              mainV._userVol = this._userVol;
+              mainV._userMuted = false;
+            }
+          } else if (this.hasRecentUserMuteOrVolIntent()) {
+            this._userVol = 0;
             this._userMuted = true;
             const mainV = getMainVideoElement();
-            if (mainV) mainV._userMuted = true;
+            if (mainV) {
+              mainV._userVol = 0;
+              mainV._userMuted = true;
+            }
           }
           const res = origSetVol.call(player, v);
-          if (this.isActive && !this.isAdActive()) {
+          if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
             const mainV = getMainVideoElement();
             if (mainV) this._silenceElement(mainV);
-            if (this.audio) {
-              this.syncVolDirect(v / 100);
+            if (this.audio && this.isActive) {
+              this.syncVolDirect(this._userVol);
             }
           }
           return res;
@@ -1719,11 +2454,17 @@
         const origMute = player.mute;
         if (typeof origMute === 'function') {
           player.mute = () => {
+            if (!this._userMuted && !this.hasRecentUserMuteOrVolIntent() && (this._isTransitioning || this.isInTransitionWindow())) {
+              // Suppress spurious YouTube auto-mute during track switch
+              const mainV = getMainVideoElement();
+              if (mainV) this._silenceElement(mainV);
+              return;
+            }
             this._userMuted = true;
             const mainV = getMainVideoElement();
             if (mainV) mainV._userMuted = true;
             const res = origMute.call(player);
-            if (this.isActive && !this.isAdActive()) {
+            if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
               const mainV = getMainVideoElement();
               if (mainV) this._silenceElement(mainV);
               if (this.audio) {
@@ -1741,11 +2482,11 @@
             const mainV = getMainVideoElement();
             if (mainV) mainV._userMuted = false;
             const res = origUnmute.call(player);
-            if (this.isActive && !this.isAdActive()) {
+            if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
               const mainV = getMainVideoElement();
               if (mainV) this._silenceElement(mainV);
-              if (this.audio) {
-                const curVol = (typeof player.getVolume === 'function') ? player.getVolume() : 100;
+              if (this.audio && this.isActive) {
+                const curVol = (typeof player.getVolume === 'function') ? player.getVolume() : ((this._userVol || 1.0) * 100);
                 this.syncVolDirect(curVol / 100);
               }
             }
@@ -1757,7 +2498,13 @@
 
     prepareTransition(newVid) {
       console.log(TAG, `[StudioEngine774] Preparing transition to: ${newVid}`);
+      if (UmpMseController774.isActive && UmpMseController774.videoId !== newVid) {
+        UmpMseController774.stop();
+      }
       this._isTransitioning = true;
+      this._transitionTargetVid = newVid || null;
+      this._transitionStartedAt = Date.now();
+      this._initialMetaSynced = false;
       this.isActive = false;
       this.activeVideoId = null;
       this.best774Candidate = null;
@@ -1784,19 +2531,11 @@
           this.audio.load();
         } catch (e) {}
       }
+      this.silenceNativeVideo();
     },
 
     isUserMuted() {
-      const player = document.getElementById('movie_player');
-      if (player && typeof player.isMuted === 'function') {
-        try {
-          if (player.isMuted()) return true;
-        } catch (e) {}
-      }
-      const v = getMainVideoElement();
-      if (v && v._userVol === 0) return true;
-      if (v && typeof v._userMuted === 'boolean') return v._userMuted;
-      return !!this._userMuted;
+      return Boolean(this._userMuted);
     },
 
     getUserVolume() {
@@ -1805,14 +2544,17 @@
       if (player && typeof player.getVolume === 'function') {
         try {
           const v = player.getVolume();
-          if (typeof v === 'number' && !isNaN(v)) return Math.max(0, Math.min(1.0, v / 100));
+          if (typeof v === 'number' && !isNaN(v) && v > 0) {
+            this._userVol = Math.max(0, Math.min(1.0, v / 100));
+            return this._userVol;
+          }
         } catch (e) {}
       }
       const video = getMainVideoElement();
-      if (video && typeof video._userVol === 'number') {
+      if (video && typeof video._userVol === 'number' && video._userVol > 0) {
         return Math.max(0, Math.min(1.0, video._userVol));
       }
-      return 1.0;
+      return (typeof this._userVol === 'number' && this._userVol > 0) ? this._userVol : 1.0;
     },
 
     updateNormalizedGain() {
@@ -1828,10 +2570,8 @@
       if (!this.isActive || !this.audio) return;
       this._markVolScrubbing();
       if (this.isAdActive()) return;
-      if (v > 0 && this.isUserMuted()) {
-        this._userMuted = false;
-        const mainV = getMainVideoElement();
-        if (mainV) mainV._userMuted = false;
+      if (v > 0) {
+        this._userVol = Math.max(0, Math.min(1.0, v));
       }
       const target = (this.isUserMuted() || v <= 0) ? 0 : Math.max(0, Math.min(1.0, v));
       if (Math.abs(this.audio.volume - target) > 0.005) {
@@ -1854,6 +2594,13 @@
         if (this.isAdActive()) {
           this.restoreNativeVideo(mainVideo);
           return;
+        }
+        // Ensure YouTube UI mute button is never stuck muted when user did not mute
+        if (!this._userMuted && !this.hasRecentUserMuteOrVolIntent()) {
+          const p = document.getElementById('movie_player');
+          if (p && typeof p.isMuted === 'function' && p.isMuted() && typeof p.unMute === 'function') {
+            try { p.unMute(); } catch (e) {}
+          }
         }
         if (this.isUserMuted()) {
           this.audio.volume = 0;
@@ -1974,14 +2721,18 @@
     _reconnectStream(reason = '') {
       if (!this.isActive || !this.best774Candidate) return;
       const video = getMainVideoElement();
-      const targetTime = video ? video.currentTime : (this.audio ? this.audio.currentTime : 0);
+      const targetTime = (this.audio && this.audio.currentTime > 0) ? this.audio.currentTime : (video ? getVideoTimeFor(this.activeVideoId) : 0);
+      if (this.best774Candidate._isUmpMse && UmpMseController774.isActive) {
+        UmpMseController774.onSeek(targetTime);
+        return;
+      }
       const rawUrl = this.best774Candidate.url || this.best774Candidate._directUrl;
       const streamUrl = cleanStreamUrl(rawUrl);
       if (!streamUrl) return;
 
       this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
       if (this._reconnectAttempts > 4) {
-        console.warn(TAG, '[StudioEngine774] Exceeded max reconnect attempts');
+        console.log(TAG, '[StudioEngine774] Exceeded max reconnect attempts');
         if (S.operationMode === OP_MODES.HYBRID_HQ) {
           const currentVid = this.activeVideoId || getVideoIdFromUrl();
           const currentSrc = this.best774Candidate?._src || status.activeMethod || 'YTM_HARVESTER';
@@ -2047,20 +2798,32 @@
         document.querySelectorAll('video').forEach(v => {
           if (v !== this.audio) {
             const vVol = descVolume.get.call(v);
-            const vMuted = descMuted.get.call(v);
-            if (vVol > 0 || vMuted === false) {
+            if (vVol > 0) {
               this._silenceElement(v);
             }
           }
         });
       } catch (e) {}
 
-      // 0b. Audio Volume & Mute Sync Guard: keep 774 audio strictly in sync with player mute/volume state
+      // 0b. Audio Volume & UI Mute Sync Guard: keep 774 audio and player UI mute icon strictly in sync
       if (!this._isVolScrubbing) {
+        if (!this._userMuted && !this.hasRecentUserMuteOrVolIntent()) {
+          const p = document.getElementById('movie_player');
+          if (p && typeof p.isMuted === 'function' && p.isMuted() && typeof p.unMute === 'function') {
+            try { p.unMute(); } catch (e) {}
+          }
+        }
         const targetVol = this.getUserVolume();
         if (Math.abs(this.audio.volume - targetVol) > 0.01) {
           this.audio.volume = targetVol;
         }
+      }
+
+      // If #movie_player has not yet finished transitioning its video_id to activeVideoId,
+      // do not compare clocks or pause states against the outgoing video!
+      const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+      if (playerVid && this.activeVideoId && playerVid !== this.activeVideoId) {
+        return;
       }
 
       if (document.hidden) {
@@ -2077,15 +2840,6 @@
             this._isInternalVideoSync = true;
             video.currentTime = aTime;
             setTimeout(() => { this._isInternalVideoSync = false; }, 200);
-          }
-          // Video ahead of audio (user sought forward while tab was hidden): align audio to video
-          else if (drift < -1.5 && !video.seeking && !this._isAudioBuffering) {
-            const now = Date.now();
-            const canHardSeek = (now - (this._lastSeekTime || 0) > 3000) && !this._isSeeking && !this.audio.seeking;
-            if (canHardSeek) {
-              this._lastSeekTime = now;
-              this.audio.currentTime = vTime;
-            }
           }
 
           if (video.duration && aTime >= video.duration - 0.5) {
@@ -2117,6 +2871,11 @@
           }
           return;
         }
+        // Do not pause audio if YouTube player is merely buffering video (state === 3)
+        const pState = document.getElementById('movie_player')?.getPlayerState?.();
+        if (pState === 3) {
+          return;
+        }
         if (!this.audio.paused) {
           this.audio.pause();
         }
@@ -2134,7 +2893,7 @@
       if (Math.abs(aTime - this._lastAudioTime) < 0.05 && !this.audio.paused) {
         const stalledDuration = Date.now() - (this._lastAudioAdvance || Date.now());
         if (stalledDuration > 8000) {
-          console.warn(TAG, `[StudioEngine774 Watchdog] Audio frozen at ${aTime.toFixed(2)}s for ${(stalledDuration / 1000).toFixed(1)}s (video at ${vTime.toFixed(2)}s). Auto-recovering...`);
+          console.log(TAG, `[StudioEngine774 Watchdog] Audio frozen at ${aTime.toFixed(2)}s for ${(stalledDuration / 1000).toFixed(1)}s (video at ${vTime.toFixed(2)}s). Auto-recovering...`);
           this._lastAudioAdvance = Date.now();
           if (stalledDuration > 15000) {
             this._reconnectStream('Watchdog detected frozen stream');
@@ -2154,21 +2913,27 @@
       }
 
       // 3. Keep playbackRate strictly 1:1 with video at all times.
-      // NEVER micro-adjust rate! Any rate !== 1.0 triggers Chromium's WSOLA time-stretcher,
-      // which introduces comb filtering, robotic raspiness, and resampler crackle ("bị rè").
       const userRate = video.playbackRate || 1.0;
       if (this.audio.playbackRate !== userRate) {
         this.audio.playbackRate = userRate;
       }
 
+      // 4. MASTER CLOCK CONTINUITY:
+      // <audio> is the Master Clock! NEVER seek this.audio.currentTime = vTime while audio is playing,
+      // because browser/GPU/video lag would yank the audio backward and cause the song to jump/repeat!
+      // Instead, if silent <video> drifts away from <audio> by > 0.65s, gently align <video> to <audio>.
       const drift = aTime - vTime;
       const absDiff = Math.abs(drift);
       const now = Date.now();
-      const canHardSeek = (now - (this._lastSeekTime || 0) > 1500) && !this._isSeeking && !this.audio.seeking;
+      const canResyncVideo = (now - (this._lastSeekTime || 0) > 3000) && !this._isSeeking && !this.audio.seeking && !video.seeking;
 
-      if (absDiff > 0.20 && !this._isAudioBuffering && canHardSeek) {
-        this._lastSeekTime = now;
-        this.audio.currentTime = vTime;
+      if (absDiff > 0.65 && !this._isAudioBuffering && !this.audio.paused && canResyncVideo) {
+        if (this.isTimeBuffered(video, aTime)) {
+          this._lastSeekTime = now;
+          this._isInternalVideoSync = true;
+          try { video.currentTime = aTime; } catch (e) {}
+          setTimeout(() => { this._isInternalVideoSync = false; }, 250);
+        }
       }
     },
 
@@ -2180,8 +2945,8 @@
       const streamUrl = cleanStreamUrl(best774.url || best774._directUrl);
       if (!streamUrl) return false;
 
-      // If already active and playing this stream for this video, do NOT reset currentTime!
-      if (this.isActive && this.activeVideoId === videoId && this.audio && this.audio.src === streamUrl) {
+      // If already active and playing 774 for this exact video without error, NEVER reload/rewind!
+      if (this.isActive && this.activeVideoId === videoId && this.audio && this.audio.src && !this.audio.error) {
         this.syncVol(mainVideo);
         return true;
       }
@@ -2190,6 +2955,8 @@
       this.activeVideoId = videoId;
       this.best774Candidate = best774;
       this._isTransitioning = false;
+      this._transitionTargetVid = null;
+      this._initialMetaSynced = false;
       this.isActive = true;
       this._reconnectAttempts = 0;
       this._isAudioBuffering = false;
@@ -2212,9 +2979,15 @@
         this.audio.load();
       }
 
-      try {
-        this.audio.currentTime = mainVideo.currentTime || 0;
-      } catch (e) {}
+      // Only seek audio on initial attach if video is already past 0.8s for THIS exact videoId!
+      // Using getVideoTimeFor(videoId) prevents reading the outgoing track's currentTime during SPA transitions.
+      const startSec = getVideoTimeFor(videoId);
+      if (startSec > 0.8) {
+        try {
+          this.audio.currentTime = startSec;
+          this._initialMetaSynced = true;
+        } catch (e) {}
+      }
       this.audio.playbackRate = mainVideo.playbackRate || 1.0;
 
       this.syncVol(mainVideo);
@@ -2243,7 +3016,7 @@
       report();
       if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
 
-      console.log(TAG, `[StudioEngine774] Successfully loaded ITAG 774 for ${videoId} at ${mainVideo.currentTime.toFixed(2)}s`);
+      console.log(TAG, `[StudioEngine774] Successfully loaded ITAG 774 for ${videoId} at ${startSec.toFixed(2)}s`);
       return true;
     },
 
@@ -2258,8 +3031,8 @@
       const streamUrl = cleanStreamUrl(best774.url || best774._directUrl);
       if (!streamUrl) return false;
 
-      // If already active and playing this exact video with this stream, do not reload/rewind!
-      if (this.isActive && this.activeVideoId === videoId && this.audio && (this.audio.src === streamUrl || this.best774Candidate?.url === streamUrl)) {
+      // If already active and playing 774 for this exact video without error, do not reload/rewind!
+      if (this.isActive && this.activeVideoId === videoId && this.audio && this.audio.src && !this.audio.error) {
         const mainVideo = getMainVideoElement();
         if (mainVideo) this.syncVol(mainVideo);
         return true;
@@ -2272,6 +3045,12 @@
         this.pending774 = { videoId, best774 };
         this.activeVideoId = videoId;
         this.best774Candidate = best774;
+        if (isCurrent && this.audio && this.audio.src !== streamUrl) {
+          try {
+            this.audio.src = streamUrl;
+            this.audio.load();
+          } catch (e) {}
+        }
         this.waitForVideo();
 
         status.activeAudioItag = 774;
@@ -2283,10 +3062,12 @@
         return true;
       }
 
-      // If mainVideo is currently playing an earlier video (e.g. pre-warming upcoming track),
+      // If mainVideo is currently playing an earlier video (e.g. pre-warming upcoming track at 15s remaining),
       // do NOT cut off the current track! Store as pending and apply when player switches.
+      // However, if the user explicitly initiated a transition to videoId (navTargetVideoId === videoId or _transitionTargetVid === videoId),
+      // attach immediately at 0.00s!
       const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
-      if (playerVid && playerVid !== videoId) {
+      if (playerVid && playerVid !== videoId && navTargetVideoId !== videoId && this._transitionTargetVid !== videoId) {
         console.log(TAG, `[StudioEngine774] Storing 774 for upcoming track ${videoId} (player currently at ${playerVid})`);
         this.pending774 = { videoId, best774 };
         return true;
@@ -2301,11 +3082,14 @@
         confirmedNo774Videos.add(vId);
       }
 
+      UmpMseController774.stop();
+
       if (!this.isActive && !this._isTransitioning && !this.pending774) {
         return; // Already cleanly running native; do not disrupt video!
       }
-      const wasActive = this.isActive;
+      const wasActive = this.isActive || this._isTransitioning;
       this._isTransitioning = false;
+      this._transitionTargetVid = null;
       this.isActive = false;
       this.activeVideoId = vId;
       this.best774Candidate = null;
@@ -2347,7 +3131,8 @@
       if (p && typeof p.isMuted === 'function' && p.isMuted() && !this._userMuted) {
         try { p.unMute(); } catch (e) {}
       }
-      if (reason !== 'Native TV 774 stream') {
+      const isTvNativeReason = Boolean(reason && reason.includes('Native TV 774'));
+      if (!isTvNativeReason) {
         sabrRewrite.on = false;
         sabrRewrite.videoId = null;
         status.activeAudioItag = 251;
@@ -2357,7 +3142,7 @@
         report();
         if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
       }
-      if (reason === 'Native TV 774 stream') {
+      if (isTvNativeReason) {
         console.log(TAG, '[StudioEngine774] Using native TV 774 (SABR/disguise) — dual engine off');
       } else if (reason) {
         console.log(TAG, `[StudioEngine774] Fallback to native. Reason: ${reason}`);
@@ -2504,24 +3289,11 @@
       const nextVid = this.nextVideoId;
       if (!nextVid || !VIDEO_ID_RE.test(nextVid) || nextVid === this.currentVideoId) return;
 
-      // Call 1: Triggered when entering the <= 3.0s window
+      // Trigger prefetch once when entering the <= 3.0s window (do NOT fire a competing forceFresh Call 2 that races with transition!)
       if (!this.hasFetchedCall1) {
         this.hasFetchedCall1 = true;
-        console.log(TAG, `[NextVideoManager] In last 3s (${remaining.toFixed(2)}s left) -> Triggering prefetch Call 1 for next video ${nextVid} (autoplay/playlist active)`);
+        console.log(TAG, `[NextVideoManager] In last 3s (${remaining.toFixed(2)}s left) -> Triggering prefetch for next video ${nextVid} (autoplay/playlist active)`);
         fetchAllHQAudio(nextVid, { isNextPrefetch: true }).then(hqData => {
-          const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
-          const playable = getPlayable774Candidates(formats);
-          if (playable.length > 0) {
-            StudioEngine774.load774(nextVid, playable[0]);
-          }
-        }).catch(() => {});
-      }
-
-      // Call 2: Triggered at <= 1.5s remaining (or ~1.5s later within the 3s window)
-      if (this.hasFetchedCall1 && !this.hasFetchedCall2 && remaining <= 1.5 && remaining > 0) {
-        this.hasFetchedCall2 = true;
-        console.log(TAG, `[NextVideoManager] In last 1.5s (${remaining.toFixed(2)}s left) -> Triggering prefetch Call 2 (refresh/confirm) for next video ${nextVid}`);
-        fetchAllHQAudio(nextVid, { isNextPrefetch: true, forceFresh: true }).then(hqData => {
           const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
           const playable = getPlayable774Candidates(formats);
           if (playable.length > 0) {
@@ -2540,7 +3312,7 @@
       this.reset(vid);
 
       // Auto-upgrade watchdog: if not currently active on 774 and not in an ad, attempt upgrade straight to 774
-      const isTvSabrActive = status.activeAudioItag === 774 && (status.activeMethod === 'TVHTML5' || status.activeMethod === 'TV_HEADLESS');
+      const isTvSabrActive = (status.activeAudioItag === 774 && String(status.activeMethod).includes('TV')) || sabrRewrite.downgradedVideoId === vid;
       if (!StudioEngine774.isActive && !isTvSabrActive && !StudioEngine774.isAdActive() && !confirmedNo774Videos.has(vid) && isCurrentWatchVideo(vid)) {
         tryUpgradeVideo(vid, 'NextVideoManagerTick');
       }
@@ -2578,11 +3350,12 @@
     status.prewarmStatus = `pre-fetching ${videoId}…`;
     report();
     fetchAllHQAudio(videoId, opts).then(hqData => {
+      if (hqData?.cancelled) return;
       const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
       const tvCtx = hqData?.streamingContext || null;
       const count = formats.length;
       status.prewarmStatus = (count > 0 || tvCtx)
-        ? `ready: ${count} formats${tvCtx ? ' + TV SABR' : ''}`
+        ? `ready: ${count} formats${tvCtx ? ' + TV UMP' : ''}`
         : 'no HQ formats';
       report();
       console.log(TAG, `[Pre-warm] ${status.prewarmStatus} for ${videoId}`);
@@ -2590,16 +3363,15 @@
       const playableCandidates = getPlayable774Candidates(formats);
       const all774Candidates = getAll774Candidates(formats);
 
-      if (playableCandidates.length > 0) {
+      if (playableCandidates.length > 0 && S.operationMode !== OP_MODES.TV_HEADLESS) {
         if (isCurrentWatchVideo(videoId)) {
           StudioEngine774.load774(videoId, playableCandidates[0]);
         } else if (typeof NextVideoManager !== 'undefined' && NextVideoManager.nextVideoId === videoId) {
           StudioEngine774.pending774 = { videoId, best774: playableCandidates[0] };
         }
       } else if (all774Candidates.length > 0 && isCurrentWatchVideo(videoId)) {
-        // Authenticated TVHTML5 stream
-        StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-        noteTvNative774(all774Candidates[0], all774Candidates.length, videoId);
+        // Authenticated TVHTML5 stream (TV UMP MSE)
+        noteTvNative774(all774Candidates[0], all774Candidates.length, videoId, tvCtx);
       } else if (isCurrentWatchVideo(videoId)) {
         confirmedNo774Videos.add(videoId);
         status.activeAudioItag = 251;
@@ -2608,7 +3380,7 @@
         status.bestAudioInfo = 'Native Audio (ITAG 251) | Opus 160kbps';
         report();
         if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
-        if (StudioEngine774.isActive) {
+        if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
           StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
         }
       }
@@ -2618,6 +3390,9 @@
   // Pre-warm on initial page load
   const earlyVideoId = getVideoIdFromUrl();
   if (earlyVideoId) {
+    if (S.enabled && S.hqFetch) {
+      StudioEngine774.prepareTransition(earlyVideoId);
+    }
     prewarmCache(earlyVideoId);
   }
 
@@ -2640,6 +3415,7 @@
     if (incomingVid) {
       navTargetVideoId = incomingVid;
       failedSourcesPerVideo.delete(incomingVid);
+      sabrRewrite.downgradedVideoId = null;
     }
 
     const currentActiveVid = StudioEngine774.activeVideoId || document.getElementById('movie_player')?.getVideoData?.()?.video_id;
@@ -2655,12 +3431,14 @@
       report();
       prewarmCache(incomingVid);
     } else if (incomingVid && incomingVid === currentActiveVid) {
-      // User clicked the same video again ("bấm lại") -> trigger 1 fresh fetch
-      console.log(TAG, `[Navigate] Same video clicked again ("bấm lại") for ${incomingVid} -> Refreshing 1 fetch`);
-      confirmedNo774Videos.clear();
-      failedFetches.delete(incomingVid);
-      NextVideoManager.reset(incomingVid);
-      prewarmCache(incomingVid, { forceFresh: true });
+      // Only refresh if not already actively playing 774 and not currently fetching
+      if (!StudioEngine774.isActive && !pendingFetches.has(incomingVid)) {
+        console.log(TAG, `[Navigate] Re-triggering HQ fetch for ${incomingVid}`);
+        confirmedNo774Videos.clear();
+        failedFetches.delete(incomingVid);
+        NextVideoManager.reset(incomingVid);
+        prewarmCache(incomingVid, { forceFresh: true });
+      }
     } else if (!incomingVid) {
       const activeVid = currentActiveVid || getVideoIdFromUrl();
       if (activeVid && (!status.activeAudioItag || status.activeAudioItag === 251)) {
@@ -2674,6 +3452,7 @@
     if (currentVid && currentVid !== StudioEngine774.activeVideoId) {
       confirmedNo774Videos.clear();
       failedFetches.delete(currentVid);
+      sabrRewrite.downgradedVideoId = null;
       NextVideoManager.reset(currentVid);
       navTargetVideoId = currentVid;
       failedSourcesPerVideo.delete(currentVid);
@@ -2722,7 +3501,7 @@
         filteredHq = preferred;
       } else if (filteredHq.length > 0) {
         status.clientFallback = `${S.preferredClient} returned no HQ — using best available`;
-        console.warn(TAG, `[Client] ${status.clientFallback}`);
+        console.log(TAG, `[Client] ${status.clientFallback}`);
       }
     }
 
@@ -2745,7 +3524,7 @@
         const hasSABR = !hasUrlOrCipher && (f._src === 'TVHTML5' || f.itag === 774);
         if (!hasUrlOrCipher && !hasSABR) {
           if (droppedNoUrl === 0) {
-            console.warn(TAG, `[Pool] dropped format without direct URL or SABR: itag=${f.itag} _src=${f._src}`);
+            console.log(TAG, `[Pool] dropped format without direct URL or SABR: itag=${f.itag} _src=${f._src}`);
           }
           droppedNoUrl++;
           continue;
@@ -2764,7 +3543,7 @@
 
     if (droppedNoUrl > 0) {
       status.noUrlDrop = `${droppedNoUrl}/${filteredHq.length} HQ formats had no url & no SABR`;
-      console.warn(TAG, `[Pool] ${status.noUrlDrop}`);
+      console.log(TAG, `[Pool] ${status.noUrlDrop}`);
     } else {
       status.noUrlDrop = null;
     }
@@ -2853,54 +3632,24 @@
     if (has774) {
       const best774 = playable774Candidates.length > 0 ? playable774Candidates[0] : all774Candidates[0];
       const streamUrl = best774.url || best774._directUrl;
-      const orig251 = json._origFormats.find(f => f.itag === 251) || {};
 
-      if (streamUrl) {
-        // Direct playable HTTP stream (e.g. harvested from YTM) handled exclusively by StudioEngine774 (the 2nd player):
-        // Retain origAudio in adaptiveFormats so YouTube player initializes MSE normally with full HD/4K adaptive video qualities.
-        // Stripping origAudio causes YouTube to abort MSE and fall back to progressive format 18 (locked to 360p).
-        json.streamingData.adaptiveFormats = [...videoFormats, ...origAudio];
-      } else {
-        // TVHTML5 Authenticated 774 Stream: upgrade 251 and retain SABR pipeline
-        const preciseBps = getPreciseBitrate(best774);
-        const upgraded251 = {
-          ...orig251,
-          ...best774,
-          itag: 251,
-          _origItag: 774,
-          mimeType: 'audio/webm; codecs="opus"',
-          bitrate: preciseBps,
-          averageBitrate: best774.averageBitrate || preciseBps,
-          audioQuality: 'AUDIO_QUALITY_HIGH',
-          lastModified: best774.lastModified || orig251.lastModified,
-          contentLength: best774.contentLength || orig251.contentLength
-        };
-        const raw774 = {
-          ...best774,
-          itag: 774,
-          _origItag: 774,
-          mimeType: 'audio/webm; codecs="opus"',
-          bitrate: preciseBps,
-        };
-        const otherAudio = origAudio.filter(f => f.itag !== 251);
-        json.streamingData.adaptiveFormats = [...videoFormats, ...otherAudio, upgraded251, raw774];
-        StudioEngine774.stopAndUnmute('Native TV 774 SABR stream');
-      }
+      // Both direct HTTP 774 streams (YTM) and TV UMP MSE 774 streams are handled exclusively by StudioEngine774 (the 2nd player):
+      // Retain origAudio in adaptiveFormats so YouTube player initializes MSE normally with full HD/4K adaptive video qualities.
+      json.streamingData.adaptiveFormats = [...videoFormats, ...origAudio];
 
       if (isCurrent) {
-        status.activeMethod = !streamUrl ? 'TVHTML5 (Native SABR 774)' : (best774._src || 'TVHTML5');
-        status.activeAudioItag = 774;
-        status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
-        status.injectedStreams = Math.max(pool.length, 6);
         status.videoTitle = json.videoDetails?.title || document.title || 'audio';
-        status.fallbackReason = null;
         if (!streamUrl) {
-          sabrRewrite.on = true;
-          sabrRewrite.videoId = videoId;
-          sabrRewrite.lastModified = Number(best774?.lastModified || best774?.last_modified || 0);
+          noteTvNative774(best774, Math.max(pool.length, 6), currentVid, tvStreamingContext);
+        } else {
+          status.activeMethod = best774._src || 'YTM_HARVESTER';
+          status.activeAudioItag = 774;
+          status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
+          status.injectedStreams = Math.max(pool.length, 6);
+          status.fallbackReason = null;
+          report();
+          if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
         }
-        report();
-        if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
       }
     } else {
       // Clean fallback: keep original formats and SABR endpoints intact
@@ -2961,11 +3710,10 @@
               StudioEngine774.load774(videoId, playable[0]);
             } else if (all774.length > 0 && isCurrentWatchVideo(videoId)) {
               val = processPlayerResponse(val, cached);
-              StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-              noteTvNative774(all774[0], all774.length, videoId);
+              noteTvNative774(all774[0], all774.length, videoId, cached?.streamingContext || null);
             } else if (isCurrentWatchVideo(videoId)) {
               confirmedNo774Videos.add(videoId);
-              if (StudioEngine774.isActive) {
+              if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
                 StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
               }
             }
@@ -3089,7 +3837,7 @@
         const videoId = args.raw_player_response.videoDetails?.videoId;
         if (videoId && confirmedNo774Videos.has(videoId)) return cfg;
         const cached = videoId ? cacheGet(videoId) : null;
-        if (cached && getPlayable774Candidates(cached?.formats || []).length > 0) {
+        if (cached && getAll774Candidates(cached?.formats || []).length > 0) {
           args.raw_player_response = processPlayerResponse(args.raw_player_response, cached);
         }
       }
@@ -3102,10 +3850,15 @@
             if (videoId && confirmedNo774Videos.has(videoId)) return cfg;
             const cached = videoId ? cacheGet(videoId) : null;
             if (cached) {
-              const playable = getPlayable774Candidates(cached?.formats || []);
-              if (playable.length > 0 && isCurrentWatchVideo(videoId)) {
+              const formats = cached?.formats || [];
+              const playable = getPlayable774Candidates(formats);
+              const all774 = getAll774Candidates(formats);
+              if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentWatchVideo(videoId)) {
                 args.player_response = JSON.stringify(processPlayerResponse(pr, cached));
                 StudioEngine774.load774(videoId, playable[0]);
+              } else if (all774.length > 0 && isCurrentWatchVideo(videoId)) {
+                args.player_response = JSON.stringify(processPlayerResponse(pr, cached));
+                noteTvNative774(all774[0], all774.length, videoId, cached?.streamingContext || null);
               }
             }
           }
@@ -3137,13 +3890,6 @@
     configurable: true,
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // [APPROACH 4] FORCE PLAYER RELOAD
-  // ═══════════════════════════════════════════════════════════════════
-  function forcePlayerReload(videoId, hqData) {
-    // Disabled to prevent reload loops, flickering, and s:80 abort errors
-  }
-
   // ─── SW-TRIGGERED UPGRADE ─────────────────────────────────────────
   function tryUpgradeVideo(videoId, source) {
     if (!videoId || !S.enabled || isMusicSite) return;
@@ -3173,18 +3919,17 @@
     const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
     const playableCandidates = getPlayable774Candidates(formats);
     const real774Candidates = getAll774Candidates(formats);
-    if (playableCandidates.length > 0) {
+    if (playableCandidates.length > 0 && S.operationMode !== OP_MODES.TV_HEADLESS) {
       console.log(TAG, `[${source}] Upgrading ${videoId} to Studio HQ 774`);
       StudioEngine774.load774(videoId, playableCandidates[0]);
-    } else if (real774Candidates.length > 0) {
-      if (status.activeAudioItag !== 774 || status.activeMethod !== (real774Candidates[0]._src || 'TVHTML5')) {
-        console.log(TAG, `[${source}] Activating TV SABR 774 for ${videoId}`);
-        StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-        noteTvNative774(real774Candidates[0], real774Candidates.length, videoId);
+    } else if (real774Candidates.length > 0 && sabrRewrite.downgradedVideoId !== videoId) {
+      if (!UmpMseController774.isActive || UmpMseController774.videoId !== videoId) {
+        console.log(TAG, `[${source}] Activating TV UMP MSE 774 for ${videoId}`);
+        noteTvNative774(real774Candidates[0], real774Candidates.length, videoId, cached?.streamingContext || null);
       }
     } else if (cached && formats.length > 0) {
       confirmedNo774Videos.add(videoId);
-      if (StudioEngine774.isActive) {
+      if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
         StudioEngine774.stopAndUnmute('No 774 stream available');
       }
     }
@@ -3275,138 +4020,206 @@
     return [tag >>> 3, tag & 0x07, next];
   }
 
-  // Parse a length-delimited sub-message. Returns { fields: Map<fn, [{off, len}]>,
-  // rawStart, rawLen } or null. Does NOT recurse — caller descends as needed.
-  // Also returns the varint offsets so the caller can rewrite in place.
-  function pbParseMessage(bytes, start, end) {
-    const fields = new Map(); // fieldNumber → [{valueOff, valueLen, wireType}]
+  // Parse a protobuf message range into an ordered list of raw field descriptors AND a lookup map.
+  function pbParseRawFields(bytes, start, end) {
+    const list = [];
+    const map = new Map();
     let off = start;
     while (off < end) {
+      const tagOff = off;
       const tag = pbReadTag(bytes, off);
       if (!tag) return null;
       const fn = tag[0], wt = tag[1], afterTag = tag[2];
       if (wt === 0) { // varint
         const v = pbReadVarint(bytes, afterTag);
         if (!v) return null;
-        if (!fields.has(fn)) fields.set(fn, []);
-        fields.get(fn).push({ wireType: 0, valueOff: afterTag, valueLen: v[1] - afterTag, value: v[0] });
+        const entry = { fn, wireType: 0, tagOff, valueOff: afterTag, valueLen: v[1] - afterTag, nextOff: v[1], value: v[0] };
+        list.push(entry);
+        if (!map.has(fn)) map.set(fn, []);
+        map.get(fn).push(entry);
         off = v[1];
       } else if (wt === 2) { // length-delimited
         const lenV = pbReadVarint(bytes, afterTag);
         if (!lenV) return null;
-        const len = lenV[0], dataOff = lenV[1];
-        if (dataOff + len > end) return null;
-        if (!fields.has(fn)) fields.set(fn, []);
-        fields.get(fn).push({ wireType: 2, valueOff: dataOff, valueLen: len });
+        const len = Number(lenV[0]), dataOff = lenV[1];
+        if (len < 0 || dataOff + len > end) return null;
+        const entry = { fn, wireType: 2, tagOff, valueOff: dataOff, valueLen: len, nextOff: dataOff + len };
+        list.push(entry);
+        if (!map.has(fn)) map.set(fn, []);
+        map.get(fn).push(entry);
         off = dataOff + len;
       } else if (wt === 1) { // 64-bit
         if (afterTag + 8 > end) return null;
-        if (!fields.has(fn)) fields.set(fn, []);
-        fields.get(fn).push({ wireType: 1, valueOff: afterTag, valueLen: 8 });
+        const entry = { fn, wireType: 1, tagOff, valueOff: afterTag, valueLen: 8, nextOff: afterTag + 8 };
+        list.push(entry);
+        if (!map.has(fn)) map.set(fn, []);
+        map.get(fn).push(entry);
         off = afterTag + 8;
       } else if (wt === 5) { // 32-bit
         if (afterTag + 4 > end) return null;
-        if (!fields.has(fn)) fields.set(fn, []);
-        fields.get(fn).push({ wireType: 5, valueOff: afterTag, valueLen: 4 });
+        const entry = { fn, wireType: 5, tagOff, valueOff: afterTag, valueLen: 4, nextOff: afterTag + 4 };
+        list.push(entry);
+        if (!map.has(fn)) map.set(fn, []);
+        map.get(fn).push(entry);
         off = afterTag + 4;
       } else {
         return null; // unknown wire type
       }
     }
-    return off === end ? fields : null;
+    return off === end ? { list, map } : null;
   }
 
-  // Main rewriter. Returns a *new* Uint8Array with patches applied, or null.
-  function sabrRewritePreferredAudio(bytes, targetItags, newItag, newLastModified) {
-    if (!bytes || bytes.length === 0) return null;
+  function pbParseMessage(bytes, start, end) {
+    const parsed = pbParseRawFields(bytes, start, end);
+    return parsed ? parsed.map : null;
+  }
+
+  function pbConcatChunks(chunks) {
+    let total = 0;
+    for (const c of chunks) total += c.length;
+    const out = new Uint8Array(total);
+    let pos = 0;
+    for (const c of chunks) {
+      out.set(c, pos);
+      pos += c.length;
+    }
+    return out;
+  }
+
+  function pbWrapLengthDelimited(fieldNum, payloadU8) {
+    const header = [...pbEncodeVarint((fieldNum << 3) | 2), ...pbEncodeVarint(payloadU8.length)];
+    const out = new Uint8Array(header.length + payloadU8.length);
+    out.set(header, 0);
+    out.set(payloadU8, header.length);
+    return out;
+  }
+
+  function pbDecodeBase64ToU8(b64) {
+    if (!b64 || typeof b64 !== 'string') return null;
     try {
-      const topFields = pbParseMessage(bytes, 0, bytes.length);
-      if (!topFields) return null;
-
-      const itagList = Array.isArray(targetItags) ? targetItags : [targetItags];
-
-      // ── Patch f16 (preferred audio): rewrite f16.f1 (itag) and f16.f2 (lastModified)
-      const f16Entries = topFields.get(16);
-      if (!f16Entries || f16Entries.length === 0) return null;
-      let f16Target = null, f16Fields = null, f16f1 = null;
-      for (const e of f16Entries) {
-        const ff = pbParseMessage(bytes, e.valueOff, e.valueOff + e.valueLen);
-        if (!ff) continue;
-        const f1 = ff.get(1)?.[0];
-        if (f1 && f1.wireType === 0 && itagList.includes(f1.value)) {
-          f16Target = e;
-          f16Fields = ff;
-          f16f1 = f1;
-          break;
-        }
-      }
-      if (!f16Target || !f16f1) return null;
-
-      const oldItag = f16f1.value;
-
-      // ── Patch f2 (selected format): find the entry whose f1 === oldItag
-      const f2Entries = topFields.get(2);
-      let f2Target = null, f2Fields = null, f2f1 = null, f2f2 = null;
-      if (f2Entries) {
-        for (const e of f2Entries) {
-          const ff = pbParseMessage(bytes, e.valueOff, e.valueOff + e.valueLen);
-          if (!ff) continue;
-          const f1 = ff.get(1)?.[0];
-          if (f1 && f1.wireType === 0 && f1.value === oldItag) {
-            f2Target = e; f2Fields = ff; f2f1 = f1; f2f2 = ff.get(2)?.[0];
-            break;
-          }
-        }
-      }
-
-      // Build the patched buffer. Both oldItag and newItag must be 2-byte varints
-      // so the enclosing length prefix is unchanged — verify this assumption.
-      const oldItagBytes = pbEncodeVarint(oldItag);
-      const newItagBytes = pbEncodeVarint(newItag);
-      if (oldItagBytes.length !== newItagBytes.length) {
-        console.warn(TAG, `[OptionC] varint length mismatch: ${oldItag}=${oldItagBytes.length}B, ${newItag}=${newItagBytes.length}B — aborting`);
-        return null;
-      }
-
-      // Start from a copy.
-      const out = new Uint8Array(bytes);
-
-      // Rewrite f16.f1 (itag) in place — same byte count.
-      out[f16f1.valueOff] = newItagBytes[0];
-      out[f16f1.valueOff + 1] = newItagBytes[1];
-
-      // Rewrite f16.f2 (lastModified) if present.
-      const f16f2 = f16Fields.get(2)?.[0];
-      if (f16f2 && f16f2.wireType === 0) {
-        const newLmBytes = pbEncodeVarint(BigInt(newLastModified));
-        const oldLmLen = f16f2.valueLen;
-        if (newLmBytes.length === oldLmLen) {
-          for (let i = 0; i < newLmBytes.length; i++) out[f16f2.valueOff + i] = newLmBytes[i];
-        } else {
-          // Length differs — need to rebuild f16 sub-message. More complex; for now
-          // skip the lastModified rewrite and just do the itag. The server may reject
-          // it, but this is the falsification test.
-          console.warn(TAG, `[OptionC] f16.f2 lastModified length mismatch (${oldLmLen}→${newLmBytes.length}) — itag-only patch`);
-        }
-      }
-
-      // Rewrite f2 entry (selected format) if found.
-      if (f2Target && f2f1) {
-        out[f2f1.valueOff] = newItagBytes[0];
-        out[f2f1.valueOff + 1] = newItagBytes[1];
-        if (f2f2 && f2f2.wireType === 0) {
-          const newLmBytes = pbEncodeVarint(BigInt(newLastModified));
-          if (newLmBytes.length === f2f2.valueLen) {
-            for (let i = 0; i < newLmBytes.length; i++) out[f2f2.valueOff + i] = newLmBytes[i];
-          } else {
-            console.warn(TAG, `[OptionC] f2.f2 lastModified length mismatch — itag-only patch`);
-          }
-        }
-      }
-
+      const norm = b64.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = norm.length % 4 === 0 ? '' : '='.repeat(4 - (norm.length % 4));
+      const bin = atob(norm + pad);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
       return out;
     } catch (e) {
-      console.warn(TAG, '[OptionC] sabrRewritePreferredAudio error:', e);
+      return null;
+    }
+  }
+
+  // Rebuild a FormatId sub-message { f1: itag, f2: lastModified, f3: xtags } dynamically
+  // if its f1 matches targetItags. Handles any varint byte-length change in f1 or f2 and
+  // strips stale 251 xtags (f3) unless newXtags is explicitly provided.
+  function pbRebuildFormatIdIfMatched(bytes, start, end, itagList, newItag, newLastModified, newXtags) {
+    const parsed = pbParseRawFields(bytes, start, end);
+    if (!parsed) return null;
+    const f1 = parsed.map.get(1)?.[0];
+    if (!f1 || f1.wireType !== 0 || !itagList.includes(Number(f1.value))) return null;
+
+    const outBytes = [];
+    // f1: itag (tag 0x08)
+    outBytes.push(0x08, ...pbEncodeVarint(newItag));
+
+    // f2: lastModified (tag 0x10)
+    const lmBig = newLastModified ? BigInt(newLastModified) : 0n;
+    if (lmBig > 0n) {
+      outBytes.push(0x10, ...pbEncodeVarint(lmBig));
+    } else {
+      const origF2 = parsed.map.get(2)?.[0];
+      if (origF2) {
+        for (let i = origF2.tagOff; i < origF2.nextOff; i++) outBytes.push(bytes[i]);
+      }
+    }
+
+    // f3: xtags (tag 0x1a) — only include if newXtags belongs to 774; strip 251's xtags
+    if (typeof newXtags === 'string' && newXtags.length > 0) {
+      const xBytes = new TextEncoder().encode(newXtags);
+      outBytes.push(0x1a, ...pbEncodeVarint(xBytes.length), ...xBytes);
+    }
+
+    // Preserve any unknown fields > 3
+    for (const f of parsed.list) {
+      if (f.fn > 3) {
+        for (let i = f.tagOff; i < f.nextOff; i++) outBytes.push(bytes[i]);
+      }
+    }
+
+    return new Uint8Array(outBytes);
+  }
+
+  // Proposal 1: Dynamic structural Protobuf rebuilder for VideoPlaybackAbrRequest.
+  // Rewrites f16 (preferredAudioFormatIds), f2 (selectedFormatIds), and f3.f1 (bufferedRanges.formatId)
+  // with exact dynamic length recalculation, plus optional Stage-2 f5 (ustreamerConfig) transplant.
+  function sabrRewritePreferredAudio(bytes, targetItags, newItag, newLastModified, newXtags = null, ustreamerConfigB64 = null) {
+    if (!bytes || bytes.length === 0) return null;
+    try {
+      const top = pbParseRawFields(bytes, 0, bytes.length);
+      if (!top) return null;
+
+      const itagList = Array.isArray(targetItags) ? targetItags : [targetItags];
+      const chunks = [];
+      let modifiedCount = 0;
+
+      for (const f of top.list) {
+        // f16 (preferredAudioFormatIds) & f2 (selectedFormatIds) -> FormatId sub-message
+        if ((f.fn === 16 || f.fn === 2) && f.wireType === 2) {
+          const rebuiltFmt = pbRebuildFormatIdIfMatched(
+            bytes, f.valueOff, f.valueOff + f.valueLen,
+            itagList, newItag, newLastModified, newXtags
+          );
+          if (rebuiltFmt) {
+            chunks.push(pbWrapLengthDelimited(f.fn, rebuiltFmt));
+            modifiedCount++;
+            continue;
+          }
+        }
+
+        // f3 (bufferedRanges) -> BufferedRange sub-message whose f1 is FormatId
+        if (f.fn === 3 && f.wireType === 2) {
+          const br = pbParseRawFields(bytes, f.valueOff, f.valueOff + f.valueLen);
+          if (br) {
+            let brModified = false;
+            const brChunks = [];
+            for (const bf of br.list) {
+              if (bf.fn === 1 && bf.wireType === 2) {
+                const rebuiltBrFmt = pbRebuildFormatIdIfMatched(
+                  bytes, bf.valueOff, bf.valueOff + bf.valueLen,
+                  itagList, newItag, newLastModified, newXtags
+                );
+                if (rebuiltBrFmt) {
+                  brChunks.push(pbWrapLengthDelimited(1, rebuiltBrFmt));
+                  brModified = true;
+                  continue;
+                }
+              }
+              brChunks.push(bytes.subarray(bf.tagOff, bf.nextOff));
+            }
+            if (brModified) {
+              chunks.push(pbWrapLengthDelimited(3, pbConcatChunks(brChunks)));
+              modifiedCount++;
+              continue;
+            }
+          }
+        }
+
+        // f5 (videoPlaybackUstreamerConfig) -> Stage-2 TV ustreamerConfig transplant when armed
+        if (f.fn === 5 && f.wireType === 2 && ustreamerConfigB64) {
+          const cfgBytes = pbDecodeBase64ToU8(ustreamerConfigB64);
+          if (cfgBytes && cfgBytes.length > 16) {
+            chunks.push(pbWrapLengthDelimited(5, cfgBytes));
+            modifiedCount++;
+            continue;
+          }
+        }
+
+        chunks.push(bytes.subarray(f.tagOff, f.nextOff));
+      }
+
+      if (modifiedCount === 0) return null;
+      return pbConcatChunks(chunks);
+    } catch (e) {
+      console.log(TAG, '[OptionC] sabrRewritePreferredAudio error:', e);
       return null;
     }
   }
@@ -3420,8 +4233,7 @@
     return null;
   }
 
-  // Rewrite a SABR/UMP POST body so preferred-audio / selected-format ask for 774.
-  // No-op unless noteTvNative774 armed us and StudioEngine is not already playing 774.
+  // Rewrite a SABR/UMP POST body so preferred-audio / selected-format / buffered-range ask for 774.
   // Returns a Uint8Array to send, or null when the caller should pass the body through.
   function ytssMaybeRewriteSabrBody(body) {
     if (!S.enabled || !sabrRewrite.on || StudioEngine774.isActive) return null;
@@ -3429,13 +4241,140 @@
     if (sabrRewrite.videoId && typeof isCurrentWatchVideo === 'function' && !isCurrentWatchVideo(sabrRewrite.videoId)) return null;
     const bytes = ytssBodyToU8(body);
     if (!bytes || bytes.length < 8) return null;
-    // 251 ↔ 774 are both 2-byte varints; 140 is left alone unless we later spoof AAC.
-    const patched = sabrRewritePreferredAudio(bytes, [251], 774, sabrRewrite.lastModified || 0);
+    const ustreamerB64 = sabrRewrite.swapUstreamer ? sabrRewrite.ustreamerConfig : null;
+    const patched = sabrRewritePreferredAudio(
+      bytes,
+      [251],
+      774,
+      sabrRewrite.lastModified || 0,
+      sabrRewrite.xtags || null,
+      ustreamerB64
+    );
     if (patched && patched !== bytes) {
-      console.log(TAG, `[OptionC] SABR body rewritten itag 251→774 (${bytes.length}B)`);
+      console.log(TAG, `[OptionC] SABR body rebuilt itag 251→774 (${bytes.length}B → ${patched.length}B${ustreamerB64 ? ', +TV ustreamerConfig' : ''})`);
       return patched;
     }
     return null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PROPOSAL 2 — UMP (Unified Media Protocol) STREAM INSPECTOR
+  // Verifies real-time MediaHeader (part 20) & SabrError (part 43) on the wire
+  // ═══════════════════════════════════════════════════════════════════
+  const UMP_AUDIO_ITAGS = new Set([139, 140, 141, 171, 249, 250, 251, 256, 258, 325, 328, 774]);
+
+  function ytssHandleSabrDowngrade(videoId, reason, servedItag = 251) {
+    if (!sabrRewrite.on || StudioEngine774.isActive) return;
+    const curVid = videoId || sabrRewrite.videoId || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+    if (curVid && !isCurrentWatchVideo(curVid)) return;
+
+    console.log(TAG, `[UMP Inspector] TVHTML5 SABR 774 rejected/downgraded on ${curVid}: ${reason}`);
+
+    if (S.operationMode === OP_MODES.HYBRID_HQ && curVid) {
+      if (canHybridFailover(curVid, 'TVHTML5', 'YTM_HARVESTER')) {
+        sabrRewrite.on = false;
+        sabrRewrite.downgradedVideoId = curVid;
+        handleHybridRuntimeFailover(curVid, 'TVHTML5', 'YTM_HARVESTER', reason);
+        return;
+      }
+    }
+
+    if (S.operationMode === OP_MODES.TV_HEADLESS) {
+      // In TV_HEADLESS mode, keep the stream playing smoothly without triggering fatal player errors.
+      // Mark verified774=true so we stop inspecting further UMP chunks for this video.
+      sabrRewrite.verified774 = true;
+      return;
+    }
+
+    sabrRewrite.on = false;
+    sabrRewrite.videoId = null;
+    sabrRewrite.downgradedVideoId = curVid;
+    status.activeAudioItag = servedItag || 251;
+    status.activeMethod = 'original';
+    status.fallbackReason = `SABR downgrade (${reason})`;
+    status.bestAudioInfo = `Native Audio (ITAG ${status.activeAudioItag}) | ${reason}`;
+    report();
+    if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+  }
+
+  function ytssInspectUmpBytes(u8, videoId) {
+    if (!u8 || u8.length < 4 || !sabrRewrite.on || StudioEngine774.isActive) return false;
+    let off = 0;
+    let foundAudioDecision = false;
+
+    while (off < u8.length) {
+      const typeV = pbReadVarint(u8, off);
+      if (!typeV) break;
+      const partType = Number(typeV[0]);
+      const sizeV = pbReadVarint(u8, typeV[1]);
+      if (!sizeV) break;
+      const partSize = Number(sizeV[0]);
+      const dataOff = sizeV[1];
+      if (partSize < 0 || dataOff + partSize > u8.length) break; // Partial frame at end of chunk
+
+      if (partType === 20) { // MEDIA_HEADER
+        const mh = pbParseMessage(u8, dataOff, dataOff + partSize);
+        if (mh) {
+          let servedItag = Number(mh.get(3)?.[0]?.value || 0);
+          if (!servedItag) {
+            const f13 = mh.get(13)?.[0];
+            if (f13 && f13.wireType === 2) {
+              const fmt = pbParseMessage(u8, f13.valueOff, f13.valueOff + f13.valueLen);
+              servedItag = Number(fmt?.get(1)?.[0]?.value || 0);
+            }
+          }
+          if (UMP_AUDIO_ITAGS.has(servedItag)) {
+            foundAudioDecision = true;
+            if (servedItag === 774) {
+              if (!sabrRewrite.verified774) {
+                sabrRewrite.verified774 = true;
+                sabrRewrite.downgradedCount = 0;
+                console.log(TAG, `[UMP Inspector] ★ VERIFIED real ITAG 774 MediaHeader served by CDN for ${videoId || sabrRewrite.videoId}!`);
+              }
+              return true;
+            } else {
+              sabrRewrite.downgradedCount = (sabrRewrite.downgradedCount || 0) + 1;
+              console.log(TAG, `[UMP Inspector] CDN MediaHeader served audio ITAG ${servedItag} instead of 774 (count=${sabrRewrite.downgradedCount})`);
+              if (!sabrRewrite.verified774) {
+                ytssHandleSabrDowngrade(videoId, `CDN served ITAG ${servedItag}`, servedItag);
+              }
+              return true;
+            }
+          }
+        }
+      } else if (partType === 43) { // SABR_ERROR
+        foundAudioDecision = true;
+        console.log(TAG, `[UMP Inspector] CDN returned SabrError (part 43)`);
+        if (!sabrRewrite.verified774) {
+          ytssHandleSabrDowngrade(videoId, 'CDN SabrError (part 43)', 251);
+        }
+        return true;
+      }
+
+      off = dataOff + partSize;
+    }
+    return foundAudioDecision;
+  }
+
+  async function ytssInspectUmpResponse(responseClone, videoId) {
+    try {
+      if (!responseClone?.body) return;
+      const reader = responseClone.body.getReader();
+      let acc = new Uint8Array(0);
+      const MAX_INSPECT_BYTES = 65536; // Inspect up to 64KB of initial UMP headers
+      while (acc.length < MAX_INSPECT_BYTES) {
+        const { value, done } = await reader.read();
+        if (done || !value) break;
+        const merged = new Uint8Array(acc.length + value.length);
+        merged.set(acc, 0);
+        merged.set(value, acc.length);
+        acc = merged;
+        if (ytssInspectUmpBytes(acc, videoId)) {
+          break;
+        }
+      }
+      try { await reader.cancel(); } catch (e) {}
+    } catch (e) {}
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -3579,117 +4518,6 @@
           audioRow.remove();
         }
       }, 350);
-    }
-  };
-
-  // ═══════════════════════════════════════════════════════════════════
-  // SIGNATURE CIPHER DECIPHER ENGINE (Unlocks 774/141 from WEB_REMIX/WEB)
-  // ═══════════════════════════════════════════════════════════════════
-  const SignatureCipherDecipherer = {
-    cachedP: null,
-
-    async init() {
-      if (this.cachedP) return;
-      try {
-        const scripts = Array.from(document.querySelectorAll('script[src*="base.js"], script[src*="player_es6"]'));
-        let baseJsUrl = scripts[0]?.src;
-        if (!baseJsUrl) {
-          baseJsUrl = 'https://www.youtube.com/s/player/e937390a/player_es6.vflset/vi_VN/base.js';
-        }
-        const res = await fetch(baseJsUrl);
-        const js = await res.text();
-        const startIdx = js.indexOf('var p=[');
-        if (startIdx !== -1) {
-          const endIdx = js.indexOf('],', startIdx);
-          const pStr = js.slice(startIdx + 6, endIdx + 1);
-          this.cachedP = JSON.parse(pStr);
-          console.log(TAG, `[Decipherer] Initialized successfully with ${this.cachedP.length} string table entries`);
-        }
-      } catch (e) {
-        console.warn(TAG, '[Decipherer] Init error:', e.message);
-      }
-    },
-
-    decipher(s) {
-      if (!s) return s;
-      const p = this.cachedP;
-      if (!p) return s;
-
-      const Cy = {
-        rt: function (D, M) {
-          const G = D[0];
-          D[0] = D[M % D.length];
-          D[M % D.length] = G;
-        },
-        Ub: function (D, M) {
-          D.splice(0, M);
-        },
-        zD: function (D) {
-          D.reverse();
-        }
-      };
-
-      function xC(D, M, G) {
-        let S = G;
-        if ((D + 8 >> 3 >= 2) && ((D >> 1 & 12) < 6)) {
-          try { S = decodeURIComponent(G); } catch (e) { S = G; }
-        }
-        return S;
-      }
-
-      function wU(D, M, G) {
-        const e = M ^ D;
-        let r;
-        if ((D >> 2 & 6) >= 2 && D - 6 < 14) {
-          r = encodeURIComponent(G);
-        }
-        if ((D & 87) === D) {
-          const delim = p[e ^ 8403] !== undefined ? p[e ^ 8403] : "";
-          const S = G.split(delim);
-
-          const op1 = p[e ^ 8339];
-          const op2 = p[e ^ 8439];
-          const op3 = p[e ^ 8390];
-
-          if (Cy[op1]) Cy[op1](S, 1);
-          if (Cy[op2]) Cy[op2](S, e ^ 8384);
-          if (Cy[op3]) Cy[op3](S, e ^ 8419);
-          if (Cy[op3]) Cy[op3](S, e ^ 8446);
-          if (Cy[op3]) Cy[op3](S, e ^ 8399);
-
-          r = S.join(delim);
-        }
-        return r;
-      }
-
-      try {
-        const c = wU(2, 8414, xC(15, 7887, s));
-        const sig = wU(8, 2934, c);
-        return sig || s;
-      } catch (e) {
-        console.warn(TAG, '[Decipherer] decipher error:', e);
-        return s;
-      }
-    },
-
-    decipherFormat(format) {
-      if (!format) return null;
-      if (format.url) return format.url;
-      if (!format.signatureCipher) return null;
-
-      try {
-        const params = new URLSearchParams(format.signatureCipher);
-        const rawUrl = params.get('url');
-        const rawSig = params.get('s');
-        const sp = params.get('sp') || 'sig';
-        if (!rawUrl || !rawSig) return null;
-
-        const resolvedSig = this.decipher(rawSig);
-        const finalUrl = `${rawUrl}&${sp}=${encodeURIComponent(resolvedSig)}`;
-        return finalUrl;
-      } catch (e) {
-        return null;
-      }
     }
   };
 
@@ -3945,7 +4773,7 @@
         loudnessDbMap.set(currentVid, pLoudness);
       }
       if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && StudioEngine774.activeVideoId && !isCurrentWatchVideo(StudioEngine774.activeVideoId)) {
-        console.warn(TAG, `[PageGuard] StudioEngine audio (${StudioEngine774.activeVideoId}) is no longer active! Preparing transition to ${currentVid}.`);
+        console.log(TAG, `[PageGuard] StudioEngine audio (${StudioEngine774.activeVideoId}) is no longer active! Preparing transition to ${currentVid}.`);
         StudioEngine774.prepareTransition(currentVid);
       }
       if (StudioEngine774.pending774) {
@@ -4004,7 +4832,8 @@
         const clone = response.clone();
         const json = await clone.json();
         const videoId = json.videoDetails?.videoId;
-        if (videoId) {
+        const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+        if (videoId && (!urlVid || videoId === urlVid)) {
           navTargetVideoId = videoId;
         }
         const lDb = json.playerConfig?.audioConfig?.loudnessDb;
@@ -4014,8 +4843,21 @@
             StudioEngine774.syncVol();
           }
         }
-        const cached = videoId ? cacheGet(videoId) : null;
+        let cached = videoId ? cacheGet(videoId) : null;
         const isCurrentActive = isCurrentWatchVideo(videoId);
+
+        // Proposal 3: Async Gate on Cache Miss — hold /youtubei/v1/player up to 1200ms
+        // while in-flight HQ harvest completes so processPlayerResponse runs synchronously
+        // before the player initializes MSE.
+        if (!cached && S.hqFetch && videoId && isCurrentActive && !confirmedNo774Videos.has(videoId)) {
+          try {
+            await Promise.race([
+              fetchAllHQAudio(videoId),
+              new Promise(resolve => setTimeout(resolve, 1200))
+            ]);
+            cached = cacheGet(videoId);
+          } catch (e) {}
+        }
 
         if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
           // Cache HIT: activate 774 immediately
@@ -4034,8 +4876,7 @@
             } catch (e) {}
             return response;
           } else if (all774.length > 0 && isCurrentActive) {
-            StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-            noteTvNative774(all774[0], all774.length, videoId);
+            noteTvNative774(all774[0], all774.length, videoId, cached?.streamingContext || null);
             try {
               const patchedJson = processPlayerResponse(json, cached);
               return new Response(JSON.stringify(patchedJson), {
@@ -4052,10 +4893,11 @@
           return response;
         }
 
-        // Cache MISS: Return original response immediately so the player starts naturally.
-        // Then kick off background HQ fetch and smoothly activate Studio 774 once ready.
+        // Cache MISS (after gate timeout): Return original response so the player starts naturally,
+        // and finish background HQ fetch when ready.
         if (S.hqFetch && videoId && isCurrentWatchVideo(videoId)) {
           fetchAllHQAudio(videoId).then(hqData => {
+            if (hqData?.cancelled) return;
             const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
             if (hasFormats) {
               const isActive = isPlayerActiveOnPage();
@@ -4067,8 +4909,7 @@
                 if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0) {
                   StudioEngine774.load774(videoId, playable[0]);
                 } else if (all774.length > 0) {
-                  StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-                  noteTvNative774(all774[0], all774.length, videoId);
+                  noteTvNative774(all774[0], all774.length, videoId, hqData?.streamingContext || null);
                 } else {
                   StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
                 }
@@ -4081,25 +4922,11 @@
 
         return response;
       } catch (e) {
-        console.warn(TAG, 'fetch intercept error:', e);
+        console.log(TAG, 'fetch intercept error:', e);
         return response;
       }
     }
 
-    // ── SABR/UMP request-body probe (read-only) ───────────────────────────
-    // The desktop player no longer receives stream URLs at all: on /watch every
-    // adaptiveFormat comes back `url:false, cipher:false` with serverAbrStreamingUrl
-    // set, so playback is negotiated entirely inside this POST body. Nothing we put
-    // in adaptiveFormats can change what gets served unless it changes these bytes.
-    //
-    // Before attempting that, establish what is actually in here. This only reads:
-    // the body is cloned via the ArrayBuffer we were handed, never modified, and
-    // never re-attached to the request.
-    //
-    // What matters is whether the varint for the requested format id is present and
-    // whether it tracks status.activeAudioItag. 251 encodes as a varint to FB 01,
-    // 774 to 86 06, 140 to 8C 01, 141 to 8D 01 — so a hex dump plus a scan for those
-    // pairs answers "does the player ask for what we injected?" directly.
     // ── Download-URL capture (read-only) ──────────────────────────────────
     if (url.includes('googlevideo.com/videoplayback')) {
       try {
@@ -4142,22 +4969,49 @@
     }
 
     // ── SABR/UMP body rewrite (Option C): ask the server for real itag 774 ──
-    // Structural protobuf patch only (f16.f1 / f2.f1). Signed region f5 is never
-    // touched, and the request URL is left alone — URL param rewrites break sigs.
-    if (url.includes('googlevideo.com/videoplayback') && args[1] && args[1].body) {
+    // YouTube's player passes either (url, { method: 'POST', body: Uint8Array }) OR
+    // a single `new Request(url, { method: 'POST', body: Uint8Array })` as args[0].
+    let wasSabrRewritten = false;
+    if (url.includes('googlevideo.com/videoplayback')) {
       try {
-        const patched = ytssMaybeRewriteSabrBody(args[1].body);
-        if (patched) {
-          const opts = { ...args[1], body: patched };
-          // Keep Request/string first arg as-is; only swap the init body.
-          args = [args[0], opts];
+        const curVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+        if (S.enabled && S.hqFetch && !sabrRewrite.on && !StudioEngine774.isActive && curVid && pendingFetches.has(curVid)) {
+          await Promise.race([
+            pendingFetches.get(curVid),
+            new Promise(resolve => setTimeout(resolve, 900))
+          ]);
+        }
+
+        if (args[1] && args[1].body) {
+          const patched = ytssMaybeRewriteSabrBody(args[1].body);
+          if (patched) {
+            const opts = { ...args[1], body: patched };
+            args = [args[0], opts];
+            wasSabrRewritten = true;
+          }
+        } else if (args[0] && typeof args[0] === 'object' && typeof args[0].clone === 'function' && args[0].method === 'POST') {
+          if (S.enabled && sabrRewrite.on && !StudioEngine774.isActive && !status.fallbackReason) {
+            const rawBuf = await args[0].clone().arrayBuffer();
+            if (rawBuf && rawBuf.byteLength >= 8) {
+              const patched = ytssMaybeRewriteSabrBody(new Uint8Array(rawBuf));
+              if (patched) {
+                args = [new Request(args[0], { body: patched }), ...args.slice(1)];
+                wasSabrRewritten = true;
+              }
+            }
+          }
         }
       } catch (e) {
-        console.warn(TAG, '[OptionC] fetch body rewrite failed:', e);
+        console.log(TAG, '[OptionC] fetch body rewrite failed:', e);
       }
     }
 
     const finalResponse = await ORIGINAL_FETCH.apply(this, args);
+    if (wasSabrRewritten && finalResponse.ok && !sabrRewrite.verified774) {
+      try {
+        ytssInspectUmpResponse(finalResponse.clone(), sabrRewrite.videoId);
+      } catch (e) {}
+    }
     if (url.includes('googlevideo.com/videoplayback') && (finalResponse.status === 403 || finalResponse.status === 401)) {
       const urlObj = new URL(url);
       let failedItag = urlObj.searchParams.get('itag');
@@ -4165,11 +5019,12 @@
         const match = urlObj.pathname.match(/\/itag\/(\d+)/);
         if (match) failedItag = match[1];
       }
-      if (failedItag && (Number(failedItag) === Number(status.activeAudioItag) || (Number(failedItag) === 251 && Number(status.activeAudioItag) === 774))) {
-        console.warn(TAG, `[Fallback] Player got HTTP ${finalResponse.status} for injected ITAG ${failedItag}`);
+      const isRewrittenSabr = wasSabrRewritten && Number(status.activeAudioItag) === 774;
+      if (isRewrittenSabr || (failedItag && (Number(failedItag) === Number(status.activeAudioItag) || (Number(failedItag) === 251 && Number(status.activeAudioItag) === 774)))) {
+        console.log(TAG, `[Fallback] Player got HTTP ${finalResponse.status} for injected ITAG ${failedItag || 774}`);
         const currentVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
         if (S.operationMode === OP_MODES.HYBRID_HQ && currentVid) {
-          const currentSrc = status.activeMethod || 'TVHTML5';
+          const currentSrc = (status.activeMethod && status.activeMethod.includes('TVHTML5')) ? 'TVHTML5' : (status.activeMethod || 'TVHTML5');
           const alternateSource = (currentSrc === 'TVHTML5') ? 'YTM_HARVESTER' : 'TVHTML5';
           if (canHybridFailover(currentVid, currentSrc, alternateSource)) {
             console.log(TAG, `[HybridFailover] Playback failed on ${currentSrc} (HTTP ${finalResponse.status}). Triggering failover to ${alternateSource}...`);
@@ -4189,9 +5044,6 @@
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     if (typeof url === 'string' && url.includes('googlevideo.com/videoplayback')) {
       try {
-        // Read-only. The `_ytss_*` param rewrite that used to run here corrupted
-        // the signed URL — see the ITAG disguise comment in processPlayerResponse.
-        // `dUrl` is only ever read from, never re-serialized back onto `url`.
         const dUrl = new URL(url);
         const reqItags = dUrl.searchParams.getAll('itag').map(Number);
         const pathMatch = dUrl.pathname.match(/\/itag\/(\d+)/);
@@ -4219,7 +5071,6 @@
             report();
           }
         } else {
-          // Video-only itags (e.g. 399) legitimately miss the audio matcher — not a fault.
           const AUDIO_ITAGS = new Set([139, 140, 141, 171, 249, 250, 251, 256, 258, 325, 328, 774]);
           const looksAudio = reqItags.some(i => AUDIO_ITAGS.has(i));
           if (looksAudio) {
@@ -4227,88 +5078,115 @@
           }
         }
       } catch (e) {
-        console.error(TAG, `[XHRCapture] Error:`, e);
+        console.log(TAG, `[XHRCapture] Error:`, e);
       }
     }
     this._ytssUrl = url;
+    this._ytssSabrRewritten = false;
     return ORIGINAL_XHR_OPEN.call(this, method, url, ...rest);
   };
 
   XMLHttpRequest.prototype.send = function (...args) {
     const url = this._ytssUrl;
 
-    // SABR/UMP binary body rewrite (Option C). Same rules as the fetch path:
-    // protobuf itag patch only, never touch the request URL signature.
+    // SABR/UMP binary body rewrite (Option C).
     if (url && typeof url === 'string' && url.includes('googlevideo.com/videoplayback') && args[0]) {
       try {
         const patched = ytssMaybeRewriteSabrBody(args[0]);
-        if (patched) args = [patched, ...args.slice(1)];
+        if (patched) {
+          args = [patched, ...args.slice(1)];
+          this._ytssSabrRewritten = true;
+        }
       } catch (e) {
-        console.warn(TAG, '[OptionC] XHR body rewrite failed:', e);
+        console.log(TAG, '[OptionC] XHR body rewrite failed:', e);
       }
     }
 
     if (url && typeof url === 'string' && url.includes('/youtubei/v1/player') && !url.includes('_ytss=1')) {
       const self = this;
-      const origHandler = this.onreadystatechange;
+      let xhrPatched = false;
+      const handlePlayerXhr = function () {
+        if (xhrPatched || self.readyState !== 4 || self.status !== 200 || !S.enabled) return;
+        xhrPatched = true;
+        try {
+          const rawText = (!self.responseType || self.responseType === 'text') ? self.responseText : null;
+          if (!rawText) return;
+          const json = JSON.parse(rawText);
+          const videoId = json.videoDetails?.videoId;
+          const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
+          if (videoId && (!urlVid || videoId === urlVid)) {
+            navTargetVideoId = videoId;
+          }
+          const cached = videoId ? cacheGet(videoId) : null;
+          const isCurrentActive = isCurrentWatchVideo(videoId);
 
-      this.onreadystatechange = function () {
-        if (self.readyState === 4 && self.status === 200 && S.enabled) {
-          try {
-            const json = JSON.parse(self.responseText);
-            const videoId = json.videoDetails?.videoId;
-            if (videoId) {
-              navTargetVideoId = videoId;
+          if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
+            const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
+            const playable = getPlayable774Candidates(formats);
+            const all774 = getAll774Candidates(formats);
+            if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentActive) {
+              StudioEngine774.load774(videoId, playable[0]);
+            } else if (all774.length > 0 && isCurrentActive) {
+              noteTvNative774(all774[0], all774.length, videoId, cached?.streamingContext || null);
+            } else if (isCurrentActive) {
+              StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
             }
-            const cached = videoId ? cacheGet(videoId) : null;
-            const isCurrentActive = isCurrentWatchVideo(videoId);
+            try {
+              const patchedJson = processPlayerResponse(json, cached);
+              const patchedStr = JSON.stringify(patchedJson);
+              Object.defineProperty(self, 'responseText', { get: () => patchedStr, configurable: true });
+              Object.defineProperty(self, 'response', { get: () => patchedStr, configurable: true });
+            } catch (e) {}
+          } else if (S.hqFetch && videoId && isCurrentWatchVideo(videoId)) {
+            // Cache miss: fetch in background and upgrade seamlessly once ready.
+            fetchAllHQAudio(videoId).then(hqData => {
+              if (hqData?.cancelled) return;
+              const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
+              if (hasFormats) {
+                const isActive = isPlayerActiveOnPage();
 
-            if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
-              const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
-              const playable = getPlayable774Candidates(formats);
-              const all774 = getAll774Candidates(formats);
-              if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentActive) {
-                StudioEngine774.load774(videoId, playable[0]);
-              } else if (all774.length > 0 && isCurrentActive) {
-                StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-                noteTvNative774(all774[0], all774.length, videoId);
-              } else if (isCurrentActive) {
-                StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
-              }
-            } else if (S.hqFetch && videoId && isCurrentWatchVideo(videoId)) {
-              // Cache miss: fetch in background and upgrade seamlessly once ready.
-              fetchAllHQAudio(videoId).then(hqData => {
-                const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
-                if (hasFormats) {
-                  const isActive = isPlayerActiveOnPage();
-
-                  if (isActive && isCurrentWatchVideo(videoId)) {
-                    const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
-                    const playable = getPlayable774Candidates(formats);
-                    const all774 = getAll774Candidates(formats);
-                    if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0) {
-                      StudioEngine774.load774(videoId, playable[0]);
-                    } else if (all774.length > 0) {
-                      StudioEngine774.stopAndUnmute('Native TV 774 stream', videoId);
-                      noteTvNative774(all774[0], all774.length, videoId);
-                    } else {
-                      StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
-                    }
+                if (isActive && isCurrentWatchVideo(videoId)) {
+                  const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
+                  const playable = getPlayable774Candidates(formats);
+                  const all774 = getAll774Candidates(formats);
+                  if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0) {
+                    StudioEngine774.load774(videoId, playable[0]);
+                  } else if (all774.length > 0) {
+                    noteTvNative774(all774[0], all774.length, videoId, hqData?.streamingContext || null);
+                  } else {
+                    StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
                   }
-                } else if (isCurrentWatchVideo(videoId)) {
-                  StudioEngine774.stopAndUnmute('No HQ formats returned', videoId);
                 }
-              }).catch(() => { });
-            }
-          } catch (e) { }
-        }
-        if (origHandler) origHandler.apply(self, arguments);
+              } else if (isCurrentWatchVideo(videoId)) {
+                StudioEngine774.stopAndUnmute('No HQ formats returned', videoId);
+              }
+            }).catch(() => { });
+          }
+        } catch (e) { }
       };
+
+      this.addEventListener('readystatechange', handlePlayerXhr);
+      const origHandler = this.onreadystatechange;
+      if (origHandler) {
+        this.onreadystatechange = function () {
+          handlePlayerXhr();
+          return origHandler.apply(self, arguments);
+        };
+      }
     } else if (url && typeof url === 'string' && url.includes('googlevideo.com/videoplayback')) {
       const self = this;
-      const origHandler = this.onreadystatechange;
-      this.onreadystatechange = function () {
-        if (self.readyState === 4 && (self.status === 403 || self.status === 401)) {
+      let xhrInspected = false;
+      const handleVideoplaybackXhr = function () {
+        if (self.readyState !== 4 || xhrInspected) return;
+        xhrInspected = true;
+        if (self.status === 200 && self._ytssSabrRewritten && !sabrRewrite.verified774) {
+          try {
+            const respBytes = ytssBodyToU8(self.response);
+            if (respBytes && respBytes.length > 0) {
+              ytssInspectUmpBytes(respBytes, sabrRewrite.videoId);
+            }
+          } catch (e) {}
+        } else if (self.status === 403 || self.status === 401) {
           try {
             const urlObj = new URL(self._ytssUrl);
             let failedItag = urlObj.searchParams.get('itag');
@@ -4316,11 +5194,12 @@
               const match = urlObj.pathname.match(/\/itag\/(\d+)/);
               if (match) failedItag = match[1];
             }
-            if (failedItag && (Number(failedItag) === Number(status.activeAudioItag) || (Number(failedItag) === 251 && Number(status.activeAudioItag) === 774))) {
-              console.warn(TAG, `[Fallback] Player got HTTP ${self.status} for injected ITAG ${failedItag} via XHR`);
+            const isRewrittenSabr = self._ytssSabrRewritten && Number(status.activeAudioItag) === 774;
+            if (isRewrittenSabr || (failedItag && (Number(failedItag) === Number(status.activeAudioItag) || (Number(failedItag) === 251 && Number(status.activeAudioItag) === 774)))) {
+              console.log(TAG, `[Fallback] Player got HTTP ${self.status} for injected ITAG ${failedItag || 774} via XHR`);
               const currentVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
               if (S.operationMode === OP_MODES.HYBRID_HQ && currentVid) {
-                const currentSrc = status.activeMethod || 'TVHTML5';
+                const currentSrc = (status.activeMethod && status.activeMethod.includes('TVHTML5')) ? 'TVHTML5' : (status.activeMethod || 'TVHTML5');
                 const alternateSource = (currentSrc === 'TVHTML5') ? 'YTM_HARVESTER' : 'TVHTML5';
                 if (canHybridFailover(currentVid, currentSrc, alternateSource)) {
                   console.log(TAG, `[HybridFailover] Playback failed on ${currentSrc} via XHR (HTTP ${self.status}). Triggering failover to ${alternateSource}...`);
@@ -4335,115 +5214,25 @@
             }
           } catch (e) { }
         }
-        if (origHandler) origHandler.apply(self, arguments);
       };
-    }
-    return ORIGINAL_XHR_SEND.apply(this, args);
-  };
 
-  const NativeAudioMeter = {
-    audioCtx: null,
-    currentTarget: null,
-    init() {
-      // NEVER hijack StudioEngine774.audio with createMediaElementSource!
-      // Routing StudioEngine774.audio through AudioContext causes Web Audio quantum underruns, crackling, and farbling distortion.
-      const activeAudio = document.querySelector('video.html5-main-video') || document.querySelector('video');
-      if (!activeAudio) return;
-      if (this.analyser && this.currentTarget === activeAudio) return;
-
-      try {
-        if (!this.audioCtx) {
-          const AudioCtx = window.AudioContext || window.webkitAudioContext;
-          this.audioCtx = new AudioCtx();
-        }
-        if (activeAudio.__ytss_meter) {
-          this.currentTarget = activeAudio;
-          this.sourceNode = activeAudio.__ytss_meter.sourceNode;
-          this.analyser = activeAudio.__ytss_meter.analyser;
-          return;
-        }
-        this.currentTarget = activeAudio;
-        this.sourceNode = this.audioCtx.createMediaElementSource(activeAudio);
-        this.analyser = this.audioCtx.createAnalyser();
-        this.analyser.fftSize = 2048;
-        this.sourceNode.connect(this.analyser);
-        try { this.analyser.connect(this.audioCtx.destination); } catch (e) {}
-        activeAudio.__ytss_meter = { sourceNode: this.sourceNode, analyser: this.analyser };
-        if (this.audioCtx.state === 'suspended') {
-          this.audioCtx.resume().catch(() => {});
-        }
-      } catch (e) { }
-    },
-    getSpectrum() {
-      if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive) {
-        return {
-          frequencyData: new Array(1024).fill(150),
-          peakFrequencyHz: 20000,
-          energyAbove18k: 0.85,
-          energyAbove20k: 0.70
+      this.addEventListener('readystatechange', handleVideoplaybackXhr);
+      const origHandler = this.onreadystatechange;
+      if (origHandler) {
+        this.onreadystatechange = function () {
+          handleVideoplaybackXhr();
+          return origHandler.apply(self, arguments);
         };
       }
-      if (!this.analyser) this.init();
-      if (!this.analyser || !this.audioCtx) return null;
-      if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
-      const data = new Uint8Array(this.analyser.frequencyBinCount);
-      this.analyser.getByteFrequencyData(data);
-      const binWidth = (this.audioCtx.sampleRate / 2) / data.length;
-      let maxBin = 0;
-      let energyAbove18k = 0;
-      let energyAbove20k = 0;
-      let totalEnergy = 0;
-      const bin18k = Math.floor(18000 / binWidth);
-      const bin20k = Math.floor(20000 / binWidth);
-      for (let i = 0; i < data.length; i++) {
-        const val = data[i];
-        totalEnergy += val;
-        if (val > 10) maxBin = i;
-        if (i >= bin18k) energyAbove18k += val;
-        if (i >= bin20k) energyAbove20k += val;
-      }
-      return {
-        sampleRate: this.audioCtx.sampleRate,
-        binCount: data.length,
-        binWidthHz: Math.round(binWidth * 10) / 10,
-        peakFrequencyHz: Math.round(maxBin * binWidth),
-        totalEnergy,
-        energyAbove18k,
-        energyAbove20k,
-        highFreqActive: energyAbove20k > 0 || maxBin >= bin20k
-      };
-    },
-    getRawBins() {
-      if (!this.analyser) this.init();
-      if (!this.analyser || !this.audioCtx) return null;
-      if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
-      const data = new Uint8Array(this.analyser.frequencyBinCount);
-      this.analyser.getByteFrequencyData(data);
-      const binWidth = (this.audioCtx.sampleRate / 2) / data.length;
-      const active = [];
-      for (let i = 0; i < data.length; i++) {
-        if (data[i] > 5) {
-          active.push({ bin: i, freq: Math.round(i * binWidth), val: data[i] });
-        }
-      }
-      return {
-        sampleRate: this.audioCtx.sampleRate,
-        binWidth: Math.round(binWidth * 10) / 10,
-        totalActive: active.length,
-        maxFreq: active.length > 0 ? active[active.length - 1].freq : 0,
-        topActive: active.slice(-15)
-      };
-    },
-    getPeakFrequency() {
-      const spec = this.getSpectrum();
-      return spec ? spec.peakFrequencyHz : 0;
     }
+    return ORIGINAL_XHR_SEND.apply(this, args);
   };
 
   // ─── EXPOSE API TO POPUP ──────────────────────────────────────────
   window.YTSS_SpoofingMethods = {
     getStatus: () => ({ ...status, settings: { ...S } }),
     getEngine: () => StudioEngine774,
+    getUmp: () => UmpMseController774,
     getBadge: () => PlayerBadgeUI,
     updateBadge: () => PlayerBadgeUI.update(),
     getHardwareAudioState: () => {
@@ -4453,9 +5242,6 @@
         vRealMut: v ? descMuted.get.call(v) : null
       };
     },
-    getPeakFrequency: () => NativeAudioMeter.getPeakFrequency(),
-    getSpectrum: () => NativeAudioMeter.getSpectrum(),
-    getRawBins: () => NativeAudioMeter.getRawBins(),
     getNativeBooster: () => null,
     setShadowVolume: () => {},
     applySettings: (newSettings) => {

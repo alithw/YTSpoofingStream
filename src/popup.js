@@ -1,4 +1,4 @@
-// YTSpoofingStream v0.2.1 — Popup Controller (Studio 774 Dual-Stream Engine)
+// YTSpoofingStream v0.2.2 — Popup Controller (Studio 774 Dual-Stream Engine)
 (function () {
   'use strict';
 
@@ -58,8 +58,21 @@
     pollStatus();
   }
 
+  const SUPPORTED_LANGS = ['en', 'vi', 'ja', 'ru', 'zh-cn', 'zh-tw'];
+
+  function detectBrowserLang() {
+    const sysLang = (navigator.language || '').toLowerCase();
+    if (sysLang.startsWith('vi')) return 'vi';
+    if (sysLang.startsWith('ja')) return 'ja';
+    if (sysLang.startsWith('ru')) return 'ru';
+    if (sysLang === 'zh-tw' || sysLang === 'zh-hk' || sysLang === 'zh-mo' || sysLang.includes('hant')) return 'zh-tw';
+    if (sysLang.startsWith('zh')) return 'zh-cn';
+    return 'en';
+  }
+
   async function setLanguage(lang) {
-    if (!['en', 'vi'].includes(lang)) lang = 'en';
+    const normalized = String(lang || '').toLowerCase();
+    lang = SUPPORTED_LANGS.includes(normalized) ? normalized : 'en';
     currentLang = lang;
     currentLocaleData = await loadLocale(lang);
     chrome.storage.local.set({ uiLanguage: lang });
@@ -71,8 +84,7 @@
     chrome.storage.local.get(['uiLanguage'], async (res) => {
       let lang = res?.uiLanguage;
       if (!lang) {
-        const sysLang = (navigator.language || '').toLowerCase();
-        lang = sysLang.startsWith('vi') ? 'vi' : 'en';
+        lang = detectBrowserLang();
       }
       await setLanguage(lang);
     });
@@ -122,6 +134,9 @@
       if (settings.operationMode === 'SAFE_NATIVE') {
         settings.operationMode = 'HYBRID_HQ';
         chrome.storage.local.set({ operationMode: 'HYBRID_HQ' });
+      } else if (settings.operationMode === 'TV_UMP_MSE') {
+        settings.operationMode = 'TV_HEADLESS';
+        chrome.storage.local.set({ operationMode: 'TV_HEADLESS' });
       }
     } else {
       loadLegacy();
@@ -142,6 +157,8 @@
             Object.assign(settings, pickSettings(JSON.parse(results[0].result)));
             if (settings.operationMode === 'SAFE_NATIVE') {
               settings.operationMode = 'HYBRID_HQ';
+            } else if (settings.operationMode === 'TV_UMP_MSE') {
+              settings.operationMode = 'TV_HEADLESS';
             }
             chrome.storage.local.set(settings);
             applyUI();
@@ -157,6 +174,7 @@
       if (el) el.checked = !!settings[key];
     }
 
+    if (settings.operationMode === 'TV_UMP_MSE') settings.operationMode = 'TV_HEADLESS';
     const activeOpMode = (settings.operationMode === 'SAFE_NATIVE' || !settings.operationMode) ? 'HYBRID_HQ' : settings.operationMode;
     document.querySelectorAll('.op-mode').forEach(m => {
       const isActive = m.dataset.opmode === activeOpMode;
@@ -491,7 +509,7 @@
             const isErr = stat.includes('HTTP') || stat.includes('Error') || stat.includes('Fail') ||
                           stat.includes('Login') || stat.includes('robot') || stat.includes('Unavailable');
             const isHQ = stat.includes('★') || stat.includes('774') || stat.includes('141');
-            const isCurrentPlaying = (d.activeMethod === client) && !isErr;
+            const isCurrentPlaying = (d.activeMethod === client || (typeof d.activeMethod === 'string' && d.activeMethod.startsWith(client))) && !isErr;
             const cls = isCurrentPlaying ? 'hq' : (isHQ ? 'ok' : (isOk ? 'ok' : (isErr ? 'err' : '')));
 
             const formatName = (name) => {
