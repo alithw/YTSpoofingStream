@@ -54,6 +54,7 @@
 - [⚙️ Cấu hình & Điều khiển](#️-cấu-hình--điều-khiển)
 - [🐞 Xử lý Sự cố & Câu hỏi Thường gặp](#-xử-lý-sự-cố--câu-hỏi-thường-gặp)
 - [💖 Ủng Hộ & Tài Trợ Dự Án](#-ủng-hộ--tài-trợ-dự-án)
+- [⭐ Star History](#star-history)
 - [🤝 Đóng góp & Cộng đồng (Contributing)](#-đóng-góp--cộng-đồng-contributing)
 - [⚠️ Tuyên bố Từ chối Trách nhiệm (Disclaimer)](#️-tuyên-bố-từ-chối-trách-nhiệm-disclaimer)
 - [📄 Giấy phép (License)](#-giấy-phép-license)
@@ -268,6 +269,18 @@ Nếu **YTSpoofingStream** mang lại trải nghiệm nghe nhạc tuyệt vời 
 </p>
 
 Bạn có thể tài trợ trực tiếp qua **[GitHub Sponsors (github.com/sponsors/alithw)](https://github.com/sponsors/alithw)** hoặc mời một ly cà phê qua **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Mọi sự ủng hộ và đồng hành của bạn đều là nguồn động lực rất lớn! ☕✨
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=alithw%2Fytspoofingstream&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=alithw/ytspoofingstream&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=alithw/ytspoofingstream&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=alithw/ytspoofingstream&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ---
 

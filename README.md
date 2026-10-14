@@ -54,6 +54,7 @@
 - [⚙️ Configuration & Controls](#️-configuration--controls)
 - [🐞 Troubleshooting & FAQ](#-troubleshooting--faq)
 - [💖 Support / Sponsor the Project](#-support--sponsor-the-project)
+- [⭐ Star History](#star-history)
 - [🤝 Contributing & Community](#-contributing--community)
 - [⚠️ Disclaimer](#️-disclaimer)
 - [📄 License](#-license)
@@ -267,6 +268,18 @@ If **YTSpoofingStream** enhances your music listening experience on YouTube, con
 </p>
 
 You can sponsor directly via **[GitHub Sponsors (github.com/sponsors/alithw)](https://github.com/sponsors/alithw)** or buy a coffee on **[Ko-fi (ko-fi.com/alithw)](https://ko-fi.com/alithw)**. Every contribution helps maintain and update the engine against YouTube's frequent backend changes! ☕✨
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=alithw%2Fytspoofingstream&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=alithw/ytspoofingstream&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=alithw/ytspoofingstream&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=alithw/ytspoofingstream&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ---
 
