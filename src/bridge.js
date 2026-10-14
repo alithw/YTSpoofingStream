@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.2.2 — Bridge (ISOLATED world)               ║
+// ║  YTSpoofingStream v0.2.3 — Bridge (ISOLATED world)               ║
 // ║  Relays messages between MAIN world and Service Worker.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 

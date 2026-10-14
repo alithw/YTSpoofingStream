@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.2-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.3-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="Giấy phép Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -20,8 +20,8 @@
 > **Trải nghiệm âm nhạc tốt hơn?** Nếu tiện ích giúp bạn có trải nghiệm nghe nhạc tuyệt vời hơn trên YouTube, hãy cho mình xin 1 sao (⭐ **Star**) trên [GitHub](https://github.com/alithw/YTSpoofingStream) để ủng hộ dự án nhé!
 
 > [!IMPORTANT]
-> **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.2.2](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.2)**  
-> **v0.2.2** hiện là phiên bản ổn định chính thức với bộ giải mã trực tiếp **Direct TV UMP-to-MSE Demuxer (`UmpMseController774`)**, cơ chế tự động chuyển luồng dự phòng thông minh ở chế độ Hybrid, và khóa chống tự tắt tiếng / chống nhảy ngược nhạc. Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.2) hoặc [**xem nhanh các điểm mới nổi bật bên dưới**](#recent-updates).
+> **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.2.3](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.3)**  
+> **v0.2.3** hiện là phiên bản ổn định chính thức khắc phục triệt để lỗi thanh điều khiển âm lượng / tắt tiếng trên player YouTube, lỗi phát lại đoạn đầu khi tự động chuyển bài (Autoplay), hiện tượng nghẽn bộ đệm micro-gap luồng SABR/UMP, và hỗ trợ hoàn hảo chế độ lặp bài (Loop). Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.3) hoặc [**xem nhanh các điểm mới nổi bật bên dưới**](#recent-updates).
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
@@ -39,9 +39,9 @@
 ---
 
 ## 📑 Mục lục
-- [✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.2)](#recent-updates)
+- [✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.3)](#recent-updates)
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
-- [🧠 Kiến trúc Hệ thống (v0.2.2)](#-kiến-trúc-hệ-thống-v022)
+- [🧠 Kiến trúc Hệ thống (v0.2.3)](#-kiến-trúc-hệ-thống-v023)
   - [1. Cấu trúc Thư mục & Mã nguồn](#1-cấu-trúc-thư-mục--mã-nguồn)
   - [2. Nền tảng SABR / UMP của YouTube & Vì sao phương pháp cũ thất bại](#2-nền-tảng-sabr--ump-của-youtube--vì-sao-phương-pháp-cũ-thất-bại)
   - [3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)](#3-quy-trình-thu-hoạch--giải-mã-luồng-kép-774-umpmsecontroller774--ytm_harvester)
@@ -61,15 +61,16 @@
 ---
 
 <a id="recent-updates"></a>
-## ✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.2)
+## ✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.3)
 
-Bản cập nhật **v0.2.2** nâng cấp toàn diện kiến trúc giải mã luồng TV và Hybrid, đồng thời xử lý triệt để các lỗi chuyển bài trong danh sách phát:
+Bản cập nhật **v0.2.3** tập trung giải quyết triệt để các vấn đề tương tác điều khiển âm lượng và chuyển bài trên trình phát YouTube:
 
-- ⚡ **Bộ Giải mã Trực tiếp TV UMP-to-MSE (`UmpMseController774`)**: Thay thế hoàn toàn cơ chế iframe TV ngầm cũ bằng bộ bóc tách luồng nhị phân UMP/SABR trực tiếp ngay trên trang (`Part 20 MEDIA_HEADER`, `Part 21 MEDIA`, `Part 22 MEDIA_END`), đẩy thẳng các phân đoạn `audio/webm; codecs="opus"` vào `MediaSource` (`SourceBuffer`) với **0 MB RAM iframe phụ** và tốc độ khởi chạy dưới 1 giây.
-- 🧠 **Ưu tiên Thông minh & Tự động Dự phòng ở Chế độ Hybrid (`HYBRID_HQ`)**: Tự động ưu tiên luồng **Direct TV UMP MSE 774** khi đã liên kết tài khoản `TVHTML5`, đồng thời tự động chuyển tiếp (failover) mượt mà sang **YTM Harvester** nếu bài hát không có luồng 774 trên TV hoặc bị giới hạn client.
-- 🔇 **Khóa Chống Tự Tắt Tiếng (UI Anti-Mute Guard khi chuyển `774` ↔ `251`)**: Khắc phục triệt để lỗi khi chuyển từ bài hát hỗ trợ `★ 774` sang video không có 774 (`251`) khiến nút loa trên giao diện YouTube tự động bị khóa Mute cho đến khi F5. Sự kiện `volumechange` nội bộ khi đóng/ngắt phần cứng nay được cách ly hoàn toàn khỏi `yt-player-volume` của YouTube.
-- ⏱️ **Đồng bộ Master Clock Chống Lag & Chống Tự Tua Lại**: Ngăn chặn hành vi tự nhảy lùi thời gian (`timeJump < -0.25s`) của trình phát YouTube SPA khi mới chuyển bài, đồng thời bổ sung bộ lọc độ trễ (`video.readyState` + kiểm tra vùng đệm) giúp âm thanh phát liền mạch không bao giờ bị vấp hay nhảy ngược khi trình duyệt/thiết bị lag.
-- 🗂️ **Chuẩn hóa Cấu trúc Mã nguồn**: Tổ chức lại cây thư mục gọn gàng theo chuẩn (`src/`, `assets/`, `locales/`, `.github/`) và dọn sạch toàn bộ cảnh báo runtime của tiện ích.
+- 🎚️ **Khôi phục Hoàn toàn Nút & Thanh Điều chỉnh Âm lượng Player**: Khắc phục lỗi cơ chế kiểm tra năng lực âm thanh của YouTube (`passedProbe`) trên DOM element tách rời, giúp thanh trượt âm lượng, nút tắt/bật tiếng hoạt động bình thường (`aria-disabled="false"`).
+- ⏭️ **Sửa Lỗi Chuyển Bài Tự Động (Autoplay Track-End Transition)**: Xóa bỏ hoàn toàn lỗi phát lại 1–1.5s đoạn đầu video cũ trước khi chuyển bài mới. Trình phát được ngắt đồng bộ sạch sẽ ngay khi hết bài, chuyển giao mượt mà sang bài tiếp theo của YouTube Autoplay hoặc hàng đợi danh sách phát.
+- 🔁 **Hỗ trợ Đầy đủ Chế độ Lặp Bài (Native Player Loop)**: Tương thích hoàn toàn với tính năng "Vòng lặp / Loop" khi click chuột phải trên trình phát và lặp lại 1 bài trong playlist, tự động tua lại luồng Opus 774 và video về 0:00 mà không kích hoạt chuyển bài sớm.
+- ⚡ **Khắc phục Nghẽn Micro-gap & Vòng Lặp Yêu cầu Gói Phân Đoạn UMP/SABR**: Tự động nhảy qua khoảng trống micro-gap tại ranh giới phân đoạn trong bộ đệm `MediaSource` và khử trùng lặp phân đoạn trong `UmpMseController774`, chấm dứt tình trạng âm thanh bị đứng yên và kết nối lặp vô hạn.
+- 🧠 **Bộ Giải mã Trực tiếp TV UMP-to-MSE (`UmpMseController774`)**: Bóc tách luồng nhị phân UMP/SABR trực tiếp đẩy vào `MediaSource` (`audio/webm; codecs="opus"`) với **0 MB RAM iframe phụ**.
+- 🔇 **Khóa Chống Tự Tắt Tiếng (UI Anti-Mute Guard)**: Cách ly hoàn toàn sự kiện `volumechange` nội bộ khi đóng/ngắt phần cứng khỏi `yt-player-volume` của YouTube.
 
 ---
 
@@ -87,7 +88,7 @@ Trên hệ sinh thái YouTube hiện nay, chất lượng âm thanh bị phân t
 
 ---
 
-## 🧠 Kiến trúc Hệ thống (v0.2.2)
+## 🧠 Kiến trúc Hệ thống (v0.2.3)
 
 ### 1. Cấu trúc Thư mục & Mã nguồn
 YTSpoofingStream được xây dựng bằng **100% JavaScript thuần (Vanilla ES6+)**—không dùng bundler, không thư viện ngoài hay mã thực thi từ xa—đảm bảo hiệu năng tối đa, minh bạch và dễ kiểm toán:
@@ -118,7 +119,7 @@ Trình phát YouTube máy tính hiện đại đã chuyển hoàn toàn sang gia
   2. Tiêm trực tiếp URL của TV/Android vào trình phát mặc định sẽ gây lỗi bảo mật CORS và lệch chữ ký token mã `s:49` (`poToken` / `cplatform`).
 
 ### 3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)
-Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.2.2** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
+Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.2.3** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
 
 ```mermaid
 flowchart TD
@@ -151,7 +152,7 @@ flowchart TD
 ### 4. Tắt tiếng Tầng Descriptor Phần cứng & Cơ chế Chống Tự Tắt Tiếng (Anti-Mute Guard)
 Nếu gán trực tiếp `video.muted = true` hoặc `video.volume = 0` qua thuộc tính DOM thông thường, trình duyệt sẽ bắn sự kiện `volumechange`, khiến trình phát YouTube hiểu nhầm là người dùng vừa tắt tiếng, hiển thị biểu tượng loa gạch chéo và lưu trạng thái `"muted": true` vào `localStorage['yt-player-volume']`.
 
-**YTSpoofingStream v0.2.2** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](file:///c:/Code/Personal/YTSpoofingStream/src/inject.js):
+**YTSpoofingStream v0.2.3** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](file:///c:/Code/Personal/YTSpoofingStream/src/inject.js):
 1. **Định tuyến Descriptor Nguyên mẫu**: Gọi trực tiếp setter gốc `HTMLMediaElement.prototype.volume` (`descVolume.set.call(video, 0)`) để hạ âm lượng phần cứng của thẻ `<video>` về `0`, trong khi ghi đè getter để giao diện YouTube luôn đọc đúng mức âm lượng mà người dùng thiết lập.
 2. **Lá chắn Chống Tự Tắt Tiếng Khi Chuyển Bài**: Chặn toàn bộ các sự kiện `volumechange` nội bộ phát sinh trong quá trình đóng/mở âm lượng phần cứng (`_suppressNextVolumeEvent`) và chủ động khôi phục trạng thái unmute khi chuyển từ bài hát `★ 774` sang các video `251` không có 774 (`fallbackTo251()`), đảm bảo giao diện không bao giờ bị kẹt nút Mute.
 
@@ -181,14 +182,14 @@ Nếu gán trực tiếp `video.muted = true` hoặc `video.volume = 0` qua thu�
 
 Kết quả kiểm thử thực tế thời gian thực 100% thời lượng trên 4 bài hát tiêu chuẩn: khi **Bật extension (Studio 774)** so với khi **Tắt cứng extension trong Cài đặt Chrome (Luồng Gốc)**:
 
-| Bài hát | Video ID | Thời lượng đo | Khi Tắt Extension (Luồng Gốc) | Khi Bật YTSpoofingStream v0.2.2 (774) | Dải tần cao (>16kHz - 22kHz) |
+| Bài hát | Video ID | Thời lượng đo | Khi Tắt Extension (Luồng Gốc) | Khi Bật YTSpoofingStream v0.2.3 (774) | Dải tần cao (>16kHz - 22kHz) |
 |---|---|---|---|---|---|
 | **Track 1 (Song to the Mirrored Moon)** | `MI4I7v-0tnc` | 211.7s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (301kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
 | **Track 2 (Kirara Magic - Sunny Rain)** | `Xy6sPZc0CKA` | 184.2s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.500 Hz)** |
 | **Track 3 (Fontaine)** | `tiulg9ySfR8` | 185.0s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>21.000 Hz)** |
 | **Track 4 (Dazbee - Chidori Cover)** | `fs_pEYuMZio` | 224.5s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
 
-*Nhận xét*: Luồng ITAG 251 tiêu chuẩn bị cắt phẳng dải tần (brickwall filter) ở 15.5kHz–16kHz. Luồng 774 trên YTSpoofingStream v0.2.2 duy trì mật độ phổ âm thanh liên tục lên tới trên 21kHz, mang lại âm trường rộng và chi tiết tiếng treble/cymbal/vocal sắc nét vượt trội.
+*Nhận xét*: Luồng ITAG 251 tiêu chuẩn bị cắt phẳng dải tần (brickwall filter) ở 15.5kHz–16kHz. Luồng 774 trên YTSpoofingStream v0.2.3 duy trì mật độ phổ âm thanh liên tục lên tới trên 21kHz, mang lại âm trường rộng và chi tiết tiếng treble/cymbal/vocal sắc nét vượt trội.
 
 ---
 

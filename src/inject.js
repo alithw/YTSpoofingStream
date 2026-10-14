@@ -718,11 +718,21 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descVolume.get.call(this);
         }
+        if (!this.isConnected) {
+          return descVolume.get.call(this);
+        }
+        const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
+                            (this.closest && this.closest('#movie_player, .html5-video-player'));
+        if (!isMainVideo) {
+          return descVolume.get.call(this);
+        }
         if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
-          if (typeof this._userVol === 'number' && !isNaN(this._userVol) && (this._userVol > 0 || StudioEngine774._userMuted)) {
+          if (typeof this._userVol === 'number' && !isNaN(this._userVol)) {
             return this._userVol;
           }
-          return StudioEngine774._userVol || readStoredYoutubeVolumeState().volume || 1.0;
+          return (typeof StudioEngine774._userVol === 'number' && !isNaN(StudioEngine774._userVol))
+            ? StudioEngine774._userVol
+            : (readStoredYoutubeVolumeState().volume || 1.0);
         }
         return descVolume.get.call(this);
       },
@@ -730,38 +740,41 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descVolume.set.call(this, v);
         }
+        if (!this.isConnected) {
+          try { descVolume.set.call(this, v); } catch (e) {}
+          return;
+        }
         const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
                             (this.closest && this.closest('#movie_player, .html5-video-player'));
         if (!isMainVideo) {
-          this._userVol = v;
           try { descVolume.set.call(this, v); } catch (e) {}
           return;
         }
         const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(1.0, v)) : 1.0;
         if (typeof StudioEngine774 !== 'undefined') {
+          StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
+          this._userVol = numV;
+          StudioEngine774._userVol = numV;
           if (numV > 0) {
-            this._userVol = numV;
-            StudioEngine774._userVol = numV;
-            if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
-              this._userMuted = false;
-              StudioEngine774._userMuted = false;
-            }
-          } else if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+            this._userMuted = false;
+            StudioEngine774._userMuted = false;
+          } else {
             this._userVol = 0;
             this._userMuted = true;
             StudioEngine774._userMuted = true;
           }
+          if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+            if (typeof StudioEngine774._silenceElement === 'function') {
+              StudioEngine774._silenceElement(this);
+            }
+            if (StudioEngine774.audio && StudioEngine774.isActive) {
+              StudioEngine774.syncVolDirect(numV);
+            }
+          } else {
+            try { descVolume.set.call(this, numV); } catch (e) {}
+          }
         } else {
           this._userVol = numV;
-        }
-        if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
-          if (typeof StudioEngine774._silenceElement === 'function') {
-            StudioEngine774._silenceElement(this);
-          }
-          if (StudioEngine774.audio && StudioEngine774.isActive) {
-            StudioEngine774.syncVolDirect(this._userVol ?? numV);
-          }
-        } else {
           try { descVolume.set.call(this, numV); } catch (e) {}
         }
       },
@@ -775,6 +788,14 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descMuted.get.call(this);
         }
+        if (!this.isConnected) {
+          return descMuted.get.call(this);
+        }
+        const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
+                            (this.closest && this.closest('#movie_player, .html5-video-player'));
+        if (!isMainVideo) {
+          return descMuted.get.call(this);
+        }
         if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
           return Boolean(StudioEngine774._userMuted);
         }
@@ -784,10 +805,15 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descMuted.set.call(this, m);
         }
+        // If element is not connected to DOM (e.g. YouTube calling capability probe on new Audio/Video),
+        // let native setter handle it completely so capability checks never report false!
+        if (!this.isConnected) {
+          try { descMuted.set.call(this, !!m); } catch (e) {}
+          return;
+        }
         const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
                             (this.closest && this.closest('#movie_player, .html5-video-player'));
         if (!isMainVideo) {
-          this._userMuted = !!m;
           try { descMuted.set.call(this, m); } catch (e) {}
           return;
         }
@@ -796,25 +822,28 @@
           if (targetMuted && !StudioEngine774._userMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent() && (StudioEngine774._isTransitioning || StudioEngine774.isInTransitionWindow())) {
             // Suppress spurious YouTube auto-mute during track selection / transition
             targetMuted = false;
+          } else {
+            StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
           }
           this._userMuted = targetMuted;
           StudioEngine774._userMuted = targetMuted;
+          if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+            if (typeof StudioEngine774._silenceElement === 'function') {
+              StudioEngine774._silenceElement(this);
+            }
+            if (StudioEngine774.audio && StudioEngine774.isActive) {
+              if (StudioEngine774.isUserMuted()) {
+                StudioEngine774.audio.volume = 0;
+              } else {
+                const curVol = (typeof this._userVol === 'number' && !isNaN(this._userVol)) ? this._userVol : (StudioEngine774._userVol || 1.0);
+                StudioEngine774.syncVolDirect(curVol);
+              }
+            }
+          } else {
+            try { descMuted.set.call(this, targetMuted); } catch (e) {}
+          }
         } else {
           this._userMuted = targetMuted;
-        }
-        if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
-          if (typeof StudioEngine774._silenceElement === 'function') {
-            StudioEngine774._silenceElement(this);
-          }
-          if (StudioEngine774.audio && StudioEngine774.isActive) {
-            if (StudioEngine774.isUserMuted()) {
-              StudioEngine774.audio.volume = 0;
-            } else {
-              const curVol = (typeof this._userVol === 'number' && this._userVol > 0) ? this._userVol : (StudioEngine774._userVol || 1.0);
-              StudioEngine774.syncVolDirect(curVol);
-            }
-          }
-        } else {
           try { descMuted.set.call(this, targetMuted); } catch (e) {}
         }
       },
@@ -1126,7 +1155,7 @@
           if (f7 && f7.wireType === 2) {
             nextPlaybackCookie = u8.slice(f7.valueOff, f7.valueOff + f7.valueLen);
           }
-        } else if (pType === 42 || pType === 33) { // SabrRedirect (only if f1 is an https://.../videoplayback URL)
+        } else if (pType === 42 || pType === 43 || pType === 33) { // SabrRedirect / CMS Redirect
           const sr = pbParseMessage(u8, dOff, dOff + pSize);
           const f1 = sr?.get(1)?.[0];
           if (f1 && f1.wireType === 2 && f1.valueLen > 24 && f1.valueLen < 4096) {
@@ -1135,8 +1164,19 @@
               redirectUrl = candidate;
             }
           }
-        } else if (pType === 43) { // SabrError
-          sabrError = true;
+          if (!redirectUrl) {
+            // Robust fallback: direct binary text extraction if protobuf format had unexpected wire types
+            try {
+              const rawText = new TextDecoder().decode(u8.subarray(dOff, dOff + pSize));
+              const match = rawText.match(/https:\/\/[^/\s]+\/videoplayback\?[^\x00-\x1f\s"']+/);
+              if (match) {
+                redirectUrl = match[0];
+              }
+            } catch (e) {}
+          }
+          if (!redirectUrl && pType === 43) {
+            sabrError = true;
+          }
         }
         off = dOff + pSize;
       }
@@ -1272,8 +1312,22 @@
           session.playbackCookie = demuxed.nextPlaybackCookie;
         }
         if (demuxed.redirectUrl) {
-          console.log(TAG, '[UmpMse774] Following SabrRedirect (part 42)...');
-          session.decipheredUrl = this.decipherSabrUrl(demuxed.redirectUrl) || demuxed.redirectUrl;
+          session.redirectCount = (session.redirectCount || 0) + 1;
+          if (session.redirectCount > 8) {
+            console.log(TAG, `[UmpMse774] Too many SabrRedirects (${session.redirectCount}) on ${session.videoId}`);
+            session.errorCount = (session.errorCount || 0) + 1;
+            if (session.errorCount >= 3) {
+              if (S.operationMode === OP_MODES.HYBRID_HQ && canHybridFailover(session.videoId, 'TVHTML5', 'YTM_HARVESTER')) {
+                handleHybridRuntimeFailover(session.videoId, 'TVHTML5', 'YTM_HARVESTER', 'TV UMP Redirect Loop');
+                return;
+              }
+              StudioEngine774.stopAndUnmute('TV UMP Redirect Loop');
+            }
+            return;
+          }
+          console.log(TAG, `[UmpMse774] Following SabrRedirect #${session.redirectCount} to ${new URL(demuxed.redirectUrl).hostname}...`);
+          // Note: The CMS redirect URL generated by Google Video CDN already carries valid signature & token; do NOT re-decipher n!
+          session.decipheredUrl = demuxed.redirectUrl;
           session.inFlight = false;
           this.pump(session);
           return;
@@ -1296,6 +1350,7 @@
         }
 
         session.errorCount = 0;
+        session.redirectCount = 0;
         for (const seg of demuxed.segments) {
           if (seg.isInit) {
             if (!session.hasInit) {
@@ -1304,8 +1359,8 @@
               console.log(TAG, `[UmpMse774] Queued 774 WebM Init Segment (${seg.data.length}B) for ${session.videoId}`);
             }
           } else {
-            if (session.lastAppendedSeq === seg.seq && bufEndSec !== null) {
-              session.lastContigEndMs = Math.max(session.lastContigEndMs || 0, seg.startMs + seg.durMs + 500);
+            if (session.lastAppendedSeq === seg.seq) {
+              session.lastContigEndMs = Math.max(session.lastContigEndMs || 0, seg.startMs + seg.durMs);
             } else {
               session.appendQueue.push(seg.data);
               session.lastAppendedSeq = seg.seq;
@@ -1335,7 +1390,6 @@
       if (cov === null) {
         // Target seek time is outside current MSE buffer -> abort any old in-flight fetch (if init already done) and pump immediately!
         session.lastContigEndMs = 0;
-        session.lastAppendedSeq = -1;
         session.reachedEof = false;
         if (session.hasInit && session.abortCtrl) {
           try { session.abortCtrl.abort(); } catch (e) {}
@@ -1436,6 +1490,7 @@
         endedStream: false,
         reachedEof: false,
         rn: 0,
+        redirectCount: 0,
         lastAppendedSeq: -1,
         lastContigEndMs: 0,
         durationSec,
@@ -1549,6 +1604,7 @@
     _waitingPauseTimer: null,
     _advanceFallbackTimer: null,
     _hasDispatchedEnded: false,
+    _trackEnded: false,
     _reconnectAttempts: 0,
     _lastAudioTime: -1,
     _lastAudioAdvance: 0,
@@ -1709,33 +1765,59 @@
 
         this.audio.addEventListener('ended', () => {
           if (!this.isActive) return;
+
+          // 0. Loop Mode Check: if user enabled Loop on the player or video element, replay seamlessly from 0:00
+          if (this.isLoopActive()) {
+            console.log(TAG, '[StudioEngine774] Loop mode is ACTIVE -> Seamlessly looping current 774 track from 0:00');
+            this._trackEnded = false;
+            if (this.audio) {
+              this.audio.currentTime = 0;
+              this.audio.play().catch(() => {});
+            }
+            const video = getMainVideoElement();
+            if (video) {
+              this._silenceElement(video);
+              try { video.currentTime = 0; } catch (e) {}
+              if (video.paused) {
+                video.play().catch(() => {});
+              }
+            }
+            return;
+          }
+
           console.log(TAG, '[StudioEngine774] Audio playback completed. Evaluating autoplay/playlist state...');
+          this._trackEnded = true;
+          if (this.audio && !this.audio.paused) {
+            try { this.audio.pause(); } catch (e) {}
+          }
           const video = getMainVideoElement();
           const player = document.getElementById('movie_player');
           const shouldAdvance = this.shouldAutoplayNext();
 
           if (video) {
+            this._silenceElement(video);
             this._isInternalVideoSync = true;
             try {
               if (video.duration && !isNaN(video.duration)) {
                 video.currentTime = video.duration;
               }
             } catch (e) {}
+            // ALWAYS pause video at track end so it stays cleanly stopped on the end screen
+            try { video.pause(); } catch (e) {}
             if (shouldAdvance) {
               // Dispatch ended once to trigger YouTube's native transition ONLY if video not already ended
               if (!video.ended) {
                 video.dispatchEvent(new Event('ended', { bubbles: true }));
               }
-            } else {
-              try { video.pause(); } catch (e) {}
             }
-            setTimeout(() => { this._isInternalVideoSync = false; }, 250);
+            setTimeout(() => { this._isInternalVideoSync = false; }, 300);
           }
 
           if (shouldAdvance) {
             if (player) {
               if (this._advanceFallbackTimer) clearTimeout(this._advanceFallbackTimer);
-              // Fallback ONLY: only call player.nextVideo() if YouTube did not advance after 5.5s
+              const isPl = (typeof player.getPlaylistId === 'function' && !!player.getPlaylistId()) || !!document.querySelector('ytd-playlist-panel-renderer');
+              const delay = isPl ? 1000 : 2500;
               this._advanceFallbackTimer = setTimeout(() => {
                 this._advanceFallbackTimer = null;
                 if ((this.isActive || this._isTransitioning) && player.getVideoData?.()?.video_id === this.activeVideoId) {
@@ -1744,7 +1826,7 @@
                     try { player.nextVideo(); } catch (e) {}
                   }
                 }
-              }, 5500);
+              }, delay);
             }
           } else {
             console.log(TAG, '[StudioEngine774] Video finished. Autoplay is OFF; halting playback.');
@@ -1760,7 +1842,39 @@
       this.hookPlayer();
     },
 
+    isLoopActive() {
+      // 1. Native HTML5 video element loop property (set when user right clicks video -> "Loop")
+      const video = getMainVideoElement();
+      if (video && video.loop) return true;
+
+      // 2. YouTube movie_player API: getLoopVideo()
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.getLoopVideo === 'function') {
+        try {
+          if (player.getLoopVideo()) return true;
+        } catch (e) {}
+      }
+
+      // 3. YouTube single video playlist repeat button
+      try {
+        const loopBtn = document.querySelector('ytd-playlist-loop-button-renderer button, .ytp-playlist-loop-button');
+        if (loopBtn) {
+          const ariaLabel = (loopBtn.getAttribute('aria-label') || '').toLowerCase();
+          const title = (loopBtn.getAttribute('title') || '').toLowerCase();
+          if (ariaLabel.includes('1') || ariaLabel.includes('current') || ariaLabel.includes('hiện tại') ||
+              title.includes('1') || title.includes('current') || title.includes('hiện tại')) {
+            return true;
+          }
+        }
+      } catch (e) {}
+
+      return false;
+    },
+
     shouldAutoplayNext() {
+      // Loop mode strictly overrides autoplay: never advance while looping current track!
+      if (this.isLoopActive()) return false;
+
       const player = document.getElementById('movie_player');
 
       // 1. Check YouTube player DOM autonav toggle button FIRST (explicit user toggle)
@@ -1865,23 +1979,24 @@
         Object.defineProperty(video, 'volume', {
           get() {
             if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
-              if (typeof this._userVol === 'number' && !isNaN(this._userVol) && (this._userVol > 0 || StudioEngine774._userMuted)) {
+              if (typeof this._userVol === 'number' && !isNaN(this._userVol)) {
                 return this._userVol;
               }
-              return StudioEngine774._userVol || 1.0;
+              return (typeof StudioEngine774._userVol === 'number' && !isNaN(StudioEngine774._userVol))
+                ? StudioEngine774._userVol
+                : 1.0;
             }
             return descVolume.get.call(this);
           },
           set(v) {
             const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(1.0, v)) : 1.0;
+            StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
+            this._userVol = numV;
+            StudioEngine774._userVol = numV;
             if (numV > 0) {
-              this._userVol = numV;
-              StudioEngine774._userVol = numV;
-              if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
-                this._userMuted = false;
-                StudioEngine774._userMuted = false;
-              }
-            } else if (StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+              this._userMuted = false;
+              StudioEngine774._userMuted = false;
+            } else {
               this._userVol = 0;
               this._userMuted = true;
               StudioEngine774._userMuted = true;
@@ -1889,7 +2004,7 @@
             if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
               StudioEngine774._silenceElement(this);
               if (StudioEngine774.audio && StudioEngine774.isActive) {
-                StudioEngine774.syncVolDirect(this._userVol ?? numV);
+                StudioEngine774.syncVolDirect(numV);
               }
             } else {
               try { descVolume.set.call(this, numV); } catch (e) {}
@@ -1910,9 +2025,16 @@
           },
           set(m) {
             let targetMuted = !!m;
+            if (!this.isConnected) {
+              this._userMuted = targetMuted;
+              try { descMuted.set.call(this, targetMuted); } catch (e) {}
+              return;
+            }
             if (targetMuted && !StudioEngine774._userMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent() && (StudioEngine774._isTransitioning || StudioEngine774.isInTransitionWindow())) {
               // Ignore spurious YouTube auto-mute during track transition
               targetMuted = false;
+            } else {
+              StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
             }
             this._userMuted = targetMuted;
             StudioEngine774._userMuted = targetMuted;
@@ -1922,7 +2044,7 @@
                 if (StudioEngine774.isUserMuted()) {
                   StudioEngine774.audio.volume = 0;
                 } else {
-                  const curVol = (typeof this._userVol === 'number' && this._userVol > 0) ? this._userVol : (StudioEngine774._userVol || 1.0);
+                  const curVol = (typeof this._userVol === 'number' && !isNaN(this._userVol)) ? this._userVol : (StudioEngine774._userVol || 1.0);
                   StudioEngine774.syncVolDirect(curVol);
                 }
               }
@@ -1999,7 +2121,7 @@
       const markPointerIntent = (e) => {
         const t = e.target;
         if (!t || typeof t.closest !== 'function') return;
-        if (t.closest('.ytp-mute-button, .ytp-volume-panel, .ytp-volume-area, .ytp-volume-slider, .ytp-volume-slider-handle')) {
+        if (t.closest('.ytp-mute-button, .ytp-volume-panel, .ytp-volume-area, .ytp-volume-slider, .ytp-volume-slider-handle, .ytp-volume-icon, [class*="volume"]')) {
           this._lastUserMuteOrVolIntentAt = Date.now();
         }
         if (t.closest('.ytp-progress-bar, .ytp-progress-bar-container, .ytp-scrubber-container, .ytp-chapter-container, .ytp-fine-scrubbing-container, a[href*="t="], ytd-macro-markers-list-item-renderer')) {
@@ -2087,6 +2209,17 @@
           }
           this._isSeeking = false;
           this._hasDispatchedEnded = false;
+          // If loop mode is active and video just looped back to start from the end:
+          if (this.isLoopActive() && video.currentTime < 1.0 && this.audio && this.audio.duration && this.audio.currentTime >= this.audio.duration - 2.5) {
+            console.log(TAG, '[StudioEngine774] Native video looped back to start -> Resetting 774 audio to 0:00');
+            this._trackEnded = false;
+            this.audio.currentTime = video.currentTime;
+            if (this.audio.paused) {
+              this.audio.play().catch(() => {});
+            }
+            return;
+          }
+
           if (!this.isAdActive()) {
             this._silenceElement(video);
             this.syncVol(video);
@@ -2126,8 +2259,24 @@
 
         // 3. Track Ended — Do not abruptly kill audio if audio still has duration left
         if (e.type === 'ended') {
-          if (!this.audio.duration || this.audio.currentTime >= this.audio.duration - 0.5) {
-            this.audio.pause();
+          if (this.isLoopActive()) {
+            this._trackEnded = false;
+            if (this.audio) {
+              this.audio.currentTime = 0;
+              this.audio.play().catch(() => {});
+            }
+            try { video.currentTime = 0; } catch (e) {}
+            if (video.paused) {
+              video.play().catch(() => {});
+            }
+            return;
+          }
+          this._trackEnded = true;
+          if (video && !video.paused) {
+            try { video.pause(); } catch (e) {}
+          }
+          if (this.audio && !this.audio.paused) {
+            try { this.audio.pause(); } catch (e) {}
           }
           return;
         }
@@ -2162,6 +2311,14 @@
 
         if (e.type === 'play' || e.type === 'playing') {
           this._userPaused = false;
+          // Guard: if track has ended or video is stopped at the end, DO NOT reset _trackEnded or resume audio!
+          if (video.duration && video.currentTime >= video.duration - 0.8 && !this.isLoopActive()) {
+            this._trackEnded = true;
+            if (!video.paused) try { video.pause(); } catch (e) {}
+            if (this.audio && !this.audio.paused) try { this.audio.pause(); } catch (e) {}
+            return;
+          }
+          this._trackEnded = false;
           // Playback Safety Guard: verify audio engine is playing for current active video
           if (this.isActive && this.activeVideoId && !isCurrentWatchVideo(this.activeVideoId)) {
             console.log(TAG, `[PlaybackSafetyGuard] Audio engine playing ${this.activeVideoId} but video is no longer active! Preparing transition.`);
@@ -2252,7 +2409,7 @@
 
         const handleVolumeChange = (data) => {
           let isMuted = data ? !!data.muted : (typeof player.isMuted === 'function' && player.isMuted());
-          let vol = this._userVol || 1.0;
+          let vol = (typeof this._userVol === 'number' && !isNaN(this._userVol)) ? this._userVol : 1.0;
           if (data && typeof data.volume === 'number' && !isNaN(data.volume)) {
             vol = data.volume / 100;
           } else if (typeof player.getVolume === 'function') {
@@ -2272,13 +2429,14 @@
           if (this.hasRecentUserMuteOrVolIntent() || !isMuted) {
             this._userMuted = isMuted;
           }
-          if (vol > 0) {
-            this._userVol = vol;
+          this._userVol = vol;
+          if (vol === 0) {
+            this._userMuted = true;
           }
           const mainV = getMainVideoElement();
           if (mainV) {
             mainV._userMuted = this._userMuted;
-            if (vol > 0) mainV._userVol = vol;
+            mainV._userVol = vol;
           }
 
           if (this.isActive && !this.isAdActive() && this.audio) {
@@ -2364,8 +2522,37 @@
         player.addEventListener('videodatachange', handleVideoDataChange);
         player.addEventListener('onStateChange', (state) => {
           if (state === 0) {
+            if (this.isLoopActive()) {
+              this._trackEnded = false;
+              if (this.audio) {
+                this.audio.currentTime = 0;
+                this.audio.play().catch(() => {});
+              }
+              const v = getMainVideoElement();
+              if (v) {
+                try { v.currentTime = 0; } catch (e) {}
+                if (v.paused) v.play().catch(() => {});
+              }
+              return;
+            }
             isPlaybackEnded = true;
+            this._trackEnded = true;
+            const v = getMainVideoElement();
+            if (v && !v.paused) {
+              try { v.pause(); } catch (e) {}
+            }
+            if (this.audio && !this.audio.paused) {
+              try { this.audio.pause(); } catch (e) {}
+            }
           } else if (state === 1 || state === 3) {
+            const v = getMainVideoElement();
+            if (v && v.duration && v.currentTime >= v.duration - 0.8 && !this.isLoopActive()) {
+              this._trackEnded = true;
+              if (!v.paused) try { v.pause(); } catch (e) {}
+              if (this.audio && !this.audio.paused) try { this.audio.pause(); } catch (e) {}
+              return;
+            }
+            this._trackEnded = false;
             if (isPlaybackEnded) {
               isPlaybackEnded = false;
               const curVid = player.getVideoData?.()?.video_id || (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
@@ -2423,15 +2610,17 @@
 
         const origSetVol = player.setVolume;
         player.setVolume = (v) => {
-          if (v > 0) {
-            this._userVol = Math.max(0, Math.min(1.0, v / 100));
+          this._lastUserMuteOrVolIntentAt = Date.now();
+          const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(100, v)) : 100;
+          if (numV > 0) {
+            this._userVol = numV / 100;
             this._userMuted = false;
             const mainV = getMainVideoElement();
             if (mainV) {
               mainV._userVol = this._userVol;
               mainV._userMuted = false;
             }
-          } else if (this.hasRecentUserMuteOrVolIntent()) {
+          } else {
             this._userVol = 0;
             this._userMuted = true;
             const mainV = getMainVideoElement();
@@ -2440,7 +2629,7 @@
               mainV._userMuted = true;
             }
           }
-          const res = origSetVol.call(player, v);
+          const res = origSetVol.call(player, numV);
           if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
             const mainV = getMainVideoElement();
             if (mainV) this._silenceElement(mainV);
@@ -2454,7 +2643,8 @@
         const origMute = player.mute;
         if (typeof origMute === 'function') {
           player.mute = () => {
-            if (!this._userMuted && !this.hasRecentUserMuteOrVolIntent() && (this._isTransitioning || this.isInTransitionWindow())) {
+            this._lastUserMuteOrVolIntentAt = Date.now();
+            if (!this._userMuted && (this._isTransitioning || this.isInTransitionWindow())) {
               // Suppress spurious YouTube auto-mute during track switch
               const mainV = getMainVideoElement();
               if (mainV) this._silenceElement(mainV);
@@ -2478,6 +2668,7 @@
         const origUnmute = player.unMute;
         if (typeof origUnmute === 'function') {
           player.unMute = () => {
+            this._lastUserMuteOrVolIntentAt = Date.now();
             this._userMuted = false;
             const mainV = getMainVideoElement();
             if (mainV) mainV._userMuted = false;
@@ -2486,8 +2677,8 @@
               const mainV = getMainVideoElement();
               if (mainV) this._silenceElement(mainV);
               if (this.audio && this.isActive) {
-                const curVol = (typeof player.getVolume === 'function') ? player.getVolume() : ((this._userVol || 1.0) * 100);
-                this.syncVolDirect(curVol / 100);
+                const curVol = (typeof this._userVol === 'number' && !isNaN(this._userVol)) ? this._userVol : 1.0;
+                this.syncVolDirect(curVol);
               }
             }
             return res;
@@ -2514,6 +2705,7 @@
       this._isAudioBuffering = false;
       this._isSeeking = false;
       this._hasDispatchedEnded = false;
+      this._trackEnded = false;
       this._reconnectAttempts = 0;
       this._lastSeekTime = Date.now();
       if (this._seekDebounceTimer) {
@@ -2540,21 +2732,25 @@
 
     getUserVolume() {
       if (this.isUserMuted()) return 0;
+      if (typeof this._userVol === 'number' && !isNaN(this._userVol)) {
+        return Math.max(0, Math.min(1.0, this._userVol));
+      }
       const player = document.getElementById('movie_player');
       if (player && typeof player.getVolume === 'function') {
         try {
           const v = player.getVolume();
-          if (typeof v === 'number' && !isNaN(v) && v > 0) {
+          if (typeof v === 'number' && !isNaN(v)) {
             this._userVol = Math.max(0, Math.min(1.0, v / 100));
             return this._userVol;
           }
         } catch (e) {}
       }
       const video = getMainVideoElement();
-      if (video && typeof video._userVol === 'number' && video._userVol > 0) {
-        return Math.max(0, Math.min(1.0, video._userVol));
+      if (video && typeof video._userVol === 'number' && !isNaN(video._userVol)) {
+        this._userVol = Math.max(0, Math.min(1.0, video._userVol));
+        return this._userVol;
       }
-      return (typeof this._userVol === 'number' && this._userVol > 0) ? this._userVol : 1.0;
+      return 1.0;
     },
 
     updateNormalizedGain() {
@@ -2570,10 +2766,12 @@
       if (!this.isActive || !this.audio) return;
       this._markVolScrubbing();
       if (this.isAdActive()) return;
-      if (v > 0) {
-        this._userVol = Math.max(0, Math.min(1.0, v));
+      const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(1.0, v)) : 1.0;
+      this._userVol = numV;
+      if (numV > 0) {
+        this._userMuted = false;
       }
-      const target = (this.isUserMuted() || v <= 0) ? 0 : Math.max(0, Math.min(1.0, v));
+      const target = (this.isUserMuted() || numV <= 0) ? 0 : numV;
       if (Math.abs(this.audio.volume - target) > 0.005) {
         this.audio.volume = target;
       }
@@ -2595,18 +2793,10 @@
           this.restoreNativeVideo(mainVideo);
           return;
         }
-        // Ensure YouTube UI mute button is never stuck muted when user did not mute
-        if (!this._userMuted && !this.hasRecentUserMuteOrVolIntent()) {
-          const p = document.getElementById('movie_player');
-          if (p && typeof p.isMuted === 'function' && p.isMuted() && typeof p.unMute === 'function') {
-            try { p.unMute(); } catch (e) {}
-          }
-        }
         if (this.isUserMuted()) {
           this.audio.volume = 0;
         } else {
-          const userVol = this.getUserVolume();
-          const target = Math.max(0, Math.min(1.0, userVol));
+          const target = this.getUserVolume();
           if (Math.abs(this.audio.volume - target) > 0.005) {
             this.audio.volume = target;
           }
@@ -2807,12 +2997,6 @@
 
       // 0b. Audio Volume & UI Mute Sync Guard: keep 774 audio and player UI mute icon strictly in sync
       if (!this._isVolScrubbing) {
-        if (!this._userMuted && !this.hasRecentUserMuteOrVolIntent()) {
-          const p = document.getElementById('movie_player');
-          if (p && typeof p.isMuted === 'function' && p.isMuted() && typeof p.unMute === 'function') {
-            try { p.unMute(); } catch (e) {}
-          }
-        }
         const targetVol = this.getUserVolume();
         if (Math.abs(this.audio.volume - targetVol) > 0.01) {
           this.audio.volume = targetVol;
@@ -2831,7 +3015,7 @@
         // When tab is hidden, Chrome throttles or pauses background <video> to save GPU/power.
         // In this mode, <audio> is the MASTER CLOCK since it is what the user hears.
         // Periodically advance video.currentTime to keep YouTube player state in sync.
-        if (!this.audio.paused && !this.audio.ended) {
+        if (!this.audio.paused && !this.audio.ended && !this._trackEnded) {
           const aTime = this.audio.currentTime;
           const vTime = video.currentTime;
           const drift = aTime - vTime;
@@ -2845,6 +3029,7 @@
           if (video.duration && aTime >= video.duration - 0.5) {
             if (!this._hasDispatchedEnded) {
               this._hasDispatchedEnded = true;
+              this._trackEnded = true;
               this._isInternalVideoSync = true;
               video.currentTime = video.duration;
               if (this.shouldAutoplayNext()) {
@@ -2865,9 +3050,22 @@
 
       if (video.paused) {
         if (video.ended) {
+          if (this.isLoopActive()) {
+            this._trackEnded = false;
+            if (this.audio) {
+              this.audio.currentTime = 0;
+              this.audio.play().catch(() => {});
+            }
+            try { video.currentTime = 0; } catch (e) {}
+            if (video.paused) {
+              video.play().catch(() => {});
+            }
+            return;
+          }
           // Video ended naturally; do NOT abruptly kill audio while audio is finishing its last moments
           if (this.audio.ended || (this.audio.duration && this.audio.currentTime >= this.audio.duration - 0.5)) {
             if (!this.audio.paused) this.audio.pause();
+            this._trackEnded = true;
           }
           return;
         }
@@ -2876,10 +3074,61 @@
         if (pState === 3) {
           return;
         }
+        if (pState === 0) {
+          // Video reached ended state
+          if (this.isLoopActive()) {
+            this._trackEnded = false;
+            if (this.audio) {
+              this.audio.currentTime = 0;
+              this.audio.play().catch(() => {});
+            }
+            try { video.currentTime = 0; } catch (e) {}
+            if (video.paused) {
+              video.play().catch(() => {});
+            }
+            return;
+          }
+          this._trackEnded = true;
+          if (video && !video.paused) {
+            try { video.pause(); } catch (e) {}
+          }
+          if (!this.audio.paused) this.audio.pause();
+          return;
+        }
         if (!this.audio.paused) {
           this.audio.pause();
         }
         return;
+      }
+
+      // 0c. Track-end guard: If track has ended or is within 0.8s of the end, do NOT advance, play, or resync
+      if (this._trackEnded || (video.duration && video.currentTime >= video.duration - 0.8)) {
+        if (!this.isLoopActive()) {
+          this._trackEnded = true;
+          if (video && !video.paused) {
+            try { video.pause(); } catch (e) {}
+          }
+          if (this.audio && !this.audio.paused) {
+            try { this.audio.pause(); } catch (e) {}
+          }
+          if (this.shouldAutoplayNext()) {
+            const player = document.getElementById('movie_player');
+            if (player && !this._advanceFallbackTimer) {
+              const isPl = (typeof player.getPlaylistId === 'function' && !!player.getPlaylistId()) || !!document.querySelector('ytd-playlist-panel-renderer');
+              const delay = isPl ? 1000 : 2500;
+              this._advanceFallbackTimer = setTimeout(() => {
+                this._advanceFallbackTimer = null;
+                if ((this.isActive || this._isTransitioning) && player.getVideoData?.()?.video_id === this.activeVideoId) {
+                  if (typeof player.nextVideo === 'function') {
+                    console.log(TAG, '[StudioEngine774] Track-end advance: calling player.nextVideo()...');
+                    try { player.nextVideo(); } catch (e) {}
+                  }
+                }
+              }, delay);
+            }
+          }
+          return;
+        }
       }
 
       // If user is actively adjusting volume, do not interfere with clock
@@ -2890,17 +3139,28 @@
       const aTime = this.audio.currentTime;
 
       // 1. Detect frozen / stalled audio stream (not merely buffering)
-      if (Math.abs(aTime - this._lastAudioTime) < 0.05 && !this.audio.paused) {
+      if (Math.abs(aTime - this._lastAudioTime) < 0.05 && !this.audio.paused && !this._trackEnded) {
         const stalledDuration = Date.now() - (this._lastAudioAdvance || Date.now());
-        if (stalledDuration > 8000) {
-          console.log(TAG, `[StudioEngine774 Watchdog] Audio frozen at ${aTime.toFixed(2)}s for ${(stalledDuration / 1000).toFixed(1)}s (video at ${vTime.toFixed(2)}s). Auto-recovering...`);
-          this._lastAudioAdvance = Date.now();
-          if (stalledDuration > 15000) {
-            this._reconnectStream('Watchdog detected frozen stream');
-          } else {
+        if (stalledDuration > 2500) {
+          // If audio is stalled and video is ahead (e.g. gap between MSE chunks), jump audio across the gap!
+          if (vTime > aTime && vTime - aTime < 3.0) {
+            console.log(TAG, `[StudioEngine774 Watchdog] Audio gap detected at ${aTime.toFixed(2)}s (video at ${vTime.toFixed(2)}s). Jumping gap to ${vTime.toFixed(2)}s...`);
+            this.audio.currentTime = vTime;
             this.audio.play().catch(() => {});
+            this._lastAudioTime = vTime;
+            this._lastAudioAdvance = Date.now();
+            return;
           }
-          return;
+          if (stalledDuration > 8000) {
+            console.log(TAG, `[StudioEngine774 Watchdog] Audio frozen at ${aTime.toFixed(2)}s for ${(stalledDuration / 1000).toFixed(1)}s (video at ${vTime.toFixed(2)}s). Auto-recovering...`);
+            this._lastAudioAdvance = Date.now();
+            if (stalledDuration > 15000) {
+              this._reconnectStream('Watchdog detected frozen stream');
+            } else {
+              this.audio.play().catch(() => {});
+            }
+            return;
+          }
         }
       } else {
         this._lastAudioTime = aTime;
@@ -2909,7 +3169,9 @@
 
       // 2. Audio paused while video is playing
       if (this.audio.paused && !video.paused && !this._isAudioBuffering) {
-        this.audio.play().catch(() => {});
+        if (!this._trackEnded && !this.audio.ended && (!this.audio.duration || this.audio.currentTime < this.audio.duration - 0.5)) {
+          this.audio.play().catch(() => {});
+        }
       }
 
       // 3. Keep playbackRate strictly 1:1 with video at all times.
@@ -2925,7 +3187,7 @@
       const drift = aTime - vTime;
       const absDiff = Math.abs(drift);
       const now = Date.now();
-      const canResyncVideo = (now - (this._lastSeekTime || 0) > 3000) && !this._isSeeking && !this.audio.seeking && !video.seeking;
+      const canResyncVideo = (now - (this._lastSeekTime || 0) > 3000) && !this._isSeeking && !this.audio.seeking && !video.seeking && !this._trackEnded;
 
       if (absDiff > 0.65 && !this._isAudioBuffering && !this.audio.paused && canResyncVideo) {
         if (this.isTimeBuffered(video, aTime)) {
@@ -2963,6 +3225,7 @@
       this._isSeeking = false;
       this._userPaused = false;
       this._hasDispatchedEnded = false;
+      this._trackEnded = false;
       this._lastSeekTime = Date.now();
       this.updateNormalizedGain();
 
@@ -3173,6 +3436,10 @@
     },
 
     isEligible() {
+      // Loop mode strictly overrides autoplay/prefetch: never prefetch or advance while looping!
+      if (typeof StudioEngine774 !== 'undefined' && typeof StudioEngine774.isLoopActive === 'function') {
+        if (StudioEngine774.isLoopActive()) return false;
+      }
       // Must have autoplay enabled OR be inside an active playlist
       if (this.isInPlaylist()) return true;
       if (typeof StudioEngine774 !== 'undefined' && typeof StudioEngine774.shouldAutoplayNext === 'function') {
@@ -4342,13 +4609,24 @@
             }
           }
         }
-      } else if (partType === 43) { // SABR_ERROR
-        foundAudioDecision = true;
-        console.log(TAG, `[UMP Inspector] CDN returned SabrError (part 43)`);
-        if (!sabrRewrite.verified774) {
-          ytssHandleSabrDowngrade(videoId, 'CDN SabrError (part 43)', 251);
+      } else if (partType === 43) { // SABR_ERROR or CMS Redirect
+        const sr = pbParseMessage(u8, dataOff, dataOff + partSize);
+        const f1 = sr?.get(1)?.[0];
+        let isRedirect = false;
+        if (f1 && f1.wireType === 2 && f1.valueLen > 24) {
+          const candidate = new TextDecoder().decode(u8.subarray(f1.valueOff, f1.valueOff + f1.valueLen));
+          if (/^https:\/\/[^/\s]+\/videoplayback\?/.test(candidate)) {
+            isRedirect = true;
+          }
         }
-        return true;
+        if (!isRedirect) {
+          foundAudioDecision = true;
+          console.log(TAG, `[UMP Inspector] CDN returned SabrError (part 43)`);
+          if (!sabrRewrite.verified774) {
+            ytssHandleSabrDowngrade(videoId, 'CDN SabrError (part 43)', 251);
+          }
+          return true;
+        }
       }
 
       off = dataOff + partSize;
