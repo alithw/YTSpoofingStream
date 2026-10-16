@@ -5,7 +5,7 @@
     "code": "ja",
     "author": "YTSpoofingStream Team"
   },
-  "headerSubtitle": "v0.2.3 • Studio 774 デュアルストリームエンジン",
+  "headerSubtitle": "v0.2.4 • Studio 774 デュアルストリームエンジン",
   "enableExtension": "拡張機能を有効化",
   "opModeTitle": "動作モード",
   "opModeHybridTitle": "モード: ハイブリッドミックス (774 Opus ★)",
@@ -17,6 +17,9 @@
   "opModeTvTitle": "Smart TV UMP のみ (774 Opus ★)",
   "opModeTvBadge": "TV Premium",
   "opModeTvDesc": "ゼロ遅延 • TV Premium認証必須 • MediaSource経由のTVHTML5 UMP/SABR 774ダイレクトデマルチプレクサ",
+  "opModeTvRelayTitle": "スマートTVリレー (レガシーSABR 774 ★)",
+  "opModeTvRelayBadge": "TV Premium",
+  "opModeTvRelayDesc": "独立レガシーモード • TV Premium必須 • メインプレーヤーでSABR 251→774を直接書き換え",
   "statusTitle": "ステータス",
   "statusActive": "稼働中",
   "statusInactive": "待機中",

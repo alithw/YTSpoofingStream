@@ -571,7 +571,7 @@
   </div>
 
   <div id="mainContentWrapper">
-    <!-- STATUS (MOVED TO TOP) -->
+    <!-- STATUS -->
     <div class="sec">
       <div class="sec-title" data-i18n="statusTitle">Status</div>
       <div class="row" style="margin-bottom: 8px; padding: 0; align-items: center; justify-content: space-between;">
@@ -589,7 +589,7 @@
       </div>
     </div>
 
-    <!-- OPERATION MODE (BELOW STATUS) -->
+    <!-- OPERATION MODES -->
     <div class="sec">
       <div class="sec-title" data-i18n="opModeTitle">Operation Mode</div>
       <div class="op-modes" id="opModes">
@@ -623,6 +623,17 @@
               <span class="op-badge tv" data-i18n="opModeTvBadge">TV Premium</span>
             </div>
             <div class="op-mode-desc" data-i18n="opModeTvDesc">Zero-delay • Requires TV Premium login • Direct TVHTML5 UMP/SABR 774 demuxer via MediaSource</div>
+          </div>
+        </label>
+
+        <label class="op-mode" data-opmode="TV_RELAY">
+          <input type="radio" name="opmode" value="TV_RELAY">
+          <div class="op-mode-info">
+            <div class="op-mode-name">
+              <span data-i18n="opModeTvRelayTitle">Smart TV Relay (Legacy SABR 774 ★)</span>
+              <span class="op-badge tv" data-i18n="opModeTvRelayBadge">TV Premium</span>
+            </div>
+            <div class="op-mode-desc" data-i18n="opModeTvRelayDesc">Standalone Legacy • Requires TV Premium • Native SABR 251→774 body rewrite in main player</div>
           </div>
         </label>
       </div>

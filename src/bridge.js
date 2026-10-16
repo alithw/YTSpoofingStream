@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.2.3 — Bridge (ISOLATED world)               ║
+// ║  YTSpoofingStream v0.2.4 — Bridge (ISOLATED world)               ║
 // ║  Relays messages between MAIN world and Service Worker.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
@@ -59,8 +59,11 @@ window.addEventListener('message', (event) => {
     safeSend({ type: 'OFFSCREEN_STOP_HARVEST' });
   }
 
-  // ── Phase 1 (Option D): relay TV streaming context query.
-  //    MAIN world cannot call chrome.runtime directly; bridge forwards.
+  if (event.data.type === 'YTSS_RELOAD_EXTENSION') {
+    safeSend({ type: 'RELOAD_EXTENSION' });
+  }
+
+  // Relay TV streaming context query: MAIN world cannot call chrome.runtime directly; bridge forwards.
   if (event.data.type === 'YTSS_FETCH_TVCTX') {
     const { videoId, requestId } = event.data;
     safeSend({ type: 'GET_TVCTX', videoId }, (response) => {
@@ -93,10 +96,6 @@ window.addEventListener('message', (event) => {
     safeSend({ type: 'RELOAD_RULES' }, (res) => {
       window.postMessage({ type: 'YTSS_RELOAD_RULES_RESULT', success: !!res?.success }, '*');
     });
-  }
-
-  if (event.data.type === 'YTSS_RELOAD_EXTENSION') {
-    safeSend({ type: 'RELOAD_EXTENSION' });
   }
 });
 

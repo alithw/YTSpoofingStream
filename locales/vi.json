@@ -1,5 +1,5 @@
 {
-  "headerSubtitle": "v0.2.3 • Động cơ luồng kép Studio 774",
+  "headerSubtitle": "v0.2.4 • Động cơ luồng kép Studio 774",
   "enableExtension": "Bật tiện ích",
   "opModeTitle": "Chế độ hoạt động",
   "opModeHybridTitle": "Chế độ: Hỗn hợp Hybrid (774 Opus ★)",
@@ -11,6 +11,9 @@
   "opModeTvTitle": "Chỉ Smart TV UMP (774 Opus ★)",
   "opModeTvBadge": "TV Premium",
   "opModeTvDesc": "Không độ trễ • Yêu cầu TV Premium • Giải mã trực tiếp luồng UMP/SABR 774 từ TVHTML5 qua MediaSource",
+  "opModeTvRelayTitle": "Smart TV Relay (SABR Cũ 774 ★)",
+  "opModeTvRelayBadge": "TV Premium",
+  "opModeTvRelayDesc": "Chế độ độc lập cũ • Yêu cầu TV Premium • Ghi đè gói tin SABR 251→774 trực tiếp trên player gốc",
   "statusTitle": "Trạng thái",
   "statusActive": "Đang hoạt động",
   "statusInactive": "Chưa kích hoạt",

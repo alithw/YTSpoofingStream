@@ -27,7 +27,7 @@
   };
   const HQ_ITAGS = [774];
 
-  const OP_MODES = { HYBRID_HQ: 'HYBRID_HQ', YTM_HARVESTER: 'YTM_HARVESTER', TV_HEADLESS: 'TV_HEADLESS', TV_UMP_MSE: 'TV_UMP_MSE' };
+  const OP_MODES = { HYBRID_HQ: 'HYBRID_HQ', YTM_HARVESTER: 'YTM_HARVESTER', TV_HEADLESS: 'TV_HEADLESS', TV_UMP_MSE: 'TV_UMP_MSE', TV_RELAY: 'TV_RELAY' };
 
   // ─── SETTINGS ────────────────────────────────────────────────────
   let S = {
@@ -295,6 +295,27 @@
     const cachedEntry = vId ? cacheGet(vId) : null;
     const tvCtx = streamingContext || cachedEntry?.streamingContext || null;
     sabrRewrite.on = false;
+    if (S.operationMode === OP_MODES.TV_RELAY) {
+      UmpMseController774.stop();
+      StudioEngine774.stopAndUnmute('Native TV 774 SABR stream');
+      sabrRewrite.on = true;
+      sabrRewrite.videoId = vId;
+      sabrRewrite.lastModified = Number(best774?.lastModified || best774?.last_modified || 0);
+      sabrRewrite.xtags = best774?.xtags || null;
+      sabrRewrite.serverAbrStreamingUrl = tvCtx?.serverAbrStreamingUrl || null;
+      sabrRewrite.ustreamerConfig = null;
+      sabrRewrite.swapUstreamer = false;
+      sabrRewrite.verified774 = false;
+      sabrRewrite.downgradedCount = 0;
+      status.activeMethod = 'TVHTML5 (Native SABR 774)';
+      status.activeAudioItag = 774;
+      status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: TVHTML5 (Native SABR 774)`;
+      status.injectedStreams = streamCount > 0 ? streamCount : 1;
+      status.fallbackReason = null;
+      report();
+      if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+      return;
+    }
     if (vId && best774 && tvCtx) {
       status.injectedStreams = streamCount > 0 ? streamCount : 1;
       UmpMseController774.attachAndLoad(vId, best774, tvCtx);
@@ -610,14 +631,9 @@
     return await fetchPromise;
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // [APPROACH 0] SESSION CACHE LOADER (Removed, now native sync via sessionStorage)
-
-  // ═══════════════════════════════════════════════════════════════════
-  // [APPROACH 1] PRE-WARM CACHE
+  // ─── PRE-WARM CACHE ────────────────────────────────────────────────
   // Start fetching HQ formats immediately from URL videoId, BEFORE player initializes.
   // When ytInitialPlayerResponse fires, cache should already be ready → sync merge.
-  // ═══════════════════════════════════════════════════════════════════
   function getVideoIdFromUrl() {
     try {
       const urlVid = new URLSearchParams(window.location.search).get('v');
@@ -999,12 +1015,10 @@
     });
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // PROPOSAL 4 — UMP-TO-MSE DIRECT DEMUXER FOR TVHTML5 ITAG 774
+  // ─── UMP-TO-MSE DIRECT DEMUXER FOR TVHTML5 ITAG 774 ────────────────
   // Deciphers TVHTML5 serverAbrStreamingUrl `n` param, sends AUDIO_ONLY
   // SABR POSTs (f40=1), and demuxes UMP Part 20/21 WebM/Opus 774 frames
   // directly into MediaSource SourceBuffer on StudioEngine774.audio.
-  // ═══════════════════════════════════════════════════════════════════
   function umpReadVarint(u8, pos) {
     if (pos >= u8.length) return null;
     const b0 = u8[pos];
@@ -1570,10 +1584,8 @@
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════════
-  // STUDIO ENGINE 774 — Sophisticated High-Fidelity Audio Engine
-  // Direct Hardware Opus Playback • Flawless Sync • Unified Player Binding
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── STUDIO ENGINE 774 ─────────────────────────────────────────────
+  // High-Fidelity Audio Engine: Direct Hardware Opus Playback • Sync Engine • Unified Player Binding
   const initialVolState = readStoredYoutubeVolumeState();
   const StudioEngine774 = {
     audio: null,
@@ -1817,7 +1829,8 @@
             if (player) {
               if (this._advanceFallbackTimer) clearTimeout(this._advanceFallbackTimer);
               const isPl = (typeof player.getPlaylistId === 'function' && !!player.getPlaylistId()) || !!document.querySelector('ytd-playlist-panel-renderer');
-              const delay = isPl ? 1000 : 2500;
+              // Allow YouTube's native countdown (3..2..1) to complete naturally. Fallback only acts if player gets stuck.
+              const delay = isPl ? 3500 : 7000;
               this._advanceFallbackTimer = setTimeout(() => {
                 this._advanceFallbackTimer = null;
                 if ((this.isActive || this._isTransitioning) && player.getVideoData?.()?.video_id === this.activeVideoId) {
@@ -2189,10 +2202,8 @@
         // 1. Seeking & Seeked — Process BEFORE document.hidden check so background seeking works!
         if (e.type === 'seeking') {
           if (this._isVolScrubbing || this._isInternalVideoSync || this._isTabResyncing) return;
-          const drift = Math.abs(this.audio.currentTime - video.currentTime);
-          const isRealSeek = this.hasRecentUserSeekIntent() || drift > 1.8;
-          if (!isRealSeek) return;
           this._isSeeking = true;
+          this._lastSeekTime = Date.now();
           this._hasDispatchedEnded = false;
           if (!this.isAdActive()) {
             this._silenceElement(video);
@@ -2209,26 +2220,31 @@
           }
           this._isSeeking = false;
           this._hasDispatchedEnded = false;
+
+          const vTargetSec = getVideoTimeFor(this.activeVideoId);
+
           // If loop mode is active and video just looped back to start from the end:
-          if (this.isLoopActive() && video.currentTime < 1.0 && this.audio && this.audio.duration && this.audio.currentTime >= this.audio.duration - 2.5) {
+          if (this.isLoopActive() && vTargetSec < 1.0 && this.audio && this.audio.duration && this.audio.currentTime >= this.audio.duration - 2.5) {
             console.log(TAG, '[StudioEngine774] Native video looped back to start -> Resetting 774 audio to 0:00');
             this._trackEnded = false;
-            this.audio.currentTime = video.currentTime;
+            this.audio.currentTime = vTargetSec;
             if (this.audio.paused) {
               this.audio.play().catch(() => {});
             }
             return;
           }
 
+          // Prevent unwanted replay from 0:00 when video finishes and resets to end screen (loop is inactive)
+          if (!this.isLoopActive() && vTargetSec < 1.0 && (this._trackEnded || video.ended || (this.audio && this.audio.duration && this.audio.currentTime >= this.audio.duration - 2.5))) {
+            return;
+          }
+
           if (!this.isAdActive()) {
             this._silenceElement(video);
             this.syncVol(video);
-            // Master Clock Lock: only seek audio to video if user explicitly sought or drift is large (> 1.8s).
-            // Never jump audio on small internal YouTube MSE/ABR video seeks caused by browser lag!
-            const vTargetSec = getVideoTimeFor(this.activeVideoId);
             const drift = Math.abs(this.audio.currentTime - vTargetSec);
-            const isUserSeek = this.hasRecentUserSeekIntent();
-            if ((isUserSeek && drift > 0.25) || drift > 1.8) {
+            // Responsive seek: immediately align audio whenever drift > 0.12s (covers short seeks, scrubbing, chapter clicks)
+            if (drift > 0.12) {
               this._lastSeekTime = Date.now();
               this.audio.currentTime = vTargetSec;
               if (UmpMseController774.isActive) {
@@ -2281,7 +2297,7 @@
           return;
         }
 
-        // 4. Background / Hidden optimization: let audio play continuously in background
+        // 4. Background / Hidden optimization: let audio play continuously in background unless player is truly paused/stopped
         if (document.hidden) {
           if ((e.type === 'play' || e.type === 'playing') && !this.isAdActive()) {
             this._silenceElement(video);
@@ -2294,9 +2310,28 @@
               }
               this.audio.play().catch(() => {});
             }
+            return;
           }
-          // Do NOT pause 774 audio when tab is hidden, because Chrome automatically pauses/throttles
-          // hidden video elements to save resources. Audio must continue playing in background!
+          if (e.type === 'pause') {
+            const pState = document.getElementById('movie_player')?.getPlayerState?.();
+            // If YouTube player state is 1 (playing), Chrome is just background-throttling the video element; keep playing audio!
+            if (pState === 1 && !video.ended) {
+              return;
+            }
+            // Otherwise (pState === 2 for paused, or 0 for ended, or -1 for unstarted), genuine pause!
+            this._userPaused = true;
+            if (this.audio && !this.audio.paused) {
+              try { this.audio.pause(); } catch (err) {}
+            }
+            return;
+          }
+          if (e.type === 'error') {
+            if (this.audio && !this.audio.paused) {
+              try { this.audio.pause(); } catch (err) {}
+            }
+            UmpMseController774.stop();
+            return;
+          }
           return;
         }
 
@@ -2311,10 +2346,9 @@
 
         if (e.type === 'play' || e.type === 'playing') {
           this._userPaused = false;
-          // Guard: if track has ended or video is stopped at the end, DO NOT reset _trackEnded or resume audio!
-          if (video.duration && video.currentTime >= video.duration - 0.8 && !this.isLoopActive()) {
+          // Guard: if track has naturally ended, do NOT reset _trackEnded or resume audio unless loop mode is active
+          if (video.ended && !this.isLoopActive()) {
             this._trackEnded = true;
-            if (!video.paused) try { video.pause(); } catch (e) {}
             if (this.audio && !this.audio.paused) try { this.audio.pause(); } catch (e) {}
             return;
           }
@@ -2365,10 +2399,20 @@
           if (pState === 3) {
             return;
           }
-          if (!document.hidden && !this._isInternalVideoSync) {
+          if (!this._isInternalVideoSync) {
             this._userPaused = true;
-            this.audio.pause();
+            if (this.audio && !this.audio.paused) {
+              try { this.audio.pause(); } catch (e) {}
+            }
           }
+        } else if (e.type === 'error') {
+          console.log(TAG, '[StudioEngine774] Main video element error -> Halting audio stream');
+          if (this.audio && !this.audio.paused) {
+            try { this.audio.pause(); } catch (err) {}
+          }
+          UmpMseController774.stop();
+          this.isActive = false;
+          return;
         } else if (e.type === 'loadedmetadata' || e.type === 'canplay') {
           if (!this.isAdActive() && !document.hidden && !this._isInternalVideoSync && !this._isVolScrubbing) {
             this._silenceElement(video);
@@ -2383,7 +2427,7 @@
       };
 
       const captureOpts = { capture: true, passive: true };
-      ['play', 'playing', 'pause', 'waiting', 'seeking', 'seeked', 'ratechange', 'volumechange', 'loadedmetadata', 'canplay', 'ended'].forEach(evt => {
+      ['play', 'playing', 'pause', 'waiting', 'seeking', 'seeked', 'ratechange', 'volumechange', 'loadedmetadata', 'canplay', 'ended', 'error'].forEach(evt => {
         document.addEventListener(evt, onVideoEvent, captureOpts);
       });
     },
@@ -2506,7 +2550,7 @@
               const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
               const playable = getPlayable774Candidates(formats);
               const all774 = getAll774Candidates(formats);
-              if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0) {
+              if (S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY && playable.length > 0) {
                 this.load774(newVid, playable[0]);
               } else if (all774.length > 0) {
                 noteTvNative774(all774[0], all774.length, newVid, cached?.streamingContext || null);
@@ -2545,13 +2589,6 @@
               try { this.audio.pause(); } catch (e) {}
             }
           } else if (state === 1 || state === 3) {
-            const v = getMainVideoElement();
-            if (v && v.duration && v.currentTime >= v.duration - 0.8 && !this.isLoopActive()) {
-              this._trackEnded = true;
-              if (!v.paused) try { v.pause(); } catch (e) {}
-              if (this.audio && !this.audio.paused) try { this.audio.pause(); } catch (e) {}
-              return;
-            }
             this._trackEnded = false;
             if (isPlaybackEnded) {
               isPlaybackEnded = false;
@@ -2573,9 +2610,22 @@
                 tryUpgradeVideo(curVid, 'PlayerStateChange_' + state);
               }
             }
+          } else if (state === 2) {
+            this._userPaused = true;
+            if (this.audio && !this.audio.paused) {
+              try { this.audio.pause(); } catch (e) {}
+            }
           } else if (state === -1 || state === 5) {
             handleVideoDataChange();
           }
+        });
+
+        player.addEventListener('onError', (errCode) => {
+          console.log(TAG, `[StudioEngine774] Player onError: ${errCode} -> pausing 774 audio`);
+          if (this.audio && !this.audio.paused) {
+            try { this.audio.pause(); } catch (err) {}
+          }
+          UmpMseController774.stop();
         });
 
         // Replay button click handler for ended video replay
@@ -2689,9 +2739,7 @@
 
     prepareTransition(newVid) {
       console.log(TAG, `[StudioEngine774] Preparing transition to: ${newVid}`);
-      if (UmpMseController774.isActive && UmpMseController774.videoId !== newVid) {
-        UmpMseController774.stop();
-      }
+      UmpMseController774.stop();
       this._isTransitioning = true;
       this._transitionTargetVid = newVid || null;
       this._transitionStartedAt = Date.now();
@@ -3101,8 +3149,9 @@
         return;
       }
 
-      // 0c. Track-end guard: If track has ended or is within 0.8s of the end, do NOT advance, play, or resync
-      if (this._trackEnded || (video.duration && video.currentTime >= video.duration - 0.8)) {
+      // 0c. Track-end guard: only pause audio when audio itself or video has truly ended
+      const isAudioFinished = this.audio && (this.audio.ended || (this.audio.duration && this.audio.currentTime >= this.audio.duration - 0.15));
+      if (this._trackEnded || video.ended || isAudioFinished) {
         if (!this.isLoopActive()) {
           this._trackEnded = true;
           if (video && !video.paused) {
@@ -3115,12 +3164,12 @@
             const player = document.getElementById('movie_player');
             if (player && !this._advanceFallbackTimer) {
               const isPl = (typeof player.getPlaylistId === 'function' && !!player.getPlaylistId()) || !!document.querySelector('ytd-playlist-panel-renderer');
-              const delay = isPl ? 1000 : 2500;
+              const delay = isPl ? 3500 : 7000;
               this._advanceFallbackTimer = setTimeout(() => {
                 this._advanceFallbackTimer = null;
                 if ((this.isActive || this._isTransitioning) && player.getVideoData?.()?.video_id === this.activeVideoId) {
                   if (typeof player.nextVideo === 'function') {
-                    console.log(TAG, '[StudioEngine774] Track-end advance: calling player.nextVideo()...');
+                    console.log(TAG, '[StudioEngine774] Track-end advance fallback: calling player.nextVideo()...');
                     try { player.nextVideo(); } catch (e) {}
                   }
                 }
@@ -3180,16 +3229,26 @@
         this.audio.playbackRate = userRate;
       }
 
-      // 4. MASTER CLOCK CONTINUITY:
-      // <audio> is the Master Clock! NEVER seek this.audio.currentTime = vTime while audio is playing,
-      // because browser/GPU/video lag would yank the audio backward and cause the song to jump/repeat!
-      // Instead, if silent <video> drifts away from <audio> by > 0.65s, gently align <video> to <audio>.
+      // 4. MASTER CLOCK CONTINUITY & SEEK RESILIENCE:
       const drift = aTime - vTime;
       const absDiff = Math.abs(drift);
       const now = Date.now();
+
+      // If difference is large (> 1.5s), it is a seek or track jump, NOT natural playback drift!
+      // Audio MUST follow video! NEVER pull video back to old audio position!
+      if (absDiff > 1.5 && !video.seeking && !this._isSeeking && !this._isAudioBuffering) {
+        this._lastSeekTime = now;
+        this.audio.currentTime = vTime;
+        if (UmpMseController774.isActive) {
+          UmpMseController774.onSeek(vTime);
+        }
+        return;
+      }
+
+      // Small natural playback drift (0.45s < absDiff <= 1.5s): gently align video to audio
       const canResyncVideo = (now - (this._lastSeekTime || 0) > 3000) && !this._isSeeking && !this.audio.seeking && !video.seeking && !this._trackEnded;
 
-      if (absDiff > 0.65 && !this._isAudioBuffering && !this.audio.paused && canResyncVideo) {
+      if (absDiff > 0.45 && absDiff <= 1.5 && !this._isAudioBuffering && !this.audio.paused && canResyncVideo) {
         if (this.isTimeBuffered(video, aTime)) {
           this._lastSeekTime = now;
           this._isInternalVideoSync = true;
@@ -3417,9 +3476,8 @@
     return StudioEngine774.load774(videoId, best774);
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // NEXT VIDEO PREFETCH CONTROLLER (Last 3s Countdown & Ephemeral Cache)
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── NEXT VIDEO PREFETCH CONTROLLER ─────────────────────────────────
+  // Last 3s countdown & ephemeral cache prefetch controller
   const NextVideoManager = {
     currentVideoId: null,
     nextVideoId: null,
@@ -3630,7 +3688,7 @@
       const playableCandidates = getPlayable774Candidates(formats);
       const all774Candidates = getAll774Candidates(formats);
 
-      if (playableCandidates.length > 0 && S.operationMode !== OP_MODES.TV_HEADLESS) {
+      if (playableCandidates.length > 0 && S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY) {
         if (isCurrentWatchVideo(videoId)) {
           StudioEngine774.load774(videoId, playableCandidates[0]);
         } else if (typeof NextVideoManager !== 'undefined' && NextVideoManager.nextVideoId === videoId) {
@@ -3728,9 +3786,7 @@
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // HQ FILTER & MERGE ENGINE (Direct Fallback)
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── HQ FILTER & MERGE ENGINE (Direct Fallback) ─────────────────────
   function processPlayerResponse(json, hqData = null) {
     if (!json?.streamingData?.adaptiveFormats) return json;
 
@@ -3900,22 +3956,61 @@
       const best774 = playable774Candidates.length > 0 ? playable774Candidates[0] : all774Candidates[0];
       const streamUrl = best774.url || best774._directUrl;
 
-      // Both direct HTTP 774 streams (YTM) and TV UMP MSE 774 streams are handled exclusively by StudioEngine774 (the 2nd player):
-      // Retain origAudio in adaptiveFormats so YouTube player initializes MSE normally with full HD/4K adaptive video qualities.
-      json.streamingData.adaptiveFormats = [...videoFormats, ...origAudio];
+      if (S.operationMode === OP_MODES.TV_RELAY) {
+        // TVHTML5 Authenticated 774 Stream: upgrade 251 and retain SABR pipeline
+        const orig251 = json._origFormats?.find(f => f.itag === 251) || {};
+        const preciseBps = getPreciseBitrate(best774);
+        const upgraded251 = {
+          ...orig251,
+          itag: 251,
+          _origItag: 774,
+          mimeType: 'audio/webm; codecs="opus"',
+          bitrate: preciseBps,
+          averageBitrate: best774.averageBitrate || preciseBps,
+          audioQuality: 'AUDIO_QUALITY_HIGH',
+        };
+        const otherAudio = origAudio.filter(f => f.itag !== 251);
+        json.streamingData.adaptiveFormats = [...videoFormats, ...otherAudio, upgraded251];
+        StudioEngine774.stopAndUnmute('Native TV 774 SABR stream');
+        UmpMseController774.stop();
 
-      if (isCurrent) {
-        status.videoTitle = json.videoDetails?.title || document.title || 'audio';
-        if (!streamUrl) {
-          noteTvNative774(best774, Math.max(pool.length, 6), currentVid, tvStreamingContext);
-        } else {
-          status.activeMethod = best774._src || 'YTM_HARVESTER';
+        if (isCurrent) {
+          status.videoTitle = json.videoDetails?.title || document.title || 'audio';
+          status.activeMethod = 'TVHTML5 (Native SABR 774)';
           status.activeAudioItag = 774;
-          status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
+          status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: TVHTML5 (Native SABR 774)`;
           status.injectedStreams = Math.max(pool.length, 6);
           status.fallbackReason = null;
+          sabrRewrite.on = true;
+          sabrRewrite.videoId = currentVid || json.videoDetails?.videoId;
+          sabrRewrite.lastModified = Number(best774?.lastModified || best774?.last_modified || 0);
+          sabrRewrite.xtags = best774?.xtags || null;
+          sabrRewrite.serverAbrStreamingUrl = tvStreamingContext?.serverAbrStreamingUrl || null;
+          sabrRewrite.ustreamerConfig = null;
+          sabrRewrite.swapUstreamer = false;
+          sabrRewrite.verified774 = false;
+          sabrRewrite.downgradedCount = 0;
           report();
           if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+        }
+      } else {
+        // Both direct HTTP 774 streams (YTM) and TV UMP MSE 774 streams are handled exclusively by StudioEngine774 (the 2nd player):
+        // Retain origAudio in adaptiveFormats so YouTube player initializes MSE normally with full HD/4K adaptive video qualities.
+        json.streamingData.adaptiveFormats = [...videoFormats, ...origAudio];
+
+        if (isCurrent) {
+          status.videoTitle = json.videoDetails?.title || document.title || 'audio';
+          if (!streamUrl) {
+            noteTvNative774(best774, Math.max(pool.length, 6), currentVid, tvStreamingContext);
+          } else {
+            status.activeMethod = best774._src || 'YTM_HARVESTER';
+            status.activeAudioItag = 774;
+            status.bestAudioInfo = `ITAG 774 [HQ ★] | Opus ${formatBitrate(best774)} | Method: ${status.activeMethod}`;
+            status.injectedStreams = Math.max(pool.length, 6);
+            status.fallbackReason = null;
+            report();
+            if (typeof PlayerBadgeUI !== 'undefined') PlayerBadgeUI.update();
+          }
         }
       }
     } else {
@@ -3936,11 +4031,9 @@
     return json;
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // [APPROACH 2] ytInitialPlayerResponse HOOK
+  // ─── YTINITIALPLAYERRESPONSE HOOK ──────────────────────────────────
   // Runs synchronously when YouTube sets this global.
   // If pre-warm cache already done → merge sync. Otherwise async merge + player reload.
-  // ═══════════════════════════════════════════════════════════════════
   let initialResponseValue = window.ytInitialPlayerResponse;
   if (initialResponseValue) {
     const initVid = initialResponseValue.videoDetails?.videoId;
@@ -3972,7 +4065,7 @@
             const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
             const playable = getPlayable774Candidates(formats);
             const all774 = getAll774Candidates(formats);
-            if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentWatchVideo(videoId)) {
+            if (S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY && playable.length > 0 && isCurrentWatchVideo(videoId)) {
               val = processPlayerResponse(val, cached);
               StudioEngine774.load774(videoId, playable[0]);
             } else if (all774.length > 0 && isCurrentWatchVideo(videoId)) {
@@ -3995,13 +4088,11 @@
     enumerable: true,
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // PAGE CONTEXT → SERVICE WORKER
+  // ─── PAGE CONTEXT → SERVICE WORKER ─────────────────────────────────
   // InnerTube drops the premium formats when a spoofed client sends no visitorData
   // matching the real session. Read those identifiers straight out of the page's own
   // ytcfg and relay them to the SW (via bridge.js) so its spoofed requests carry the
   // same session identity as the page.
-  // ═══════════════════════════════════════════════════════════════════
   let lastPageContextSent = '';
 
   // Read the page's current session identity. Kept separate from reportPageContext
@@ -4048,10 +4139,8 @@
     } catch (e) { }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // [APPROACH 2.5] YTCFG EXPERIMENT FLAGS HOOK
-  // Force disable SABR globally via YouTube's experiment flags
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── YTCFG EXPERIMENT FLAGS HOOK ───────────────────────────────────
+  // Ensure SABR flags permit streaming UMP 774
   let _ytcfg = window.ytcfg;
   Object.defineProperty(window, 'ytcfg', {
     get() { return _ytcfg; },
@@ -4087,11 +4176,9 @@
   document.addEventListener('DOMContentLoaded', reportPageContext);
   window.addEventListener('yt-navigate-finish', reportPageContext);
 
-  // ═══════════════════════════════════════════════════════════════════
-  // [APPROACH 3] ytplayer.config HOOK
+  // ─── YTPLAYER.CONFIG HOOK ──────────────────────────────────────────
   // YouTube sets window.ytplayer.config BEFORE creating the player object.
   // Intercept it to modify player_response / raw_player_response inline.
-  // ═══════════════════════════════════════════════════════════════════
   let _ytplayerConfigValue = window.ytplayer?.config || null;
 
   function patchYtplayerConfig(cfg) {
@@ -4120,7 +4207,7 @@
               const formats = cached?.formats || [];
               const playable = getPlayable774Candidates(formats);
               const all774 = getAll774Candidates(formats);
-              if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentWatchVideo(videoId)) {
+              if (S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY && playable.length > 0 && isCurrentWatchVideo(videoId)) {
                 args.player_response = JSON.stringify(processPlayerResponse(pr, cached));
                 StudioEngine774.load774(videoId, playable[0]);
               } else if (all774.length > 0 && isCurrentWatchVideo(videoId)) {
@@ -4160,6 +4247,9 @@
   // ─── SW-TRIGGERED UPGRADE ─────────────────────────────────────────
   function tryUpgradeVideo(videoId, source) {
     if (!videoId || !S.enabled || isMusicSite) return;
+    if (!isCurrentWatchVideo(videoId)) {
+      return; // Ignore stale video from previous track or rapid playlist navigation
+    }
     if (confirmedNo774Videos.has(videoId)) return; // Never touch video confirmed as NO 774
     if (StudioEngine774.isActive && StudioEngine774.activeVideoId === videoId) {
       return; // Already actively playing 774 for this exact track
@@ -4186,11 +4276,16 @@
     const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
     const playableCandidates = getPlayable774Candidates(formats);
     const real774Candidates = getAll774Candidates(formats);
-    if (playableCandidates.length > 0 && S.operationMode !== OP_MODES.TV_HEADLESS) {
+    if (playableCandidates.length > 0 && S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY) {
       console.log(TAG, `[${source}] Upgrading ${videoId} to Studio HQ 774`);
       StudioEngine774.load774(videoId, playableCandidates[0]);
     } else if (real774Candidates.length > 0 && sabrRewrite.downgradedVideoId !== videoId) {
-      if (!UmpMseController774.isActive || UmpMseController774.videoId !== videoId) {
+      if (S.operationMode === OP_MODES.TV_RELAY) {
+        if (!sabrRewrite.on || sabrRewrite.videoId !== videoId) {
+          console.log(TAG, `[${source}] Activating Legacy TV SABR 774 for ${videoId}`);
+          noteTvNative774(real774Candidates[0], real774Candidates.length, videoId, cached?.streamingContext || null);
+        }
+      } else if (!UmpMseController774.isActive || UmpMseController774.videoId !== videoId) {
         console.log(TAG, `[${source}] Activating TV UMP MSE 774 for ${videoId}`);
         noteTvNative774(real774Candidates[0], real774Candidates.length, videoId, cached?.streamingContext || null);
       }
@@ -4229,9 +4324,7 @@
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════════
-  // OPTION C — SABR body structural protobuf rewriter
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── SABR BODY STRUCTURAL PROTOBUF REWRITER ────────────────────────
   // Rewrites the preferred-audio field (f16.f1) and matching selected-format
   // entry (f2) from oldItag → newItag in a SABR POST body. Parses the wire
   // format structurally — never byte-scans. Returns a *new* Uint8Array on
@@ -4415,78 +4508,90 @@
     return new Uint8Array(outBytes);
   }
 
-  // Proposal 1: Dynamic structural Protobuf rebuilder for VideoPlaybackAbrRequest.
-  // Rewrites f16 (preferredAudioFormatIds), f2 (selectedFormatIds), and f3.f1 (bufferedRanges.formatId)
-  // with exact dynamic length recalculation, plus optional Stage-2 f5 (ustreamerConfig) transplant.
-  function sabrRewritePreferredAudio(bytes, targetItags, newItag, newLastModified, newXtags = null, ustreamerConfigB64 = null) {
+  // Dynamic structural Protobuf rebuilder for VideoPlaybackAbrRequest (TV Relay mode).
+  // Rewrites f16 (preferredAudioFormatIds) and f2 (selectedFormatIds).
+  // Returns a new Uint8Array with patches applied, or null.
+  function sabrRewritePreferredAudio(bytes, targetItags, newItag, newLastModified) {
     if (!bytes || bytes.length === 0) return null;
     try {
-      const top = pbParseRawFields(bytes, 0, bytes.length);
-      if (!top) return null;
+      const topFields = pbParseMessage(bytes, 0, bytes.length);
+      if (!topFields) return null;
 
       const itagList = Array.isArray(targetItags) ? targetItags : [targetItags];
-      const chunks = [];
-      let modifiedCount = 0;
 
-      for (const f of top.list) {
-        // f16 (preferredAudioFormatIds) & f2 (selectedFormatIds) -> FormatId sub-message
-        if ((f.fn === 16 || f.fn === 2) && f.wireType === 2) {
-          const rebuiltFmt = pbRebuildFormatIdIfMatched(
-            bytes, f.valueOff, f.valueOff + f.valueLen,
-            itagList, newItag, newLastModified, newXtags
-          );
-          if (rebuiltFmt) {
-            chunks.push(pbWrapLengthDelimited(f.fn, rebuiltFmt));
-            modifiedCount++;
-            continue;
+      // ── Patch f16 (preferred audio): rewrite f16.f1 (itag) and f16.f2 (lastModified)
+      const f16Entries = topFields.get(16);
+      if (!f16Entries || f16Entries.length === 0) return null;
+      let f16Target = null, f16Fields = null, f16f1 = null;
+      for (const e of f16Entries) {
+        const ff = pbParseMessage(bytes, e.valueOff, e.valueOff + e.valueLen);
+        if (!ff) continue;
+        const f1 = ff.get(1)?.[0];
+        if (f1 && f1.wireType === 0 && itagList.includes(Number(f1.value))) {
+          f16Target = e;
+          f16Fields = ff;
+          f16f1 = f1;
+          break;
+        }
+      }
+      if (!f16Target || !f16f1) return null;
+
+      const oldItag = Number(f16f1.value);
+
+      // ── Patch f2 (selected format): find the entry whose f1 === oldItag
+      const f2Entries = topFields.get(2);
+      let f2Target = null, f2Fields = null, f2f1 = null, f2f2 = null;
+      if (f2Entries) {
+        for (const e of f2Entries) {
+          const ff = pbParseMessage(bytes, e.valueOff, e.valueOff + e.valueLen);
+          if (!ff) continue;
+          const f1 = ff.get(1)?.[0];
+          if (f1 && f1.wireType === 0 && Number(f1.value) === oldItag) {
+            f2Target = e; f2Fields = ff; f2f1 = f1; f2f2 = ff.get(2)?.[0];
+            break;
           }
         }
-
-        // f3 (bufferedRanges) -> BufferedRange sub-message whose f1 is FormatId
-        if (f.fn === 3 && f.wireType === 2) {
-          const br = pbParseRawFields(bytes, f.valueOff, f.valueOff + f.valueLen);
-          if (br) {
-            let brModified = false;
-            const brChunks = [];
-            for (const bf of br.list) {
-              if (bf.fn === 1 && bf.wireType === 2) {
-                const rebuiltBrFmt = pbRebuildFormatIdIfMatched(
-                  bytes, bf.valueOff, bf.valueOff + bf.valueLen,
-                  itagList, newItag, newLastModified, newXtags
-                );
-                if (rebuiltBrFmt) {
-                  brChunks.push(pbWrapLengthDelimited(1, rebuiltBrFmt));
-                  brModified = true;
-                  continue;
-                }
-              }
-              brChunks.push(bytes.subarray(bf.tagOff, bf.nextOff));
-            }
-            if (brModified) {
-              chunks.push(pbWrapLengthDelimited(3, pbConcatChunks(brChunks)));
-              modifiedCount++;
-              continue;
-            }
-          }
-        }
-
-        // f5 (videoPlaybackUstreamerConfig) -> Stage-2 TV ustreamerConfig transplant when armed
-        if (f.fn === 5 && f.wireType === 2 && ustreamerConfigB64) {
-          const cfgBytes = pbDecodeBase64ToU8(ustreamerConfigB64);
-          if (cfgBytes && cfgBytes.length > 16) {
-            chunks.push(pbWrapLengthDelimited(5, cfgBytes));
-            modifiedCount++;
-            continue;
-          }
-        }
-
-        chunks.push(bytes.subarray(f.tagOff, f.nextOff));
       }
 
-      if (modifiedCount === 0) return null;
-      return pbConcatChunks(chunks);
+      // Build the patched buffer. Both oldItag and newItag must be 2-byte varints
+      // so the enclosing length prefix is unchanged.
+      const oldItagBytes = pbEncodeVarint(oldItag);
+      const newItagBytes = pbEncodeVarint(newItag);
+      if (oldItagBytes.length !== newItagBytes.length) {
+        return null;
+      }
+
+      // Start from a copy.
+      const out = new Uint8Array(bytes);
+
+      // Rewrite f16.f1 (itag) in place — same byte count.
+      out[f16f1.valueOff] = newItagBytes[0];
+      out[f16f1.valueOff + 1] = newItagBytes[1];
+
+      // Rewrite f16.f2 (lastModified) if present and byte length matches
+      const f16f2 = f16Fields.get(2)?.[0];
+      if (f16f2 && f16f2.wireType === 0 && newLastModified) {
+        const newLmBytes = pbEncodeVarint(BigInt(newLastModified));
+        if (newLmBytes.length === f16f2.valueLen) {
+          for (let i = 0; i < newLmBytes.length; i++) out[f16f2.valueOff + i] = newLmBytes[i];
+        }
+      }
+
+      // Rewrite f2 entry (selected format) if found.
+      if (f2Target && f2f1) {
+        out[f2f1.valueOff] = newItagBytes[0];
+        out[f2f1.valueOff + 1] = newItagBytes[1];
+        if (f2f2 && f2f2.wireType === 0 && newLastModified) {
+          const newLmBytes = pbEncodeVarint(BigInt(newLastModified));
+          if (newLmBytes.length === f2f2.valueLen) {
+            for (let i = 0; i < newLmBytes.length; i++) out[f2f2.valueOff + i] = newLmBytes[i];
+          }
+        }
+      }
+
+      return out;
     } catch (e) {
-      console.log(TAG, '[OptionC] sabrRewritePreferredAudio error:', e);
+      console.warn(TAG, '[SabrRewrite] sabrRewritePreferredAudio error:', e);
       return null;
     }
   }
@@ -4500,7 +4605,7 @@
     return null;
   }
 
-  // Rewrite a SABR/UMP POST body so preferred-audio / selected-format / buffered-range ask for 774.
+  // Rewrite a SABR/UMP POST body so preferred-audio / selected-format ask for 774.
   // Returns a Uint8Array to send, or null when the caller should pass the body through.
   function ytssMaybeRewriteSabrBody(body) {
     if (!S.enabled || !sabrRewrite.on || StudioEngine774.isActive) return null;
@@ -4508,26 +4613,21 @@
     if (sabrRewrite.videoId && typeof isCurrentWatchVideo === 'function' && !isCurrentWatchVideo(sabrRewrite.videoId)) return null;
     const bytes = ytssBodyToU8(body);
     if (!bytes || bytes.length < 8) return null;
-    const ustreamerB64 = sabrRewrite.swapUstreamer ? sabrRewrite.ustreamerConfig : null;
     const patched = sabrRewritePreferredAudio(
       bytes,
       [251],
       774,
-      sabrRewrite.lastModified || 0,
-      sabrRewrite.xtags || null,
-      ustreamerB64
+      sabrRewrite.lastModified || 0
     );
     if (patched && patched !== bytes) {
-      console.log(TAG, `[OptionC] SABR body rebuilt itag 251→774 (${bytes.length}B → ${patched.length}B${ustreamerB64 ? ', +TV ustreamerConfig' : ''})`);
+      console.log(TAG, `[SabrRewrite] SABR body rewritten in-place: itag 251→774 (${bytes.length}B)`);
       return patched;
     }
     return null;
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // PROPOSAL 2 — UMP (Unified Media Protocol) STREAM INSPECTOR
+  // ─── UMP (Unified Media Protocol) STREAM INSPECTOR ─────────────────
   // Verifies real-time MediaHeader (part 20) & SabrError (part 43) on the wire
-  // ═══════════════════════════════════════════════════════════════════
   const UMP_AUDIO_ITAGS = new Set([139, 140, 141, 171, 249, 250, 251, 256, 258, 325, 328, 774]);
 
   function ytssHandleSabrDowngrade(videoId, reason, servedItag = 251) {
@@ -4602,7 +4702,7 @@
             } else {
               sabrRewrite.downgradedCount = (sabrRewrite.downgradedCount || 0) + 1;
               console.log(TAG, `[UMP Inspector] CDN MediaHeader served audio ITAG ${servedItag} instead of 774 (count=${sabrRewrite.downgradedCount})`);
-              if (!sabrRewrite.verified774) {
+              if (!sabrRewrite.verified774 && sabrRewrite.downgradedCount >= 3) {
                 ytssHandleSabrDowngrade(videoId, `CDN served ITAG ${servedItag}`, servedItag);
               }
               return true;
@@ -4655,10 +4755,7 @@
     } catch (e) {}
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════════════
-  // NATIVE STATS FOR NERDS OVERRIDE & SPOOFER
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── NATIVE STATS FOR NERDS OVERRIDE & SPOOFER ─────────────────────
   const StatsForNerdsSpoofer = {
     initialized: false,
     timer: null,
@@ -4799,9 +4896,8 @@
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════════
-  // AUDIO-ONLY MODE CONTROLLER (Disable video render, pure HQ stream)
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── AUDIO-ONLY MODE CONTROLLER ────────────────────────────────────
+  // Pure HQ audio stream with zero video GPU rendering overhead
   function applyAudioOnlyState() {
     const player = document.getElementById('movie_player');
     let overlay = document.getElementById('ytss-audio-only-overlay');
@@ -4904,9 +5000,8 @@
     applyAudioOnlyState();
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // IN-PLAYER HUD BADGE UI (Shows ★ 774 or 251 directly inside YouTube Controls)
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── IN-PLAYER HUD BADGE UI ─────────────────────────────────────────
+  // Displays ★ 774 or fallback badge directly inside native YouTube controls
   const PlayerBadgeUI = {
     inject() {
       if (!S.enabled) {
@@ -4989,7 +5084,7 @@
         badge.style.borderColor = itag === 141 ? '#00e5ff' : '#ff334b';
 
         const bitrate = getActiveBitrate();
-        const method = status.activeMethod || (S.operationMode === 'TV_HEADLESS' ? 'TVHTML5' : 'YTM_HARVESTER');
+        const method = status.activeMethod || ((S.operationMode === 'TV_HEADLESS' || S.operationMode === 'TV_RELAY') ? 'TVHTML5' : 'YTM_HARVESTER');
         const isStudio = (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive);
         badge.title = t(isStudio ? 'badgeTooltipStudio' : 'badgeTooltipNative', {
           itag,
@@ -5077,9 +5172,7 @@
     StudioEngine774.hookPlayer();
   }, 1500);
 
-  // ═══════════════════════════════════════════════════════════════════
-  // INTERCEPTORS — fetch & XHR (response-only, no request modification)
-  // ═══════════════════════════════════════════════════════════════════
+  // ─── INTERCEPTORS — fetch & XHR ────────────────────────────────────
   window.fetch = async function (...args) {
     let url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
     if (window.__ytssSabrProbes === undefined) window.__ytssSabrProbes = 0;
@@ -5124,7 +5217,7 @@
         let cached = videoId ? cacheGet(videoId) : null;
         const isCurrentActive = isCurrentWatchVideo(videoId);
 
-        // Proposal 3: Async Gate on Cache Miss — hold /youtubei/v1/player up to 1200ms
+        // Async Gate on Cache Miss — hold /youtubei/v1/player up to 1200ms
         // while in-flight HQ harvest completes so processPlayerResponse runs synchronously
         // before the player initializes MSE.
         if (!cached && S.hqFetch && videoId && isCurrentActive && !confirmedNo774Videos.has(videoId)) {
@@ -5142,7 +5235,7 @@
           const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
           const playable = getPlayable774Candidates(formats);
           const all774 = getAll774Candidates(formats);
-          if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentActive) {
+          if (S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY && playable.length > 0 && isCurrentActive) {
             StudioEngine774.load774(videoId, playable[0]);
             try {
               const patchedJson = processPlayerResponse(json, cached);
@@ -5184,7 +5277,7 @@
                 const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
                 const playable = getPlayable774Candidates(formats);
                 const all774 = getAll774Candidates(formats);
-                if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0) {
+                if (S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY && playable.length > 0) {
                   StudioEngine774.load774(videoId, playable[0]);
                 } else if (all774.length > 0) {
                   noteTvNative774(all774[0], all774.length, videoId, hqData?.streamingContext || null);
@@ -5246,7 +5339,7 @@
       }));
     }
 
-    // ── SABR/UMP body rewrite (Option C): ask the server for real itag 774 ──
+    // ── SABR/UMP body rewrite: ask the server for real itag 774 ──
     // YouTube's player passes either (url, { method: 'POST', body: Uint8Array }) OR
     // a single `new Request(url, { method: 'POST', body: Uint8Array })` as args[0].
     let wasSabrRewritten = false;
@@ -5280,7 +5373,7 @@
           }
         }
       } catch (e) {
-        console.log(TAG, '[OptionC] fetch body rewrite failed:', e);
+        console.log(TAG, '[SabrRewrite] fetch body rewrite failed:', e);
       }
     }
 
@@ -5367,7 +5460,7 @@
   XMLHttpRequest.prototype.send = function (...args) {
     const url = this._ytssUrl;
 
-    // SABR/UMP binary body rewrite (Option C).
+    // SABR/UMP binary body rewrite.
     if (url && typeof url === 'string' && url.includes('googlevideo.com/videoplayback') && args[0]) {
       try {
         const patched = ytssMaybeRewriteSabrBody(args[0]);
@@ -5376,7 +5469,7 @@
           this._ytssSabrRewritten = true;
         }
       } catch (e) {
-        console.log(TAG, '[OptionC] XHR body rewrite failed:', e);
+        console.log(TAG, '[SabrRewrite] XHR body rewrite failed:', e);
       }
     }
 
@@ -5402,7 +5495,7 @@
             const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
             const playable = getPlayable774Candidates(formats);
             const all774 = getAll774Candidates(formats);
-            if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0 && isCurrentActive) {
+            if (S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY && playable.length > 0 && isCurrentActive) {
               StudioEngine774.load774(videoId, playable[0]);
             } else if (all774.length > 0 && isCurrentActive) {
               noteTvNative774(all774[0], all774.length, videoId, cached?.streamingContext || null);
@@ -5427,7 +5520,7 @@
                   const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
                   const playable = getPlayable774Candidates(formats);
                   const all774 = getAll774Candidates(formats);
-                  if (S.operationMode !== OP_MODES.TV_HEADLESS && playable.length > 0) {
+                  if (S.operationMode !== OP_MODES.TV_HEADLESS && S.operationMode !== OP_MODES.TV_RELAY && playable.length > 0) {
                     StudioEngine774.load774(videoId, playable[0]);
                   } else if (all774.length > 0) {
                     noteTvNative774(all774[0], all774.length, videoId, hqData?.streamingContext || null);

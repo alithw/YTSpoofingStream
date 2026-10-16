@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.3-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.4-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="Giấy phép Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -20,8 +20,8 @@
 > **Trải nghiệm âm nhạc tốt hơn?** Nếu tiện ích giúp bạn có trải nghiệm nghe nhạc tuyệt vời hơn trên YouTube, hãy cho mình xin 1 sao (⭐ **Star**) trên [GitHub](https://github.com/alithw/YTSpoofingStream) để ủng hộ dự án nhé!
 
 > [!IMPORTANT]
-> **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.2.3](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.3)**  
-> **v0.2.3** hiện là phiên bản ổn định chính thức khắc phục triệt để lỗi thanh điều khiển âm lượng / tắt tiếng trên player YouTube, lỗi phát lại đoạn đầu khi tự động chuyển bài (Autoplay), hiện tượng nghẽn bộ đệm micro-gap luồng SABR/UMP, và hỗ trợ hoàn hảo chế độ lặp bài (Loop). Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.3) hoặc [**xem nhanh các điểm mới nổi bật bên dưới**](#recent-updates).
+> **KHUYẾN NGHỊ: CẬP NHẬT LÊN PHIÊN BẢN [v0.2.4](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.4)**  
+> **v0.2.4** đem trở lại chế độ ghi đè luồng truyền thống **Smart TV Relay (`TV_RELAY` / SABR Cũ 774)** độc lập theo báo cáo của người sử dụng, đồng thời vá triệt để các lỗi đè luồng phát, tinh chỉnh chuyển bài Autoplay và tối ưu hóa thời gian đồng bộ Seek. Vui lòng xem [**Ghi chú Phát hành (Release Notes)**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.4) hoặc [**xem nhanh các điểm mới nổi bật bên dưới**](#recent-updates).
 
 > [!WARNING]
 > **Yêu cầu: Tài khoản YouTube Premium đang hoạt động**
@@ -39,15 +39,15 @@
 ---
 
 ## 📑 Mục lục
-- [✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.3)](#recent-updates)
+- [✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.4)](#recent-updates)
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
-- [🧠 Kiến trúc Hệ thống (v0.2.3)](#-kiến-trúc-hệ-thống-v023)
+- [🧠 Kiến trúc Hệ thống (v0.2.4)](#-kiến-trúc-hệ-thống-v024)
   - [1. Cấu trúc Thư mục & Mã nguồn](#1-cấu-trúc-thư-mục--mã-nguồn)
   - [2. Nền tảng SABR / UMP của YouTube & Vì sao phương pháp cũ thất bại](#2-nền-tảng-sabr--ump-của-youtube--vì-sao-phương-pháp-cũ-thất-bại)
   - [3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)](#3-quy-trình-thu-hoạch--giải-mã-luồng-kép-774-umpmsecontroller774--ytm_harvester)
   - [4. Tắt tiếng Tầng Descriptor Phần cứng & Cơ chế Chống Tự Tắt Tiếng (Anti-Mute Guard)](#4-tắt-tiếng-tầng-descriptor-phần-cứng--cơ-chế-chống-tự-tắt-tiếng-anti-mute-guard)
   - [5. Đồng bộ Chuẩn Master Clock 1.0x & Chống Nhảy Nhạc Khi Trình Duyệt Lag](#5-đồng-bộ-chuẩn-master-clock-10x--chống-nhảy-nhạc-khi-trình-duyệt-lag)
-- [🎛️ 3 Chế độ Hoạt động](#️-3-chế-độ-hoạt-động)
+- [🎛️ 4 Chế độ Hoạt động](#️-4-chế-độ-hoạt-động)
 - [📊 Kết quả Đo lường Phổ âm Toàn bài hát (FFT Spectrum)](#-kết-quả-đo-lường-phổ-âm-toàn-bài-hát-fft-spectrum)
 - [🚀 Hướng dẫn Cài đặt](#-hướng-dẫn-cài-đặt)
 - [🌐 Hỗ trợ Đa Ngôn Ngữ & Hướng dẫn Đóng góp Bản dịch](#-hỗ-trợ-đa-ngôn-ngữ--hướng-dẫn-đóng-góp-bản-dịch)
@@ -62,16 +62,20 @@
 ---
 
 <a id="recent-updates"></a>
-## ✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.3)
+## ✨ Điểm nổi bật trong bản cập nhật gần đây (v0.2.4)
 
-Bản cập nhật **v0.2.3** tập trung giải quyết triệt để các vấn đề tương tác điều khiển âm lượng và chuyển bài trên trình phát YouTube:
+Bản cập nhật **v0.2.4** đem trở lại chế độ ghi đè luồng Smart TV độc lập và hoàn thiện độ ổn định của toàn hệ thống:
 
-- 🎚️ **Khôi phục Hoàn toàn Nút & Thanh Điều chỉnh Âm lượng Player**: Khắc phục lỗi cơ chế kiểm tra năng lực âm thanh của YouTube (`passedProbe`) trên DOM element tách rời, giúp thanh trượt âm lượng, nút tắt/bật tiếng hoạt động bình thường (`aria-disabled="false"`).
-- ⏭️ **Sửa Lỗi Chuyển Bài Tự Động (Autoplay Track-End Transition)**: Xóa bỏ hoàn toàn lỗi phát lại 1–1.5s đoạn đầu video cũ trước khi chuyển bài mới. Trình phát được ngắt đồng bộ sạch sẽ ngay khi hết bài, chuyển giao mượt mà sang bài tiếp theo của YouTube Autoplay hoặc hàng đợi danh sách phát.
-- 🔁 **Hỗ trợ Đầy đủ Chế độ Lặp Bài (Native Player Loop)**: Tương thích hoàn toàn với tính năng "Vòng lặp / Loop" khi click chuột phải trên trình phát và lặp lại 1 bài trong playlist, tự động tua lại luồng Opus 774 và video về 0:00 mà không kích hoạt chuyển bài sớm.
-- ⚡ **Khắc phục Nghẽn Micro-gap & Vòng Lặp Yêu cầu Gói Phân Đoạn UMP/SABR**: Tự động nhảy qua khoảng trống micro-gap tại ranh giới phân đoạn trong bộ đệm `MediaSource` và khử trùng lặp phân đoạn trong `UmpMseController774`, chấm dứt tình trạng âm thanh bị đứng yên và kết nối lặp vô hạn.
-- 🧠 **Bộ Giải mã Trực tiếp TV UMP-to-MSE (`UmpMseController774`)**: Bóc tách luồng nhị phân UMP/SABR trực tiếp đẩy vào `MediaSource` (`audio/webm; codecs="opus"`) với **0 MB RAM iframe phụ**.
-- 🔇 **Khóa Chống Tự Tắt Tiếng (UI Anti-Mute Guard)**: Cách ly hoàn toàn sự kiện `volumechange` nội bộ khi đóng/ngắt phần cứng khỏi `yt-player-volume` của YouTube.
+- 📺 **Đem Trở Lại Luồng Ghi Đè Thông Thường (`TV_RELAY` / Mode TV_HEADLESS Cũ)**:
+  > *"Vì một số lý do và báo cáo của người sử dụng, tôi đã đem trở lại luồng ghi đè thông thường mode TV_HEADLESS."*  
+  > *"Nếu cảm thấy không ổn định, bạn hoàn toàn có thể chuyển sang sử dụng mode TV_HEADLESS cũ."*  
+  - Khôi phục cơ chế ghi đè gói tin Protobuf nhị phân SABR (`sabrRewritePreferredAudio`) trực tiếp trên luồng phát gốc của player (`251 → 774`), không tạo thêm audio element phụ.
+  - Sửa lỗi crash luồng phát cũ (`sabr.malformed_config`) bằng cách vá in-place chính xác các trường `f16` và `f2`, loại bỏ các đoạn ghép nối cấu hình không tương thích.
+  - Chế độ này hoạt động hoàn toàn độc lập, không nằm trong Hybrid Engine, giúp người dùng linh hoạt lựa chọn.
+- 🛡️ **Khắc Phục Lỗi Đè Luồng & Phát Âm Thanh Nền Đồng Thời**: Xử lý triệt để lỗi khi người dùng chuyển liên tiếp nhiều bài nhanh hoặc player bị chặn nhưng vẫn còn luồng phát ngầm dưới nền.
+- ⏭️ **Tinh Chỉnh Chuyển Bài Tự Động (Autoplay) & Ngắt Tiếng Cuối Bài**: Sửa lỗi chuyển bài trước khi hết 1s và lỗi tự động tắt tiếng ở 1.5s cuối bài.
+- 🎯 **Tối Ưu Đồng Bộ Seek Nhiều Lần & Tua Ngược**: Khắc phục hiện tượng delay hoặc bị lùi/nhảy ngược lại một đoạn khi seek liên tục hoặc tua ngược nhanh.
+- 🧹 **Dọn Sạch Codebase**: Làm sạch toàn bộ các comment thử nghiệm, nhãn prototype cũ và sự kiện listener trùng lặp.
 
 ---
 
@@ -89,7 +93,7 @@ Trên hệ sinh thái YouTube hiện nay, chất lượng âm thanh bị phân t
 
 ---
 
-## 🧠 Kiến trúc Hệ thống (v0.2.3)
+## 🧠 Kiến trúc Hệ thống (v0.2.4)
 
 ### 1. Cấu trúc Thư mục & Mã nguồn
 YTSpoofingStream được xây dựng bằng **100% JavaScript thuần (Vanilla ES6+)**—không dùng bundler, không thư viện ngoài hay mã thực thi từ xa—đảm bảo hiệu năng tối đa, minh bạch và dễ kiểm toán:
@@ -120,7 +124,7 @@ Trình phát YouTube máy tính hiện đại đã chuyển hoàn toàn sang gia
   2. Tiêm trực tiếp URL của TV/Android vào trình phát mặc định sẽ gây lỗi bảo mật CORS và lệch chữ ký token mã `s:49` (`poToken` / `cplatform`).
 
 ### 3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)
-Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.2.3** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
+Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.2.4** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
 
 ```mermaid
 flowchart TD
@@ -138,7 +142,7 @@ flowchart TD
     G --> J["StudioEngine774 (Master Clock <audio>)"]
     I --> J
     J -->|"HTMLMediaElement.prototype.volume = 0"| K["Tắt tiếng Video Gốc ở Tầng Phần cứng"]
-    J -->|"Bit-Perfect 1.0x Studio Opus 774 (>20kHz)"| L["Đầu ra Loa / Tai nghe / DAC"]
+    J -->|"Luồng Studio Opus 774 Chất Lượng Cao (>20kHz)"| L["Đầu ra Loa / Tai nghe / DAC"]
     C -.->|"Đồng bộ Khung hình Chống Lag"| J
 ```
 
@@ -153,25 +157,34 @@ flowchart TD
 ### 4. Tắt tiếng Tầng Descriptor Phần cứng & Cơ chế Chống Tự Tắt Tiếng (Anti-Mute Guard)
 Nếu gán trực tiếp `video.muted = true` hoặc `video.volume = 0` qua thuộc tính DOM thông thường, trình duyệt sẽ bắn sự kiện `volumechange`, khiến trình phát YouTube hiểu nhầm là người dùng vừa tắt tiếng, hiển thị biểu tượng loa gạch chéo và lưu trạng thái `"muted": true` vào `localStorage['yt-player-volume']`.
 
-**YTSpoofingStream v0.2.3** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](file:///c:/Code/Personal/YTSpoofingStream/src/inject.js):
+**YTSpoofingStream v0.2.4** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](file:///c:/Code/Personal/YTSpoofingStream/src/inject.js):
 1. **Định tuyến Descriptor Nguyên mẫu**: Gọi trực tiếp setter gốc `HTMLMediaElement.prototype.volume` (`descVolume.set.call(video, 0)`) để hạ âm lượng phần cứng của thẻ `<video>` về `0`, trong khi ghi đè getter để giao diện YouTube luôn đọc đúng mức âm lượng mà người dùng thiết lập.
 2. **Lá chắn Chống Tự Tắt Tiếng Khi Chuyển Bài**: Chặn toàn bộ các sự kiện `volumechange` nội bộ phát sinh trong quá trình đóng/mở âm lượng phần cứng (`_suppressNextVolumeEvent`) và chủ động khôi phục trạng thái unmute khi chuyển từ bài hát `★ 774` sang các video `251` không có 774 (`fallbackTo251()`), đảm bảo giao diện không bao giờ bị kẹt nút Mute.
 
-### 5. Đồng bộ Chuẩn Master Clock 1.0x & Chống Nhảy Nhạc Khi Trình Duyệt Lag
+### 5. Đồng bộ Chuẩn Master Clock 1.0x & Chống Nhảy Nhạc Khi Trình Duyệt Lag (Phát Luồng Chất Lượng Cao)
 `StudioEngine774` lấy luồng âm thanh `<audio>` làm đồng hồ chuẩn (Master Clock) xuyên suốt quá trình phát:
 - **Giữ nguyên bản 100% tốc độ 1.0x**: `audio.playbackRate` khóa cứng theo `video.playbackRate` (`1.0x`), tuyệt đối không dùng thuật toán co giãn tốc độ `0.99x`/`1.01x` gây méo tiếng hay biến dạng cao độ.
 - **Khóa Chống Tự Tua Ngược Khi Chuyển Bài SPA**: Bỏ qua các lệnh tự seek lùi nội bộ của YouTube (`timeJump < -0.25s`) trong `1500ms` đầu tiên khi mới chuyển bài hoặc khi `video.currentTime < 1.5s`, chấm dứt hiện tượng nhạc đang phát giây đầu bị khựng và nhảy lại từ đầu.
 - **Căn chỉnh Khung hình Chống Lag**: Khi chuyển tab hoặc khi trình duyệt/GPU bị lag làm rớt khung hình video, luồng âm thanh 774 vẫn tiếp tục phát mượt mà không bị ngắt quãng. Chỉ khi bộ giải mã video đã nạp đủ bộ đệm (`video.readyState >= 3`), đồng hồ hình ảnh mới nhẹ nhàng nhảy tiến lên khớp với `audio.currentTime` (ngưỡng lệch `> 0.35s` kèm chu kỳ nghỉ `2.5s`).
 
+> [!NOTE]
+> **Làm rõ kỹ thuật: "Bit-perfect" vs "Đạt được luồng âm thanh chất lượng cao hơn"**:  
+> Toàn bộ hệ sinh thái âm thanh của YouTube hoạt động trên định dạng nén suy hao (lossy - Opus / AAC). Tiện ích này **không phải là bit-perfect** theo định nghĩa audiophile phần cứng (truyền bit-for-bit không nén PCM/FLAC trực tiếp tới DAC qua WASAPI Exclusive hay ASIO mà bỏ qua mixer âm thanh của hệ điều hành). Thay vào đó, tiện ích giúp người dùng **đạt được luồng âm thanh chất lượng cao nhất hiện có trên hệ thống máy chủ YouTube** (**ITAG 774** Opus ~256k–301kbps với dải tần đầy đủ vượt 20.000 Hz, thay vì luồng mặc định ITAG 251 ~160kbps bị cắt gọt ở 15–16kHz), đồng thời phát chuẩn 1.0x mà không bị méo tiếng hay suy hao chất lượng.
+
 ---
 
-## 🎛️ 3 Chế độ Hoạt động
+## 🎛️ 4 Chế độ Hoạt động
 
 | Chế độ | Tên hiển thị | Động cơ thu nhận chính | Cơ chế Dự phòng / Fallback | Phù hợp nhất |
 |---|---|---|---|---|
 | **`HYBRID_HQ`** *(Khuyên dùng)* | **Chế độ: Hỗn hợp Hybrid (774 Opus ★)** | **Direct TV UMP-to-MSE 774** (khi đã liên kết TV) + **YTM Harvester** | Tự động chuyển sang YTM Harvester nếu TV không có 774; về luồng gốc `251` nếu cả hai đều không có 774 | Nghe nhạc & xem YouTube hàng ngày, danh sách phát, MV & nhạc cover |
 | **`YTM_HARVESTER`** | **Chỉ YTM Harvester (774 Opus ★)** | Luồng HTTPS 774 trực tiếp từ YouTube Music Offscreen Harvester | Tự động về luồng gốc `251` nếu bài hát không có trên YTM | Các bài hát chính thức trên YouTube Music (không cần đăng nhập TV) |
 | **`TV_HEADLESS`** | **Chỉ Smart TV UMP (774 Opus ★)** | Giải mã trực tiếp luồng `TVHTML5` UMP/SABR 774 qua `MediaSource` (0MB RAM iframe) | Tự động về luồng gốc `251` nếu chưa đăng nhập TV hoặc video không có 774 | Phát nhạc độ trễ bằng 0, tốn ít RAM nhất, bản cover, live session & video UGC |
+| **`TV_RELAY`** | **Smart TV Relay (SABR Cũ 774 ★)** | Ghi đè gói tin nhị phân Protobuf SABR trực tiếp trên luồng player gốc (`251 → 774`) | Tự động về luồng gốc `251` nếu TV không có luồng 774 | Ghi đè luồng truyền thống trực tiếp trên player gốc, ổn định cao |
+
+> [!TIP]
+> **Tùy chọn luồng ghi đè truyền thống**:  
+> *"Vì một số lý do và báo cáo của người sử dụng, tôi đã đem trở lại luồng ghi đè thông thường mode TV_HEADLESS. Nếu cảm thấy không ổn định, bạn hoàn toàn có thể chuyển sang sử dụng mode TV_HEADLESS cũ (Smart TV Relay)."*
 
 > [!NOTE]
 > **Đặc tính mức âm lượng (YouTube Music vs YouTube thông thường)**:  
@@ -183,14 +196,14 @@ Nếu gán trực tiếp `video.muted = true` hoặc `video.volume = 0` qua thu�
 
 Kết quả kiểm thử thực tế thời gian thực 100% thời lượng trên 4 bài hát tiêu chuẩn: khi **Bật extension (Studio 774)** so với khi **Tắt cứng extension trong Cài đặt Chrome (Luồng Gốc)**:
 
-| Bài hát | Video ID | Thời lượng đo | Khi Tắt Extension (Luồng Gốc) | Khi Bật YTSpoofingStream v0.2.3 (774) | Dải tần cao (>16kHz - 22kHz) |
+| Bài hát | Video ID | Thời lượng đo | Khi Tắt Extension (Luồng Gốc) | Khi Bật YTSpoofingStream v0.2.4 (774) | Dải tần cao (>16kHz - 22kHz) |
 |---|---|---|---|---|---|
 | **Track 1 (Song to the Mirrored Moon)** | `MI4I7v-0tnc` | 211.7s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (301kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
 | **Track 2 (Kirara Magic - Sunny Rain)** | `Xy6sPZc0CKA` | 184.2s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.500 Hz)** |
 | **Track 3 (Fontaine)** | `tiulg9ySfR8` | 185.0s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>21.000 Hz)** |
 | **Track 4 (Dazbee - Chidori Cover)** | `fs_pEYuMZio` | 224.5s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
 
-*Nhận xét*: Luồng ITAG 251 tiêu chuẩn bị cắt phẳng dải tần (brickwall filter) ở 15.5kHz–16kHz. Luồng 774 trên YTSpoofingStream v0.2.3 duy trì mật độ phổ âm thanh liên tục lên tới trên 21kHz, mang lại âm trường rộng và chi tiết tiếng treble/cymbal/vocal sắc nét vượt trội.
+*Nhận xét*: Luồng ITAG 251 tiêu chuẩn bị cắt phẳng dải tần (brickwall filter) ở 15.5kHz–16kHz. Luồng 774 trên YTSpoofingStream v0.2.4 duy trì mật độ phổ âm thanh liên tục lên tới trên 21kHz, mang lại âm trường rộng và chi tiết tiếng treble/cymbal/vocal sắc nét vượt trội.
 
 ---
 
@@ -236,7 +249,7 @@ Chúng tôi rất hoan nghênh các bản dịch từ cộng đồng! Bạn có 
 ## ⚙️ Cấu hình & Điều khiển
 
 - **Bật tiện ích (Enable Extension)**: Công tắc tổng tắt toàn bộ can thiệp mạng và đưa trình duyệt về chế độ phát YouTube nguyên bản.
-- **Chế độ hoạt động (Operation Mode)**: Lựa chọn giữa `HYBRID_HQ` (Khuyên dùng), `YTM_HARVESTER`, hoặc `TV_HEADLESS`.
+- **Chế độ hoạt động (Operation Mode)**: Lựa chọn giữa `HYBRID_HQ` (Khuyên dùng), `YTM_HARVESTER`, `TV_HEADLESS`, hoặc `TV_RELAY` (SABR Cũ).
 - **Chế độ Chỉ Âm thanh (Audio-Only Mode)**: Tạm dừng kết xuất hình ảnh video (có thể bật nhanh bằng biểu tượng tai nghe nằm ngay cạnh huy hiệu `★ 774` trên thanh điều khiển video) giúp tiết kiệm tối đa RAM & CPU/GPU khi chỉ nghe nhạc.
 - **Tự động tải lại trang khi đổi thiết lập**: Tự động tải lại tab YouTube khi bạn đổi chế độ hoạt động.
 - **Ghi đè Thống kê chi tiết (Stats for Nerds Override)**: Hiển thị thông số codec Opus 774 và bitrate thời gian thực ngay trong bảng *Stats for Nerds* của YouTube.

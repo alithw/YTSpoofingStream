@@ -5,7 +5,7 @@
     "code": "ru",
     "author": "YTSpoofingStream Team"
   },
-  "headerSubtitle": "v0.2.3 • Двухпотоковый движок Studio 774",
+  "headerSubtitle": "v0.2.4 • Двухпотоковый движок Studio 774",
   "enableExtension": "Включить расширение",
   "opModeTitle": "Режим работы",
   "opModeHybridTitle": "Режим: Гибридный микс (774 Opus ★)",
@@ -17,6 +17,9 @@
   "opModeTvTitle": "Только Smart TV UMP (774 Opus ★)",
   "opModeTvBadge": "TV Premium",
   "opModeTvDesc": "Нулевая задержка • Требуется вход в TV Premium • Прямой демультиплексор TVHTML5 UMP/SABR 774 через MediaSource",
+  "opModeTvRelayTitle": "Smart TV Relay (Legacy SABR 774 ★)",
+  "opModeTvRelayBadge": "TV Premium",
+  "opModeTvRelayDesc": "Автономный старый режим • Требуется TV Premium • Прямая перезапись пакетов SABR 251→774 в плеере",
   "statusTitle": "Статус",
   "statusActive": "Активно",
   "statusInactive": "Ожидание",

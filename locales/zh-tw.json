@@ -5,7 +5,7 @@
     "code": "zh-tw",
     "author": "YTSpoofingStream Team"
   },
-  "headerSubtitle": "v0.2.3 • Studio 774 雙串流同步引擎",
+  "headerSubtitle": "v0.2.4 • Studio 774 雙串流同步引擎",
   "enableExtension": "啟用擴充功能",
   "opModeTitle": "運作模式",
   "opModeHybridTitle": "模式：混合雙擎 (774 Opus ★)",
@@ -17,6 +17,9 @@
   "opModeTvTitle": "僅 Smart TV UMP (774 Opus ★)",
   "opModeTvBadge": "TV Premium",
   "opModeTvDesc": "零延遲啟動 • 需登入 TV Premium • 透過 MediaSource 原生解多工 TVHTML5 UMP/SABR 774 音軌",
+  "opModeTvRelayTitle": "智慧電視中繼 (傳統SABR 774 ★)",
+  "opModeTvRelayBadge": "TV Premium",
+  "opModeTvRelayDesc": "獨立傳統模式 • 需要TV Premium登入 • 在主播放器中直接重寫SABR 251→774封包",
   "statusTitle": "運作狀態",
   "statusActive": "運作中",
   "statusInactive": "待機中",

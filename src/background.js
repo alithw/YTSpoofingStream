@@ -7,7 +7,7 @@ const TAG = '[YTSS-SW]';
 const VERSION = chrome.runtime.getManifest().version;
 
 // ─── FULL CLIENT CONFIGURATIONS ──────────────────────────────────────
-// Restored from working v0.0.5: WEB_REMIX first (best HQ success rate)
+// WEB_REMIX first (best HQ success rate)
 const CLIENTS = [
   {
     name: 'WEB_REMIX',
@@ -784,14 +784,12 @@ async function fetchFromClient(videoId, client) {
         audioFormats: audio.map(f => ({ ...f, _src: client.name, _cver: client.clientVersion })),
       };
 
-      // ── Phase 1 (Option D): capture TVHTML5 streaming context.
+      // ── Capture TVHTML5 streaming context.
       //    TVHTML5 returns a legitimately-signed SABR config that already contains
-      //    774 in its format table. Option D will POST against this URL with this
-      //    config instead of trying to forge entitlement on the WEB client.
-      //    We persist the whole streamingData blob (minus the formats we already
-      //    extracted) so inject.js can drive its own SABR session against the TV
-      //    endpoint. Only capture for TVHTML5 — WEB/Android configs are useless
-      //    for Option D (their signed tables omit 774).
+      //    774 in its format table. We persist the whole streamingData blob
+      //    (minus the formats we already extracted) so inject.js can drive its own
+      //    SABR session against the TV endpoint. Only capture for TVHTML5 (WEB/Android
+      //    configs omit 774).
       if (isTVClient && data.streamingData.serverAbrStreamingUrl) {
         const ustreamerCfg = data.streamingData.ustreamerConfig
           || data.playerConfig?.mediaCommonConfig?.mediaUstreamerRequestConfig?.videoPlaybackUstreamerConfig
@@ -803,8 +801,8 @@ async function fetchFromClient(videoId, client) {
           // ustreamerConfig is the signed SABR config blob. May be a base64 string
           // or an object depending on InnerTube variant; preserve as-is.
           ustreamerConfig: ustreamerCfg,
-          // poToken / visitorData the TV session was negotiated under. Option D
-          // must echo these in its SABR POST headers to avoid opaque 403s.
+          // poToken / visitorData the TV session was negotiated under.
+          // Echoed in SABR POST headers to avoid opaque 403s.
           poToken: pageContext.poToken || null,
           visitorData: data.responseContext?.visitorData || clientObj.visitorData || null,
           // Signature timestamp the TV player was signed under.
@@ -1369,6 +1367,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
 
+      // ── MODE: TV_RELAY (Legacy Smart TV SABR Relay — Main Player Body Rewrite)
+      if (opMode === 'TV_RELAY') {
+        console.log(TAG, `[FETCH_HQ] Mode (TV_RELAY) resolving for ${videoId}...`);
+        // Check TV login first; skip if not logged in with Premium
+        const tvToken = await getClientAccessToken('TVHTML5');
+        if (!tvToken) {
+          console.log(TAG, `[FETCH_HQ] TV_RELAY: No TV login (Premium required) -> Stopping.`);
+          sendResponse({ success: false, results: [], error: 'NO_TV_LOGIN', opMode: 'TV_RELAY' });
+          return;
+        }
+
+        const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
+        const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
+        const tvHas774 = tvRes?.audioFormats?.some(f => f.itag === 774);
+        const tvCtx = tvRes?.streamingContext || null;
+        if (tvCtx) {
+          chrome.storage.session.set({ [`tvctx_${videoId}`]: tvCtx }).catch(() => {});
+        }
+
+        if (!tvHas774) {
+          console.log(TAG, `[FETCH_HQ] TV_RELAY: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
+          confirmedNo774Videos.add(videoId);
+          sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'TV_RELAY' });
+          return;
+        }
+
+        // TV confirmed 774 is available! Delivering authenticated TVHTML5 ITAG 774 for native SABR relay
+        console.log(TAG, `[FETCH_HQ] TV_RELAY: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
+        const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
+        chrome.storage.session.set({
+          [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
+        }).catch(() => {});
+        sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_RELAY' });
+        return;
+      }
+
       // ── FALLBACK / AUTO: Multi-client innerTube resolver
       const pref = storage.preferredClient || 'AUTO';
       let targetClients = [...CLIENTS];
@@ -1453,8 +1487,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── Phase 1 (Option D): inject.js queries the captured TVHTML5 streaming
-  //    context (serverAbrStreamingUrl + ustreamerConfig) for a given videoId.
+  // ── Inject.js queries the captured TVHTML5 streaming context
+  //    (serverAbrStreamingUrl + ustreamerConfig) for a given videoId.
   //    Returns null if TVHTML5 hasn't been fetched yet or didn't return SABR.
   if (msg.type === 'GET_TVCTX') {
     const { videoId } = msg;
