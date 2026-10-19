@@ -374,9 +374,76 @@
   let isInitialPageLoad = true;     // guard: only allow page reload on very first visit
   const isMusicSite = location.hostname === 'music.youtube.com'; // YouTube Music needs special handling
   let navTargetVideoId = null;
+  let isSpaNavigating = false;
+  let lastSpaNavStartAt = 0;
+  let lastSpaNavFinishAt = 0;
+
+  function isMiniplayerActive() {
+    const app = document.querySelector('ytd-app');
+    if (app && (app.hasAttribute('miniplayer-is-active') || app.hasAttribute('miniplayer-active'))) {
+      return true;
+    }
+    const mini = document.querySelector('ytd-miniplayer');
+    if (mini && (mini.hasAttribute('active') || (mini.classList.contains('active') && mini.offsetHeight > 0 && mini.offsetWidth > 0))) {
+      return true;
+    }
+    return false;
+  }
+
+  function isPlayerActiveOnPage() {
+    if (location.pathname.startsWith('/shorts/')) return false;
+    const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
+    if (isWatch) return true;
+    if (isMiniplayerActive()) return true;
+
+    // Maintain active state during SPA transition to miniplayer until Polymer attributes settle
+    const now = Date.now();
+    const inSpaTransitionGrace = (isSpaNavigating && (now - lastSpaNavStartAt < 5000)) || (now - lastSpaNavFinishAt < 450);
+    if (inSpaTransitionGrace && typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive) {
+      const player = document.getElementById('movie_player');
+      const pState = player?.getPlayerState?.();
+      const pVid = player?.getVideoData?.()?.video_id;
+      const v = document.querySelector('#movie_player video.html5-main-video');
+      if (pVid && (pState === 1 || pState === 3) && (!v || (!v.paused && !v.ended))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getVideoIdFromUrl() {
+    try {
+      if (window.location.pathname.startsWith('/shorts/')) {
+        return null;
+      }
+      const onWatchLike = window.location.pathname.startsWith('/watch') || window.location.pathname.startsWith('/live') || window.location.pathname.startsWith('/tv') || isMusicSite;
+      if (onWatchLike) {
+        const urlVid = new URLSearchParams(window.location.search).get('v');
+        if (urlVid && VIDEO_ID_RE.test(urlVid)) return urlVid;
+        const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+        if (playerVid && VIDEO_ID_RE.test(playerVid)) return playerVid;
+      } else if (isPlayerActiveOnPage()) {
+        const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+        if (playerVid && VIDEO_ID_RE.test(playerVid)) return playerVid;
+      }
+      return null;
+    } catch (e) { return null; }
+  }
+
+  function getMainVideoElement() {
+    return document.querySelector('#movie_player video.html5-main-video')
+      || document.querySelector('ytd-miniplayer video.html5-main-video')
+      || document.querySelector('#movie_player video')
+      || Array.from(document.querySelectorAll('video.html5-main-video')).find(v => !v.closest('#inline-preview-player, ytd-video-preview, ytd-thumbnail'))
+      || null;
+  }
 
   function isCurrentWatchVideo(vid) {
     if (!vid) return false;
+    // CRITICAL: If the player is NOT active on this page (user navigated to Home, Explore, Subscriptions, etc.
+    // without an active miniplayer), NO video is the current watch video!
+    if (!isPlayerActiveOnPage()) return false;
+
     if (typeof StudioEngine774 !== 'undefined' && StudioEngine774._isTransitioning && StudioEngine774._transitionTargetVid) {
       return vid === StudioEngine774._transitionTargetVid;
     }
@@ -384,10 +451,10 @@
     if (navTargetVideoId && urlVid && navTargetVideoId === urlVid) {
       return vid === urlVid;
     }
+    if (urlVid && urlVid === vid) return true;
     if (navTargetVideoId && navTargetVideoId === vid) return true;
     const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
     if (playerVid && playerVid === vid) return true;
-    if (urlVid && urlVid === vid) return true;
     return false;
   }
   const isCurrentTarget = isCurrentWatchVideo;
@@ -398,7 +465,11 @@
     if (playerVid && videoId && playerVid !== videoId) {
       return 0; // Player DOM still holds outgoing video's timestamp during transition!
     }
-    const v = (typeof getMainVideoElement === 'function' ? getMainVideoElement() : document.querySelector('video'));
+    const pState = player?.getPlayerState?.();
+    if (pState === 5 || pState === -1) {
+      return 0; // Player is cued or unstarted (e.g. reopening video after miniplayer was closed)
+    }
+    const v = (typeof getMainVideoElement === 'function' ? getMainVideoElement() : document.querySelector('#movie_player video'));
     if (!v || isNaN(v.currentTime) || v.ended) return 0;
     return v.currentTime;
   }
@@ -670,39 +741,22 @@
   // ─── PRE-WARM CACHE ────────────────────────────────────────────────
   // Start fetching HQ formats immediately from URL videoId, BEFORE player initializes.
   // When ytInitialPlayerResponse fires, cache should already be ready → sync merge.
-  function isMiniplayerActive() {
-    const mini = document.querySelector('ytd-miniplayer');
-    return !!(mini && (mini.hasAttribute('active') || mini.offsetHeight > 0));
-  }
 
-  function getVideoIdFromUrl() {
-    try {
-      if (window.location.pathname.startsWith('/shorts/')) {
-        return null;
-      }
-      const urlVid = new URLSearchParams(window.location.search).get('v');
-      if (urlVid && VIDEO_ID_RE.test(urlVid)) return urlVid;
-      const onWatchLike = window.location.pathname.startsWith('/watch') || window.location.pathname.startsWith('/live') || window.location.pathname.startsWith('/tv');
-      if (onWatchLike || isMiniplayerActive()) {
-        const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
-        if (playerVid && VIDEO_ID_RE.test(playerVid)) return playerVid;
-      }
-      return null;
-    } catch (e) { return null; }
-  }
-
-  function getMainVideoElement() {
-    return document.querySelector('#movie_player video.html5-main-video')
-      || document.querySelector('ytd-miniplayer video.html5-main-video')
-      || document.querySelector('.html5-video-player video.html5-main-video')
-      || document.querySelector('video.html5-main-video');
-  }
-
-  function isPlayerActiveOnPage() {
-    if (location.pathname.startsWith('/shorts/')) return false;
-    const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
-    if (isWatch) return true;
-    return isMiniplayerActive();
+  // Leaving /watch via the logo or a sidebar entry (SPA click, no popstate) makes YouTube stop
+  // its player (state 5) without a miniplayer. The hidden 774 <audio> isn't tied to that, so
+  // it has to be stopped here or it keeps playing on the home/browse page.
+  function stopIfLeftWatchPage(source) {
+    if (typeof StudioEngine774 === 'undefined') return false;
+    if (!StudioEngine774.isActive && !StudioEngine774._isTransitioning && !StudioEngine774.pending774) return false;
+    if (isPlayerActiveOnPage()) return false;
+    console.log(TAG, `[PageGuard] Left watch page without miniplayer (${source}) -> stopping 774`);
+    const mainVideo = getMainVideoElement();
+    StudioEngine774.stopAndUnmute('Navigated away from watch page');
+    navTargetVideoId = null;
+    if (mainVideo && !mainVideo.paused) {
+      try { mainVideo.pause(); } catch (e) {}
+    }
+    return true;
   }
 
   navTargetVideoId = getVideoIdFromUrl();
@@ -777,8 +831,11 @@
         if (!this.isConnected) {
           return descVolume.get.call(this);
         }
-        const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
-                            (this.closest && this.closest('#movie_player, .html5-video-player'));
+        const isInlinePreview = Boolean(this.closest && this.closest('#inline-preview-player, ytd-video-preview, ytd-thumbnail'));
+        const isMainVideo = !isInlinePreview && Boolean(
+          (this.classList && this.classList.contains('html5-main-video')) ||
+          (this.closest && this.closest('#movie_player, ytd-miniplayer'))
+        );
         if (!isMainVideo) {
           return descVolume.get.call(this);
         }
@@ -800,9 +857,12 @@
           try { descVolume.set.call(this, v); } catch (e) {}
           return;
         }
-        const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
-                            (this.closest && this.closest('#movie_player, .html5-video-player'));
-        if (!isMainVideo) {
+        const isInlinePreview = Boolean(this.closest && this.closest('#inline-preview-player, ytd-video-preview, ytd-thumbnail'));
+        const isMainVideo = !isInlinePreview && Boolean(
+          (this.classList && this.classList.contains('html5-main-video')) ||
+          (this.closest && this.closest('#movie_player, ytd-miniplayer'))
+        );
+        if (!isMainVideo || (typeof isPlayerActiveOnPage === 'function' && !isPlayerActiveOnPage())) {
           try { descVolume.set.call(this, v); } catch (e) {}
           return;
         }
@@ -847,8 +907,11 @@
         if (!this.isConnected) {
           return descMuted.get.call(this);
         }
-        const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
-                            (this.closest && this.closest('#movie_player, .html5-video-player'));
+        const isInlinePreview = Boolean(this.closest && this.closest('#inline-preview-player, ytd-video-preview, ytd-thumbnail'));
+        const isMainVideo = !isInlinePreview && Boolean(
+          (this.classList && this.classList.contains('html5-main-video')) ||
+          (this.closest && this.closest('#movie_player, ytd-miniplayer'))
+        );
         if (!isMainVideo) {
           return descMuted.get.call(this);
         }
@@ -861,25 +924,28 @@
         if (typeof StudioEngine774 !== 'undefined' && this === StudioEngine774.audio) {
           return descMuted.set.call(this, m);
         }
-        // If element is not connected to DOM (e.g. YouTube calling capability probe on new Audio/Video),
-        // let native setter handle it completely so capability checks never report false!
         if (!this.isConnected) {
           try { descMuted.set.call(this, !!m); } catch (e) {}
           return;
         }
-        const isMainVideo = (this.classList && this.classList.contains('html5-main-video')) ||
-                            (this.closest && this.closest('#movie_player, .html5-video-player'));
-        if (!isMainVideo) {
+        const isInlinePreview = Boolean(this.closest && this.closest('#inline-preview-player, ytd-video-preview, ytd-thumbnail'));
+        const isMainVideo = !isInlinePreview && Boolean(
+          (this.classList && this.classList.contains('html5-main-video')) ||
+          (this.closest && this.closest('#movie_player, ytd-miniplayer'))
+        );
+        if (!isMainVideo || (typeof isPlayerActiveOnPage === 'function' && !isPlayerActiveOnPage())) {
           try { descMuted.set.call(this, m); } catch (e) {}
           return;
         }
         let targetMuted = !!m;
         if (typeof StudioEngine774 !== 'undefined') {
-          if (targetMuted && !StudioEngine774._userMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent() && (StudioEngine774._isTransitioning || StudioEngine774.isInTransitionWindow())) {
-            // Suppress spurious YouTube auto-mute during track selection / transition
-            targetMuted = false;
-          } else {
-            StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
+          // Ignore internal YouTube mutes unless user or player UI expressed mute intent
+          if (targetMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+            const p = document.getElementById('movie_player');
+            const pMuted = (p && typeof p.isMuted === 'function') ? p.isMuted() : false;
+            if (!pMuted) {
+              targetMuted = false;
+            }
           }
           this._userMuted = targetMuted;
           StudioEngine774._userMuted = targetMuted;
@@ -2098,11 +2164,16 @@
               try { descMuted.set.call(this, targetMuted); } catch (e) {}
               return;
             }
-            if (targetMuted && !StudioEngine774._userMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent() && (StudioEngine774._isTransitioning || StudioEngine774.isInTransitionWindow())) {
-              // Ignore spurious YouTube auto-mute during track transition
-              targetMuted = false;
-            } else {
-              StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
+            if (typeof isPlayerActiveOnPage === 'function' && !isPlayerActiveOnPage()) {
+              try { descMuted.set.call(this, targetMuted); } catch (e) {}
+              return;
+            }
+            if (targetMuted && !StudioEngine774.hasRecentUserMuteOrVolIntent()) {
+              const p = document.getElementById('movie_player');
+              const pMuted = (p && typeof p.isMuted === 'function') ? p.isMuted() : false;
+              if (!pMuted) {
+                targetMuted = false;
+              }
             }
             this._userMuted = targetMuted;
             StudioEngine774._userMuted = targetMuted;
@@ -2685,9 +2756,26 @@
               try { this.audio.pause(); } catch (e) {}
             }
           } else if (state === -1 || state === 5) {
+            if (!isPlayerActiveOnPage()) {
+              navTargetVideoId = null;
+              this.stopAndUnmute('Navigated away from watch page');
+              return;
+            }
+            if (state === 5 && this.audio && !this.audio.paused) {
+              try { this.audio.pause(); } catch (e) {}
+            }
             handleVideoDataChange();
           }
         });
+
+        // Miniplayer close button click handler
+        document.addEventListener('click', (e) => {
+          const closeMini = e.target?.closest?.('.ytp-miniplayer-close-button, ytd-miniplayer #close-button, ytd-miniplayer button[aria-label="Đóng"], ytd-miniplayer button[aria-label="Close"]');
+          if (closeMini) {
+            navTargetVideoId = null;
+            StudioEngine774.stopAndUnmute('Navigated away from watch page');
+          }
+        }, true);
 
         player.addEventListener('onError', (errCode) => {
           console.log(TAG, `[StudioEngine774] Player onError: ${errCode} -> pausing 774 audio`);
@@ -2859,6 +2947,17 @@
     },
 
     isUserMuted() {
+      if (this._userMuted && !this.hasRecentUserMuteOrVolIntent()) {
+        try {
+          const p = document.getElementById('movie_player');
+          if (p && typeof p.isMuted === 'function' && !p.isMuted()) {
+            const pv = (typeof p.getVolume === 'function') ? p.getVolume() : 100;
+            if (typeof pv !== 'number' || isNaN(pv) || pv > 0) {
+              this._userMuted = false;
+            }
+          }
+        } catch (e) {}
+      }
       return Boolean(this._userMuted);
     },
 
@@ -3177,6 +3276,12 @@
     },
 
     checkSyncWatchdog() {
+      if (!isPlayerActiveOnPage()) {
+        if (this.isActive || this._isTransitioning || this.pending774) {
+          this.stopAndUnmute('Navigated away from watch page');
+        }
+        return;
+      }
       if (typeof NextVideoManager !== 'undefined') {
         NextVideoManager.tick();
       }
@@ -3457,6 +3562,28 @@
       this._lastSeekTime = Date.now();
       this.updateNormalizedGain(videoId);
 
+      // Ensure _userMuted and _userVol match the real YouTube player UI
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.isMuted === 'function' && !player.isMuted()) {
+        const pv = (typeof player.getVolume === 'function') ? player.getVolume() : 100;
+        if (typeof pv !== 'number' || isNaN(pv) || pv > 0) {
+          this._userMuted = false;
+          if (typeof pv === 'number' && !isNaN(pv) && pv > 0) {
+            this._userVol = pv / 100;
+          }
+        }
+      } else if (!player && !this.hasRecentUserMuteOrVolIntent()) {
+        const stored = readStoredYoutubeVolumeState();
+        if (!stored.muted && stored.volume > 0) {
+          this._userMuted = false;
+          this._userVol = stored.volume;
+        }
+      }
+      if (mainVideo) {
+        mainVideo._userMuted = this._userMuted;
+        mainVideo._userVol = this._userVol;
+      }
+
       this.hookVideo(mainVideo);
       this._silenceElement(mainVideo);
 
@@ -3586,7 +3713,8 @@
         this._transitionSafetyTimer = null;
       }
       this.isActive = false;
-      this.activeVideoId = vId;
+      const isLeavingPage = reason.includes('Navigated') || reason.includes('Shorts') || (typeof isPlayerActiveOnPage === 'function' && !isPlayerActiveOnPage());
+      this.activeVideoId = (isLeavingPage && !preserveVideoId) ? null : vId;
       this.best774Candidate = null;
       this.pending774 = null;
       this._reconnectAttempts = 0;
@@ -3908,6 +4036,8 @@
   // Also pre-warm on YouTube SPA navigation (yt-navigate-start fires before new page renders)
   window.addEventListener('yt-navigate-start', (e) => {
     isInitialPageLoad = false; // We are now in SPA territory, never reload page
+    isSpaNavigating = true;
+    lastSpaNavStartAt = Date.now();
 
     let isShortsNav = Boolean(e?.detail?.endpoint?.reelWatchEndpoint || e?.detail?.command?.reelWatchEndpoint || window.location.pathname.startsWith('/shorts/'));
     let incomingVid = e?.detail?.endpoint?.watchEndpoint?.videoId
@@ -3939,10 +4069,8 @@
       sabrRewrite.downgradedVideoId = null;
     }
 
-    const currentActiveVid = StudioEngine774.activeVideoId || getVideoIdFromUrl();
+    const currentActiveVid = StudioEngine774.isActive ? (StudioEngine774.activeVideoId || getVideoIdFromUrl()) : null;
 
-    // ONLY reset and stop if we are navigating to a DIFFERENT video!
-    // When minimizing the player to home page, incomingVid is null/same, so keep 774 audio playing smoothly!
     if (incomingVid && incomingVid !== currentActiveVid) {
       confirmedNo774Videos.clear();
       failedFetches.delete(incomingVid);
@@ -3952,26 +4080,30 @@
       report();
       prewarmCache(incomingVid);
     } else if (incomingVid && incomingVid === currentActiveVid) {
-      // Only refresh if not already actively playing 774 and not currently fetching
+      // Re-opening same video while 774 is inactive
       if (!StudioEngine774.isActive && !pendingFetches.has(incomingVid)) {
         console.log(TAG, `[Navigate] Re-triggering HQ fetch for ${incomingVid}`);
         confirmedNo774Videos.clear();
         failedFetches.delete(incomingVid);
         NextVideoManager.reset(incomingVid);
-        prewarmCache(incomingVid, { forceFresh: true });
+        StudioEngine774.prepareTransition(incomingVid);
+        prewarmCache(incomingVid);
       }
     } else if (!incomingVid) {
-      const activeVid = currentActiveVid || getVideoIdFromUrl();
-      if (activeVid && (!status.activeAudioItag || status.activeAudioItag === 251)) {
-        setTimeout(() => prewarmCache(activeVid), 100);
+      navTargetVideoId = null;
+      // Retain active 774 stream during miniplayer transitions until settled
+      if (!StudioEngine774.isActive && !isMiniplayerActive() && !NextVideoManager.isInPlaylist()) {
+        StudioEngine774.stopAndUnmute('Navigated away from watch page');
+        try { window.postMessage({ type: 'YTSS_STOP_HARVEST' }, '*'); } catch (e) {}
       }
     }
   });
 
   window.addEventListener('popstate', () => {
+    lastSpaNavStartAt = Date.now();
     const currentVid = getVideoIdFromUrl();
     if (!currentVid) {
-      if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
+      if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !isPlayerActiveOnPage()) {
         StudioEngine774.stopAndUnmute('Navigated away from watch page');
       }
       return;
@@ -5373,7 +5505,18 @@
   setInterval(() => {
     PlayerBadgeUI.inject();
     StudioEngine774.hookPlayer();
-  }, 1500);
+    if (!isPlayerActiveOnPage() && (StudioEngine774.isActive || StudioEngine774._isTransitioning || StudioEngine774.pending774)) {
+      StudioEngine774.stopAndUnmute('Navigated away from watch page');
+    }
+  }, 1000);
+
+  document.addEventListener('yt-navigate-finish', () => {
+    setTimeout(() => {
+      if (!isPlayerActiveOnPage() && (StudioEngine774.isActive || StudioEngine774._isTransitioning || StudioEngine774.pending774)) {
+        StudioEngine774.stopAndUnmute('Navigated away from watch page');
+      }
+    }, 200);
+  });
 
   // ─── INTERCEPTORS — fetch & XHR ────────────────────────────────────
   window.fetch = async function (...args) {
@@ -5406,8 +5549,9 @@
         const clone = response.clone();
         const json = await clone.json();
         const videoId = json.videoDetails?.videoId;
+        const isPlayerActive = isPlayerActiveOnPage();
         const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
-        if (videoId && (!urlVid || videoId === urlVid)) {
+        if (videoId && isPlayerActive && (!urlVid || videoId === urlVid)) {
           navTargetVideoId = videoId;
         }
         const lDb = json.playerConfig?.audioConfig?.loudnessDb;
@@ -5419,7 +5563,7 @@
           }
         }
         let cached = videoId ? cacheGet(videoId) : null;
-        const isCurrentActive = isCurrentWatchVideo(videoId);
+        const isCurrentActive = isPlayerActive && isCurrentWatchVideo(videoId);
 
         // Async Gate on Cache Miss — hold /youtubei/v1/player up to 1200ms
         // while in-flight HQ harvest completes so processPlayerResponse runs synchronously
@@ -5693,12 +5837,13 @@
           if (!rawText) return;
           const json = JSON.parse(rawText);
           const videoId = json.videoDetails?.videoId;
+          const isPlayerActive = isPlayerActiveOnPage();
           const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
-          if (videoId && (!urlVid || videoId === urlVid)) {
+          if (videoId && isPlayerActive && (!urlVid || videoId === urlVid)) {
             navTargetVideoId = videoId;
           }
           const cached = videoId ? cacheGet(videoId) : null;
-          const isCurrentActive = isCurrentWatchVideo(videoId);
+          const isCurrentActive = isPlayerActive && isCurrentWatchVideo(videoId);
 
           if (cached && (cached.formats?.length > 0 || cached.length > 0 || cached.streamingContext)) {
             const formats = cached?.formats || (Array.isArray(cached) ? cached : []);
