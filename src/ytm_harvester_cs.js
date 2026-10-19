@@ -6,9 +6,15 @@
 (function() {
   'use strict';
   
-  // Only activate if we are inside a subframe (harvester iframe)
+  // Only activate inside OUR harvester iframe: a direct child of an extension page
+  // (the offscreen document). Without this, any website that frames
+  // music.youtube.com would get hooked playback plus the signed 774 stream URL
+  // posted back to it.
   const isFramed = window.self !== window.top;
   if (!isFramed) return;
+  const ancestors = location.ancestorOrigins;
+  const PARENT_ORIGIN = ancestors && ancestors.length === 1 ? ancestors[0] : '';
+  if (!PARENT_ORIGIN.startsWith('chrome-extension://')) return;
 
   const TAG = '[YTM-Harvester]';
   const urlVid = new URLSearchParams(location.search).get('v');
@@ -25,7 +31,7 @@
         type: 'HARVEST_ABORT',
         videoId: urlVid,
         reason
-      }, '*');
+      }, PARENT_ORIGIN);
     } catch (e) {}
 
     // Stop all media playback immediately
@@ -195,7 +201,7 @@
         averageBitrate: cached774Metadata?.averageBitrate,
         contentLength: cached774Metadata?.contentLength,
         approxDurationMs: cached774Metadata?.approxDurationMs
-      }, '*');
+      }, PARENT_ORIGIN);
     } catch (e) {}
   }
 

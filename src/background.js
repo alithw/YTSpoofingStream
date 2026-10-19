@@ -151,20 +151,40 @@ async function loadPageContext() {
 // strip the Premium-only formats for the rest of the page's life.
 const pageContextReady = loadPageContext();
 
+// This context is relayed from the page's MAIN world, which means any script
+// running on youtube.com (ads, other extensions, an XSS) can post it too. Every
+// field ends up in a credentialed request (headers or InnerTube payload), so each
+// one is held to the shape YouTube actually uses and anything else is dropped.
+const PAGE_CTX_FORMATS = {
+  visitorData: /^[A-Za-z0-9_\-%=]{1,512}$/,
+  sessionIndex: /^\d{1,2}$/,
+  delegatedSessionId: /^\d{1,32}$/,
+  sts: /^\d{4,6}$/,
+  poToken: /^[A-Za-z0-9_\-+/=%]{1,2048}$/,
+};
+function validCtxValue(key, value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return false;
+  return PAGE_CTX_FORMATS[key].test(String(value));
+}
+
 function setPageContext(ctx) {
   if (!ctx || typeof ctx !== 'object') return;
   const next = { ...pageContext };
-  if (typeof ctx.visitorData === 'string' && ctx.visitorData) next.visitorData = ctx.visitorData;
-  if (ctx.sessionIndex !== undefined && ctx.sessionIndex !== null) next.sessionIndex = String(ctx.sessionIndex);
+  if (ctx.visitorData && validCtxValue('visitorData', ctx.visitorData)) next.visitorData = ctx.visitorData;
+  if (ctx.sessionIndex !== undefined && ctx.sessionIndex !== null && validCtxValue('sessionIndex', ctx.sessionIndex)) {
+    next.sessionIndex = String(ctx.sessionIndex);
+  }
   // Accept an explicit null/'' as "clear it". Unlike visitorData and sessionIndex,
   // this field is not self-healing: a page that has left a brand/delegated account
   // reports null, and treating that as "no update" would pin a stale X-Goog-PageId
   // onto every later request for the rest of the browser session.
-  if (ctx.delegatedSessionId === null || typeof ctx.delegatedSessionId === 'string') {
-    next.delegatedSessionId = ctx.delegatedSessionId || null;
+  if (ctx.delegatedSessionId === null || ctx.delegatedSessionId === '') {
+    next.delegatedSessionId = null;
+  } else if (typeof ctx.delegatedSessionId === 'string' && validCtxValue('delegatedSessionId', ctx.delegatedSessionId)) {
+    next.delegatedSessionId = ctx.delegatedSessionId;
   }
-  if (ctx.sts) next.sts = ctx.sts;
-  if (ctx.poToken) next.poToken = ctx.poToken;
+  if (ctx.sts && validCtxValue('sts', ctx.sts)) next.sts = Number(ctx.sts);
+  if (ctx.poToken && validCtxValue('poToken', ctx.poToken)) next.poToken = ctx.poToken;
 
   const changed = JSON.stringify(next) !== JSON.stringify(pageContext);
   pageContext = next;
@@ -175,7 +195,7 @@ function setPageContext(ctx) {
 }
 
 
-// ─── MULTI-CLIENT OAUTH 2.0 DEVICE FLOW (TVHTML5, ANDROID_MUSIC, ANDROID_VR) ─────────
+// ─── OAUTH 2.0 DEVICE FLOW (TVHTML5) ─────────────────────────────────
 const OAUTH_CLIENTS = {
   TVHTML5: {
     storageKey: 'tvOAuthToken',
@@ -185,10 +205,27 @@ const OAUTH_CLIENTS = {
   }
 };
 
-const oauthPollIntervals = {};
+function resolveOAuthClientKey(clientType) {
+  return (typeof clientType === 'string' && Object.prototype.hasOwnProperty.call(OAUTH_CLIENTS, clientType))
+    ? clientType
+    : 'TVHTML5';
+}
+
+const oauthPollSessions = {};
+
+function stopPollingToken(clientType) {
+  const key = resolveOAuthClientKey(clientType);
+  const session = oauthPollSessions[key];
+  if (session) {
+    session.cancelled = true;
+    if (session.timerId) clearTimeout(session.timerId);
+    oauthPollSessions[key] = null;
+  }
+}
 
 async function requestDeviceCode(clientType = 'TVHTML5') {
-  const conf = OAUTH_CLIENTS[clientType] || OAUTH_CLIENTS.TVHTML5;
+  const key = resolveOAuthClientKey(clientType);
+  const conf = OAUTH_CLIENTS[key];
   const resp = await fetch('https://oauth2.googleapis.com/device/code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -200,12 +237,35 @@ async function requestDeviceCode(clientType = 'TVHTML5') {
   return await resp.json();
 }
 
-async function startPollingToken(clientType, device_code, interval) {
-  const conf = OAUTH_CLIENTS[clientType] || OAUTH_CLIENTS.TVHTML5;
-  if (oauthPollIntervals[clientType]) clearInterval(oauthPollIntervals[clientType]);
+async function startPollingToken(clientType, device_code, interval = 5, expiresIn = 1800) {
+  const key = resolveOAuthClientKey(clientType);
+  const conf = OAUTH_CLIENTS[key];
+  stopPollingToken(key);
+
+  let delaySec = Math.max(1, Number(interval) || 5);
+  const ttlSec = Math.max(1, Number(expiresIn) || 1800);
+  const deadline = Date.now() + ttlSec * 1000;
+  const session = { timerId: null, cancelled: false };
+  oauthPollSessions[key] = session;
 
   return new Promise((resolve, reject) => {
-    oauthPollIntervals[clientType] = setInterval(async () => {
+    const scheduleNext = () => {
+      if (session.cancelled) return;
+      if (Date.now() + delaySec * 1000 > deadline) {
+        stopPollingToken(key);
+        reject('expired_token');
+        return;
+      }
+      session.timerId = setTimeout(pollOnce, delaySec * 1000);
+    };
+
+    const pollOnce = async () => {
+      if (session.cancelled) return;
+      if (Date.now() >= deadline) {
+        stopPollingToken(key);
+        reject('expired_token');
+        return;
+      }
       try {
         const resp = await fetch('https://oauth2.googleapis.com/token', {
           method: 'POST',
@@ -218,23 +278,29 @@ async function startPollingToken(clientType, device_code, interval) {
           })
         });
         const data = await resp.json();
+        if (session.cancelled) return;
+
         if (data.access_token) {
-          clearInterval(oauthPollIntervals[clientType]);
-          oauthPollIntervals[clientType] = null;
+          stopPollingToken(key);
           data.expires_at = Date.now() + (data.expires_in * 1000);
           await chrome.storage.local.set({ [conf.storageKey]: data });
           resolve(data);
-        } else if (data.error !== 'authorization_pending' && data.error !== 'slow_down') {
-          clearInterval(oauthPollIntervals[clientType]);
-          oauthPollIntervals[clientType] = null;
+        } else if (data.error === 'slow_down') {
+          delaySec += 5;
+          scheduleNext();
+        } else if (data.error === 'authorization_pending') {
+          scheduleNext();
+        } else {
+          stopPollingToken(key);
           reject(data.error || 'Unknown error');
         }
       } catch (e) {
-        clearInterval(oauthPollIntervals[clientType]);
-        oauthPollIntervals[clientType] = null;
+        stopPollingToken(key);
         reject(e.message);
       }
-    }, interval * 1000);
+    };
+
+    scheduleNext();
   });
 }
 
@@ -311,22 +377,25 @@ function reEscape(s) {
 // 3. Spoof User-Agent on googlevideo.com media segment fetches based on the client
 //    ('c=' parameter). Without this, googlevideo.com returns 403 for TV/Mobile URLs
 //    played on Desktop.
-async function setupStaticRules() {
-  try {
-    const storage = await chrome.storage.local.get('enabled');
-    const existingRules = await chrome.declarativeNetRequest.getSessionRules();
-    const existingIds = existingRules.map(r => r.id);
+let _setupRulesChain = Promise.resolve();
 
-    if (storage.enabled === false) {
-      if (existingIds.length > 0) {
-        await chrome.declarativeNetRequest.updateSessionRules({
-          removeRuleIds: existingIds,
-          addRules: [],
-        });
+async function setupStaticRules() {
+  const run = async () => {
+    try {
+      const storage = await chrome.storage.local.get('enabled');
+      const existingRules = await chrome.declarativeNetRequest.getSessionRules();
+      const existingIds = existingRules.map(r => r.id);
+
+      if (storage.enabled === false) {
+        if (existingIds.length > 0) {
+          await chrome.declarativeNetRequest.updateSessionRules({
+            removeRuleIds: [...new Set(existingIds)],
+            addRules: [],
+          });
+        }
+        console.log(TAG, 'Extension is DISABLED: Wiped all declarativeNetRequest rules.');
+        return;
       }
-      console.log(TAG, 'Extension is DISABLED: Wiped all declarativeNetRequest rules.');
-      return;
-    }
 
     const ITAG_774_MEDIA_RULE_ID = 9195;
     const YTM_STATS_BLOCK_RULE_ID = 9196;
@@ -376,7 +445,10 @@ async function setupStaticRules() {
       },
     });
 
-    // 1c. Remove frame restrictions for music.youtube.com in offscreen/subframes
+    // 1c. Remove frame restrictions for music.youtube.com in the offscreen harvester ONLY.
+    // tabIds: [TAB_ID_NONE] limits this to requests that do not belong to a tab
+    // (our offscreen document). Without it, any website could frame
+    // music.youtube.com with the user's session (clickjacking / data leak).
     rulesToAdd.push({
       id: YTM_FRAME_RULE_ID,
       priority: 25,
@@ -390,6 +462,7 @@ async function setupStaticRules() {
       condition: {
         urlFilter: '*music.youtube.com/*',
         resourceTypes: ['sub_frame'],
+        tabIds: [chrome.tabs.TAB_ID_NONE],
       },
     });
 
@@ -604,14 +677,17 @@ async function setupStaticRules() {
       }
     });
 
-    await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: rulesToRemove,
-      addRules: rulesToAdd,
-    });
-    console.log(TAG, `Static DNR rules enabled (${rulesToAdd.length} rules: Origin + per-client API UA + Media UA + Blacklist/SW Block + CORS).`);
-  } catch (e) {
-    console.log(TAG, 'Failed to setup static rules:', e);
-  }
+      await chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: [...new Set(rulesToRemove)],
+        addRules: rulesToAdd,
+      });
+      console.log(TAG, `Static DNR rules enabled (${rulesToAdd.length} rules: Origin + per-client API UA + Media UA + Blacklist/SW Block + CORS).`);
+    } catch (e) {
+      console.log(TAG, 'Failed to setup static rules:', e);
+    }
+  };
+  _setupRulesChain = _setupRulesChain.then(run, run);
+  return _setupRulesChain;
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -655,12 +731,6 @@ async function fetchFromClient(videoId, client) {
       return { source: client.name, error: 'NO_TV_LOGIN', audioFormats: [] };
     }
     auth = `Bearer ${bearerToken}`;
-  } else if (client.name === 'ANDROID_MUSIC') {
-    bearerToken = await getClientAccessToken('ANDROID_MUSIC');
-    if (bearerToken) auth = `Bearer ${bearerToken}`;
-  } else if (client.name === 'ANDROID_VR') {
-    bearerToken = await getClientAccessToken('ANDROID_VR');
-    if (bearerToken) auth = `Bearer ${bearerToken}`;
   }
 
   if (!auth && !isMobileClient) {
@@ -765,9 +835,7 @@ async function fetchFromClient(videoId, client) {
     });
 
     if (!resp.ok) {
-      let body = '';
-      try { body = (await resp.text()).slice(0, 500); } catch (e) { }
-      console.log(TAG, `[${client.name}] HTTP ${resp.status} | Auth: ${auth ? auth.split(' ')[0] : 'none'} | Body: ${body}`);
+      console.log(TAG, `[${client.name}] HTTP ${resp.status} | Auth: ${auth ? auth.split(' ')[0] : 'none'}`);
       return { source: client.name, error: `HTTP ${resp.status}`, audioFormats: [] };
     }
 
@@ -809,7 +877,7 @@ async function fetchFromClient(videoId, client) {
           sts: pageContext.sts || 20696,
           ts: Date.now(),
         };
-        console.log(TAG, `[${client.name}] captured streamingContext: sabrUrl=${data.streamingData.serverAbrStreamingUrl.slice(0, 80)}... ustreamerConfig=${ustreamerCfg ? 'present' : 'absent'}`);
+        console.log(TAG, `[${client.name}] captured streamingContext: sabrUrl=present ustreamerConfig=${ustreamerCfg ? 'present' : 'absent'}`);
       }
 
       return result;
@@ -1048,8 +1116,37 @@ async function _doHarvest(videoId, title = null, author = null) {
 }
 
 // ─── MESSAGE HANDLER ─────────────────────────────────────────────────
+const HARVESTER_URL = chrome.runtime.getURL('src/harvester.html');
+const VALID_OP_MODES = new Set(['HYBRID_HQ', 'YTM_HARVESTER', 'TV_HEADLESS', 'TV_UMP_MSE', 'TV_RELAY', 'AUTO']);
+
+// Harvest results and aborts must come from our own offscreen document. Content
+// scripts run inside youtube.com tabs and must not be able to forge them.
+function isFromHarvester(sender) {
+  return sender?.id === chrome.runtime.id && !sender.tab && typeof sender.url === 'string' && sender.url.startsWith(HARVESTER_URL);
+}
+
+// The harvested URL is fed straight to the player as its audio source, so only
+// accept a genuine https googlevideo.com videoplayback URL for itag 774.
+function isValid774Url(raw) {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') return false;
+    if (!/(^|\.)googlevideo\.com$/.test(u.hostname)) return false;
+    if (!u.pathname.includes('/videoplayback')) return false;
+    return u.searchParams.get('itag') === '774' || u.pathname.includes('/itag/774');
+  } catch (e) {
+    return false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || sender?.id !== chrome.runtime.id) return;
+
   if (msg.type === 'OFFSCREEN_HARVEST_SUCCESS') {
+    if (!isFromHarvester(sender) || !isValid774Url(msg.url)) {
+      sendResponse({ received: false });
+      return true;
+    }
     if (activeHarvestSession && !activeHarvestSession.cancelled && activeHarvestSession.videoId === msg.videoId) {
       console.log(TAG, `[YTM_HARVEST] Direct verified 774 stream for ${msg.videoId} (session #${activeHarvestSession.sessionId})`);
       const cleanUrl = cleanStreamUrl(msg.url);
@@ -1098,6 +1195,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'OFFSCREEN_HARVEST_ABORT') {
+    if (!isFromHarvester(sender)) {
+      sendResponse({ received: false });
+      return true;
+    }
     if (activeHarvestSession && activeHarvestSession.videoId === msg.videoId) {
       console.log(TAG, `[YTM_HARVEST] Harvest aborted for ${msg.videoId}: ${msg.reason}`);
       const resolve = activeHarvestSession.resolve;
@@ -1127,10 +1228,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'CLEAR_VIDEO_CACHE') {
     const { videoId } = msg;
-    if (videoId) {
+    if (videoId && /^[\w-]{11}$/.test(videoId)) {
       chrome.storage.session.remove([`hq_${videoId}`, `tvctx_${videoId}`, `no774_${videoId}`]).catch(() => {});
       confirmedNo774Videos.delete(videoId);
-    } else {
+    } else if (!videoId) {
       confirmedNo774Videos.clear();
     }
     sendResponse({ success: true });
@@ -1158,6 +1259,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'RELOAD_EXTENSION') {
+    // Only extension pages (popup) may reload the extension. Content scripts in
+    // youtube.com tabs must not, or any page script could loop it as a DoS.
+    if (sender.id !== chrome.runtime.id || sender.tab) {
+      sendResponse({ success: false });
+      return true;
+    }
     chrome.runtime.reload();
     sendResponse({ success: true });
     return true;
@@ -1194,8 +1301,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
 
-      let opMode = msg.opMode || storage.operationMode || 'HYBRID_HQ';
+      // msg.opMode comes from the page; only accept known modes.
+      const requestedMode = VALID_OP_MODES.has(msg.opMode) ? msg.opMode : null;
+      let opMode = requestedMode || storage.operationMode || 'HYBRID_HQ';
       if (opMode === 'TV_UMP_MSE') opMode = 'TV_HEADLESS';
+
+      const isModeStale = async () => {
+        const cur = await chrome.storage.local.get(['enabled', 'operationMode']);
+        if (cur.enabled === false) return true;
+        let curOp = cur.operationMode || 'HYBRID_HQ';
+        if (curOp === 'TV_UMP_MSE') curOp = 'TV_HEADLESS';
+        return curOp !== opMode;
+      };
 
       // ── HYBRID MODE: HYBRID_HQ (Bidirectional Smart Failover: TV UMP MSE <-> YTM Harvester)
       if (opMode === 'HYBRID_HQ') {
@@ -1293,9 +1410,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
-        if (wasCancelled || wasTimedOut) {
-          console.log(TAG, `[FETCH_HQ] [Hybrid] Harvest ${wasCancelled ? 'cancelled' : 'timed out'} for ${videoId} (not marking confirmedNo774).`);
-          sendResponse({ success: false, results: [], error: wasCancelled ? 'HARVEST_CANCELLED' : 'HARVEST_TIMEOUT', confirmedNo774: false, cancelled: wasCancelled, opMode: 'HYBRID_HQ' });
+        if (wasCancelled || wasTimedOut || await isModeStale()) {
+          console.log(TAG, `[FETCH_HQ] [Hybrid] Harvest ${wasCancelled ? 'cancelled' : 'timed out / superseded'} for ${videoId} (not marking confirmedNo774).`);
+          sendResponse({ success: false, results: [], error: wasCancelled ? 'HARVEST_CANCELLED' : 'HARVEST_TIMEOUT', confirmedNo774: false, cancelled: true, opMode: 'HYBRID_HQ' });
           return;
         }
 
@@ -1320,9 +1437,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ success: true, results, streamingContext: null, opMode: 'YTM_HARVESTER' });
           return;
         }
-        if (formats?._cancelled || formats?._timedOut) {
-          console.log(TAG, `[FETCH_HQ] YTM_HARVESTER: Harvest ${formats._cancelled ? 'cancelled' : 'timed out'} for ${videoId} (not marking confirmedNo774).`);
-          sendResponse({ success: false, results: [], error: formats._cancelled ? 'HARVEST_CANCELLED' : 'HARVEST_TIMEOUT', confirmedNo774: false, cancelled: Boolean(formats._cancelled), opMode: 'YTM_HARVESTER' });
+        if (formats?._cancelled || formats?._timedOut || await isModeStale()) {
+          console.log(TAG, `[FETCH_HQ] YTM_HARVESTER: Harvest ${formats?._cancelled ? 'cancelled' : 'timed out / superseded'} for ${videoId} (not marking confirmedNo774).`);
+          sendResponse({ success: false, results: [], error: formats?._cancelled ? 'HARVEST_CANCELLED' : 'HARVEST_TIMEOUT', confirmedNo774: false, cancelled: true, opMode: 'YTM_HARVESTER' });
           return;
         }
         console.log(TAG, `[FETCH_HQ] YTM_HARVESTER: No 774 stream found for ${videoId} -> Cancelled.`);
@@ -1449,13 +1566,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'START_CLIENT_AUTH' || msg.type === 'START_TV_AUTH') {
-    const clientType = msg.client || 'TVHTML5';
+    if (sender.tab) {
+      sendResponse({ success: false, error: 'unauthorized' });
+      return true;
+    }
+    const clientType = resolveOAuthClientKey(msg.client);
     (async () => {
       try {
         const codeData = await requestDeviceCode(clientType);
         sendResponse({ success: true, data: codeData });
         if (codeData.device_code) {
-          startPollingToken(clientType, codeData.device_code, codeData.interval || 5)
+          startPollingToken(clientType, codeData.device_code, codeData.interval || 5, codeData.expires_in || 1800)
             .catch(err => console.log(TAG, `${clientType} OAuth error:`, err));
         }
       } catch (err) {
@@ -1466,22 +1587,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'CHECK_CLIENT_AUTH' || msg.type === 'CHECK_TV_AUTH') {
-    const clientType = msg.client || 'TVHTML5';
-    const storageKey = OAUTH_CLIENTS[clientType]?.storageKey || 'tvOAuthToken';
+    if (sender.tab) {
+      sendResponse({ isAuth: false });
+      return true;
+    }
+    const clientType = resolveOAuthClientKey(msg.client);
+    const storageKey = OAUTH_CLIENTS[clientType].storageKey;
     chrome.storage.local.get(storageKey).then(s => {
-      sendResponse({ isAuth: !!(s[storageKey] && s[storageKey].access_token) });
+      sendResponse({
+        isAuth: !!(s[storageKey] && s[storageKey].access_token),
+        waiting: Boolean(oauthPollSessions[clientType]),
+      });
     });
     return true;
   }
 
   if (msg.type === 'LOGOUT_CLIENT' || msg.type === 'LOGOUT_TV') {
-    const clientType = msg.client || 'TVHTML5';
-    const storageKey = OAUTH_CLIENTS[clientType]?.storageKey || 'tvOAuthToken';
+    if (sender.tab) {
+      sendResponse({ success: false });
+      return true;
+    }
+    const clientType = resolveOAuthClientKey(msg.client);
+    const storageKey = OAUTH_CLIENTS[clientType].storageKey;
     chrome.storage.local.remove(storageKey).then(() => {
-      if (oauthPollIntervals[clientType]) {
-        clearInterval(oauthPollIntervals[clientType]);
-        oauthPollIntervals[clientType] = null;
-      }
+      stopPollingToken(clientType);
       sendResponse({ success: true });
     });
     return true;
@@ -1492,7 +1621,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //    Returns null if TVHTML5 hasn't been fetched yet or didn't return SABR.
   if (msg.type === 'GET_TVCTX') {
     const { videoId } = msg;
-    if (!videoId) { sendResponse({ streamingContext: null }); return true; }
+    if (!videoId || !/^[\w-]{11}$/.test(videoId)) { sendResponse({ streamingContext: null }); return true; }
     chrome.storage.session.get(`tvctx_${videoId}`).then(s => {
       const ctx = s[`tvctx_${videoId}`];
       if (ctx && (Date.now() - ctx.ts <= 3600000)) {
@@ -1545,6 +1674,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // current video and sends an upgrade trigger to inject.js via the bridge.
 // This is more reliable than relying on page timers (which Chrome may freeze
 // for background tabs), ensuring the upgrade fires the instant the tab is focused.
+// Must match HQ_CACHE_TTL_MS in inject.js (signed stream URLs live ~6h; we use 1h).
+const HQ_CACHE_TTL_MS = 3600000;
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -1558,7 +1689,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
     const stored = await chrome.storage.session.get(`hq_${videoId}`);
     const entry = stored[`hq_${videoId}`];
-    if (!entry || !entry.formats?.length || (Date.now() - entry.ts) > TTL || (entry.videoId && entry.videoId !== videoId)) return;
+    if (!entry || !entry.formats?.length || (Date.now() - entry.ts) > HQ_CACHE_TTL_MS || (entry.videoId && entry.videoId !== videoId)) return;
     const has774 = entry.formats.some(f => f.itag === 774 || f._origItag === 774);
     if (!has774) return;
 

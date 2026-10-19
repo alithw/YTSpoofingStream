@@ -4,7 +4,7 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.4-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.5-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="License Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -16,32 +16,21 @@
   </p>
 </div>
 
-> [!TIP]
-> **Enjoying studio-grade sound on YouTube?** If this extension improves your music listening experience, please consider giving it a ⭐ **Star** on [GitHub](https://github.com/alithw/YTSpoofingStream) to support the project!
-
-> [!IMPORTANT]
-> **RECOMMENDED: UPDATE TO [v0.2.4](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.4)**  
-> **v0.2.4** brings back the classic standalone **Smart TV Relay (`TV_RELAY` / Legacy SABR 774)** native stream override mode based on user reports, along with critical playback stability fixes, background stream overlap fixes, refined autoplay transitions, and extensive code cleanups. Please see the [**Release Notes**](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.4) or [**jump to recent update highlights below**](#recent-updates).
-
-> [!WARNING]
-> **Requirement: Active YouTube Premium Subscription**
-> This extension is engineered specifically for users with an active **YouTube Premium** subscription. YouTube's internal servers only serve unthrottled studio-grade Opus (`ITAG 774`, ~256k-301kbps, >20kHz) and AAC (`ITAG 141`, ~256kbps) to authenticated Premium sessions.
-
-> [!IMPORTANT]
-> **Smart TV Authentication (TVHTML5)**:
-> To unlock zero-delay Direct TV UMP-to-MSE Opus 774 streaming across all video types (including covers and UGC videos not available on YouTube Music), log in via the **TVHTML5** section in the popup:
-> 1. Open the extension popup and click the **Login to TVHTML5** button.
-> 2. Ensure you sign in with the Google account that has active YouTube Premium.
-> 3. Once authenticated, `HYBRID_HQ` and `TV_HEADLESS` automatically prioritize zero-overhead Direct TV UMP 774 streaming!
-
 *Read this in other languages: [Tiếng Việt](README-vi.md).*
+
+If this extension makes your music sound better on YouTube, consider leaving a ⭐ **Star** on [GitHub](https://github.com/alithw/YTSpoofingStream).
+
+**Before You Start:**
+- **YouTube Premium Required**: YouTube only serves unthrottled `ITAG 774` Opus (~256k–301kbps, >20kHz) and `ITAG 141` AAC (~256kbps) to authenticated YouTube Premium accounts. Free accounts do not receive these streams from Google's servers.
+- **TVHTML5 Login (Recommended)**: To stream `ITAG 774` directly via `MediaSource` (zero iframe memory overhead, works on covers and UGC videos not listed on YouTube Music), open the extension popup, click **Login to TVHTML5**, and link the Google account that holds your Premium subscription.
+- **Latest Release ([v0.2.5](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.5))**: Hardens everyday playback (rapid play/pause, background tab playback, mid-roll ad transitions, early scrubbing, and navigation across Shorts/Home) along with security and concurrency fixes. [Jump to what's new in v0.2.5 ↓](#recent-updates)
 
 ---
 
 ## 📑 Table of Contents
-- [✨ Recent Update Highlights (v0.2.4)](#recent-updates)
+- [✨ What's New in v0.2.5](#recent-updates)
 - [🌟 Why YTSpoofingStream?](#-why-ytspoofingstream)
-- [🧠 System Architecture (v0.2.4)](#-system-architecture-v024)
+- [🧠 System Architecture (v0.2.5)](#-system-architecture-v025)
   - [1. Codebase & Directory Structure](#1-codebase--directory-structure)
   - [2. YouTube's SABR / UMP Infrastructure & Why Legacy Spoofing Fails](#2-youtubes-sabr--ump-infrastructure--why-legacy-spoofing-fails)
   - [3. Dual-Engine 774 Acquisition Pipeline (`UmpMseController774` + `YTM_HARVESTER`)](#3-dual-engine-774-acquisition-pipeline-umpmsecontroller774--ytm_harvester)
@@ -62,20 +51,18 @@
 ---
 
 <a id="recent-updates"></a>
-## ✨ Recent Update Highlights (v0.2.4)
+## ✨ What's New in v0.2.5
 
-The **v0.2.4** release restores the legacy Smart TV stream override mode by user request and delivers major stability enhancements:
+**v0.2.5** focuses on real-world stability during everyday YouTube browsing and tightens extension security:
 
-- 📺 **Restored Standalone Smart TV Relay Mode (`TV_RELAY`)**:
-  > *"Vì một số lý do và báo cáo của người sử dụng, tôi đã đem trở lại luồng ghi đè thông thường mode TV_HEADLESS."*  
-  > *"Nếu cảm thấy không ổn định, bạn hoàn toàn có thể chuyển sang sử dụng mode TV_HEADLESS cũ (Smart TV Relay)."*  
-  > If you encounter any playback instability or prefer YouTube's native player pipeline handling the decoded stream, you can freely switch to the legacy **Smart TV Relay (`TV_RELAY`)** mode in the popup settings!
-  - Re-implements in-place Protobuf SABR body rewriting (`sabrRewritePreferredAudio`) directly swapping `251 → 774` in fields `f16` and `f2` without touching signed tokens or triggering `sabr.malformed_config`.
-  - Operates completely independent of the Hybrid Engine as a standalone legacy option.
-- 🛡️ **Fixed Stream Overlap & Duplicate Playback Bug**: Completely eliminates the bug where paused or blocked players could leave orphaned background audio streams running concurrently during rapid track skips.
-- ⏭️ **Refined Autoplay & End-of-Track Transitions**: Fixed edge-case premature track skipping (skipping before 1s remaining) and audio muting in the final 1.5 seconds.
-- 🎯 **Optimized Multi-Seek & Reverse Seek Accuracy**: Smoother seek behavior without delayed audio stutter or reverse jump regressions when seeking multiple times consecutively or seeking backwards.
-- 🧹 **Codebase & Architecture Polish**: Stripped all obsolete development tags and prototype comments for maximum maintainability.
+- **Everyday Playback Polish**:
+  - **No Audio Leak on Fast Play/Pause**: Pausing while a 774 stream is still buffering now halts and mutes the pending stream immediately instead of leaking a fraction of a second of audio once ready.
+  - **Reliable Background Tab Playback**: Filters out Chrome's automatic background video-throttling pause events so 774 audio keeps playing smoothly when you switch tabs or minimize the window.
+  - **Clean Mid-Roll Ad Recovery**: Automatically pauses the 774 stream and unmutes the native player while an ad runs, then resumes 774 playback as soon as your video returns.
+  - **Responsive Early Scrubbing**: Seeking on the timeline before the 774 metadata finishes loading now locks onto your target timestamp as soon as the stream initializes.
+  - **Smooth Shorts & Home Transitions**: Navigating between Watch pages, Shorts (`/shorts/...`), and the Home feed cleanly resets player volume and state.
+- **Instant Audio-Only Sync (`🎧`)**: Toggling Audio-Only mode from either the player bar or the popup now updates both interfaces right away.
+- **Serialized DNR & OAuth Hardening**: Queues DeclarativeNetRequest rule updates sequentially to prevent race conditions during rapid toggles, handles OAuth device-code expiration/slow-down properly, and removes web-accessible resource fingerprinting.
 
 ---
 
@@ -93,7 +80,7 @@ Across YouTube's ecosystem today, audio quality is strictly tiered:
 
 ---
 
-## 🧠 System Architecture (v0.2.4)
+## 🧠 System Architecture (v0.2.5)
 
 ### 1. Codebase & Directory Structure
 YTSpoofingStream is built with **100% pure vanilla JavaScript (ES6+)**—no bundlers, external libraries, or remote dependencies—for maximum speed, security, and auditability:
@@ -124,7 +111,7 @@ Modern YouTube desktop web streaming uses Google's proprietary **SABR (Server-si
   2. Injecting mobile/TV URLs directly into YouTube's native player triggers CORS and token-binding errors `s:49` (`poToken` / client platform mismatch).
 
 ### 3. Dual-Engine 774 Acquisition Pipeline (`UmpMseController774` + `YTM_HARVESTER`)
-To guarantee 100% crash-free playback while delivering unthrottled studio `ITAG 774`, **YTSpoofingStream v0.2.4** completely decouples video rendering from studio audio acquisition using two specialized engines:
+To guarantee 100% crash-free playback while delivering unthrottled studio `ITAG 774`, **YTSpoofingStream v0.2.5** completely decouples video rendering from studio audio acquisition using two specialized engines:
 
 ```mermaid
 flowchart TD
@@ -147,17 +134,17 @@ flowchart TD
 ```
 
 1. **Engine A — Direct TV UMP-to-MSE Demuxer (`UmpMseController774`)**:
-   - Uses your authenticated `TVHTML5` OAuth2 token in [`src/background.js`](file:///c:/Code/Personal/YTSpoofingStream/src/background.js) to fetch the TV `/player` response (`100ms` fast path on pre-warmed cache, `1500ms` cap on live query).
+   - Uses your authenticated `TVHTML5` OAuth2 token in [`src/background.js`](src/background.js) to fetch the TV `/player` response (`100ms` fast path on pre-warmed cache, `1500ms` cap on live query).
    - Constructs custom Protobuf `VideoPlaybackAbrRequest` payloads pinned specifically to `ITAG 774` (`rn`, `rbuf`, `ClientAbrState`, and `FormatId` descriptors) and streams the response from Google Video CDN.
-   - Parses Google's binary UMP framing in real time inside [`src/inject.js`](file:///c:/Code/Personal/YTSpoofingStream/src/inject.js) (`Part 20 MEDIA_HEADER`, `Part 21 MEDIA`, `Part 22 MEDIA_END`, `Part 35 NEXT_REQUEST_POLICY`, `Part 43 SABR_REDIRECT`, `Part 58 STREAM_PROTECTION_STATUS`) and appends the raw WebM/Opus initialization and media segments directly into a browser `MediaSource` `SourceBuffer` with automatic sliding-window buffer eviction.
+   - Parses Google's binary UMP framing in real time inside [`src/inject.js`](src/inject.js) (`Part 20 MEDIA_HEADER`, `Part 21 MEDIA`, `Part 22 MEDIA_END`, `Part 35 NEXT_REQUEST_POLICY`, `Part 43 SABR_REDIRECT`, `Part 58 STREAM_PROTECTION_STATUS`) and appends the raw WebM/Opus initialization and media segments directly into a browser `MediaSource` `SourceBuffer` with automatic sliding-window buffer eviction.
 2. **Engine B — Authenticated YTM Offscreen Harvester (`YTM_HARVESTER`)**:
-   - Operates in a lightweight offscreen document ([`src/harvester.html`](file:///c:/Code/Personal/YTSpoofingStream/src/harvester.html) + [`src/ytm_harvester_cs.js`](file:///c:/Code/Personal/YTSpoofingStream/src/ytm_harvester_cs.js)) backed by scoped Declarative Net Request (DNR) rules to extract direct HTTPS `ITAG 774` URLs from YouTube Music Premium sessions.
+   - Operates in a lightweight offscreen document ([`src/harvester.html`](src/harvester.html) + [`src/ytm_harvester_cs.js`](src/ytm_harvester_cs.js)) backed by scoped Declarative Net Request (DNR) rules to extract direct HTTPS `ITAG 774` URLs from YouTube Music Premium sessions.
    - Serves as both the primary engine in `YTM_HARVESTER` mode and the automatic zero-interruption failover engine in `HYBRID_HQ` mode.
 
 ### 4. Hardware-Level Descriptor Volume Silencing & Anti-Mute Guard
 Setting `video.muted = true` or `video.volume = 0` via standard DOM properties causes the browser to dispatch `volumechange` events, which tricks YouTube's player into showing a muted speaker icon and persisting `"muted": true` into `localStorage['yt-player-volume']`.
 
-**YTSpoofingStream v0.2.4** solves this with a two-layer hardware descriptor shield in [`src/inject.js`](file:///c:/Code/Personal/YTSpoofingStream/src/inject.js):
+**YTSpoofingStream v0.2.5** solves this with a two-layer hardware descriptor shield in [`src/inject.js`](src/inject.js):
 1. **Prototype Descriptor Routing**: Calls the native `HTMLMediaElement.prototype.volume` setter (`descVolume.set.call(video, 0)`) directly on the `<video>` element while intercepting property getters so YouTube's player UI always sees the user's chosen volume and mute state.
 2. **Transition Anti-Mute Guard**: Suppresses synthetic `volumechange` events triggered during hardware silencing/restoration (`_suppressNextVolumeEvent`) and proactively unmutes stale player states when transitioning from a `★ 774` song to a standard `251` video (`fallbackTo251()`), ensuring the player never gets stuck muted across playlist changes.
 
@@ -167,9 +154,8 @@ Setting `video.muted = true` or `video.volume = 0` via standard DOM properties c
 - **SPA Transition Seek Lock**: Ignores YouTube's internal SPA reload seeks (`timeJump < -0.25s`) during the first `1500ms` of a track switch or when `video.currentTime < 1.5s`, preventing songs from restarting a second after playback begins.
 - **Lag-Resilient Forward Alignment**: When backgrounding tabs or heavy CPU/GPU load causes video frames to drop, the audio continues playing smoothly without interruption. Once the video decoder has sufficient buffered data (`video.readyState >= 3`), the video clock gently aligns forward to match `audio.currentTime` (`drift > 0.35s` threshold with a `2.5s` cooldown).
 
-> [!NOTE]
-> **Technical Clarification: "Bit-Perfect" vs "High-Fidelity Compressed Audio Stream"**:  
-> YouTube's entire audio distribution network operates on lossy compression (Opus / AAC). This extension is **not** "bit-perfect" in the audiophile hardware sense (which denotes bit-for-bit uncompressed PCM/FLAC delivery directly to a DAC via WASAPI Exclusive or ASIO, bypassing operating system audio mixers). Instead, the extension unlocks and delivers the **highest possible fidelity audio stream available on YouTube's servers** (**ITAG 774** Opus at ~256k–301kbps with full dynamic spectrum exceeding 20,000 Hz, compared to the standard desktop web 160kbps ITAG 251 capped at 15–16kHz), while playing at bit-rate native 1.0x without pitch distortion.
+**A Note on "Bit-Perfect" vs. High-Fidelity Compressed Audio:**  
+YouTube's audio infrastructure distributes lossy compressed formats (Opus and AAC), so no browser extension can be "bit-perfect" in the strict hardware audiophile sense (uncompressed PCM/FLAC sent directly to a DAC via WASAPI Exclusive or ASIO). What YTSpoofingStream does is fetch the highest-bitrate audio tier available on YouTube's servers (**ITAG 774** Opus at ~256k–301kbps with full frequency response above 20kHz, rather than desktop web's default 160kbps ITAG 251 cut off at ~15.5kHz) and play it at a locked 1.0x clock without pitch resampling.
 
 ---
 
@@ -182,14 +168,9 @@ Setting `video.muted = true` or `video.volume = 0` via standard DOM properties c
 | **`TV_HEADLESS`** | **Smart TV UMP Only (774 Opus ★)** | Direct `TVHTML5` UMP/SABR 774 Demuxer via `MediaSource` (0MB iframe RAM) | Falls back cleanly to native `251` if no TV login or no TV 774 stream | Zero-overhead playback, covers, live sessions & UGC videos |
 | **`TV_RELAY`** | **Smart TV Relay (Legacy SABR 774 ★)** | Standalone Native Player SABR Body Rewrite (`251 → 774`) | Falls back cleanly to native `251` if TV has no 774 stream | Traditional in-place stream override without auxiliary audio elements |
 
-> [!TIP]
-> **Standalone Legacy TV Stream Override**:  
-> *"Vì một số lý do và báo cáo của người sử dụng, tôi đã đem trở lại luồng ghi đè thông thường mode TV_HEADLESS. Nếu cảm thấy không ổn định, bạn hoàn toàn có thể chuyển sang sử dụng mode TV_HEADLESS cũ (Smart TV Relay)."*  
-> If you experience unexpected playback behavior or prefer YouTube's default player pipeline handling the decoded stream directly, you can switch to **Smart TV Relay (`TV_RELAY`)**!
-
-> [!NOTE]
-> **Audio Loudness Characteristics (YouTube Music vs Standard YouTube)**:  
-> Audio streams harvested from **YouTube Music (`YTM_HARVESTER`)** typically have a higher perceived loudness compared to regular YouTube video audio (approximately **+3dB to +6dB** louder) because YouTube Music master tracks follow dedicated music streaming loudness normalization targets compared to standard YouTube video uploads.
+**Notes on Modes & Loudness:**
+- **When to use `TV_RELAY`**: Based on community feedback, we brought back the classic in-place SABR stream override as **Smart TV Relay (`TV_RELAY`)**. If you ever run into quirks with the dual-stream engine on your setup, you can switch to `TV_RELAY` so YouTube's native player handles the stream directly.
+- **Volume Difference on `YTM_HARVESTER`**: Tracks pulled from YouTube Music (`YTM_HARVESTER`) often sound **+3dB to +6dB louder** than standard YouTube videos because YouTube Music masters follow music-streaming loudness targets rather than general video normalization.
 
 ---
 
@@ -197,14 +178,14 @@ Setting `video.muted = true` or `video.volume = 0` via standard DOM properties c
 
 Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks with extension **ON (Studio 774)** vs **OFF (Hard Disabled in Chrome Settings)**:
 
-| Track | Video ID | Full Duration | Native Stream (Extension OFF) | YTSpoofingStream v0.2.4 (774 ON) | High Frequency (>16kHz - 22kHz) |
+| Track | Video ID | Full Duration | Native Stream (Extension OFF) | YTSpoofingStream v0.2.5 (774 ON) | High Frequency (>16kHz - 22kHz) |
 |---|---|---|---|---|---|
 | **Track 1 (Song to the Mirrored Moon)** | `MI4I7v-0tnc` | 211.7s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (301kbps)** | **Active (>20,000 Hz)** |
 | **Track 2 (Kirara Magic - Sunny Rain)** | `Xy6sPZc0CKA` | 184.2s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Active (>20,500 Hz)** |
 | **Track 3 (Fontaine)** | `tiulg9ySfR8` | 185.0s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Active (>21,000 Hz)** |
 | **Track 4 (Dazbee - Chidori Cover)** | `fs_pEYuMZio` | 224.5s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (280kbps)** | **Active (>20,000 Hz)** |
 
-*Observation*: Standard ITAG 251 applies a steep low-pass brickwall filter cutoff at 15.5kHz–16kHz. YTSpoofingStream v0.2.4 delivers unclipped spectral density up to 21kHz+, resulting in noticeably clearer cymbals, vocals, and soundstage.
+*Observation*: Standard ITAG 251 applies a steep low-pass brickwall filter cutoff at 15.5kHz–16kHz. YTSpoofingStream v0.2.5 delivers unclipped spectral density up to 21kHz+, resulting in noticeably clearer cymbals, vocals, and soundstage.
 
 ---
 
@@ -223,8 +204,7 @@ Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks
 4. Open YouTube, ensure you are logged into your Premium account, and verify the `★ 774` badge in the player control bar!
 
 ### Mozilla Firefox / Firefox ESR
-> [!WARNING]
-> Support for Mozilla Firefox has been officially **discontinued** as of [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100) due to technical constraints on the Gecko engine (strict CORS enforcement, background iframe blocking, and MV3 streaming limitations). Please use Chromium-based browsers (Google Chrome, Microsoft Edge, Brave, Opera, Cốc Cốc).
+Firefox support was discontinued in [commit 63ff08d](https://github.com/alithw/YTSpoofingStream/commit/63ff08dc622278be8c58eb7db5513c1cb170b100) due to Gecko limitations around CORS, background iframes, and Manifest V3 streaming. Please use a Chromium-based browser (Chrome, Edge, Brave, Opera, or Cốc Cốc).
 
 ---
 

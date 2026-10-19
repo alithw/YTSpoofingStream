@@ -54,6 +54,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 window.addEventListener('message', (e) => {
+  // Only trust messages from our own harvester iframe running music.youtube.com.
+  const frame = document.getElementById('harvesterFrame');
+  if (e.origin !== 'https://music.youtube.com' || !frame || e.source !== frame.contentWindow) return;
+
   if (e.data?.type === 'HARVEST_774_URL') {
     console.log(TAG, `Iframe captured authentic 774 stream for ${e.data.videoId}`);
     teardownFrame();

@@ -105,8 +105,14 @@
   } catch (e) { }
 
   let lastOpMode = S.operationMode;
+  let lastEnabled = S.enabled;
+  let fetchGeneration = 0;
   function handleSettingsChange() {
     if (!S.enabled) {
+      lastEnabled = false;
+      fetchGeneration++;
+      try { window.postMessage({ type: 'YTSS_STOP_HARVEST' }, '*'); } catch (e) {}
+      pendingFetches.clear();
       if (typeof StudioEngine774 !== 'undefined') StudioEngine774.stopAndUnmute('Extension Disabled');
       const container = document.getElementById('ytss-vol-container');
       if (container) container.style.display = 'none';
@@ -117,17 +123,22 @@
       status.bestAudioInfo = 'Extension Disabled';
       report();
     } else {
+      const wasDisabled = !lastEnabled;
+      lastEnabled = true;
       const container = document.getElementById('ytss-vol-container');
       if (container) container.style.display = 'inline-flex';
       if (typeof applyAudioOnlyState === 'function') applyAudioOnlyState();
 
-      // ONLY invalidate cache if operation mode ACTUALLY changed!
+      // Invalidate cache & re-fetch if operation mode changed OR extension was just re-enabled!
       // Changing audioOnly, uiLanguage, or shadowPlayer must NEVER drop the active 774 stream!
-      if (S.operationMode !== lastOpMode) {
+      if (S.operationMode !== lastOpMode || wasDisabled) {
         lastOpMode = S.operationMode;
+        fetchGeneration++;
+        try { window.postMessage({ type: 'YTSS_STOP_HARVEST' }, '*'); } catch (e) {}
         hqCache.clear();
         confirmedNo774Videos.clear();
         failedFetches.clear();
+        pendingFetches.clear();
         try {
           for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
             const k = window.sessionStorage.key(i);
@@ -136,7 +147,8 @@
         } catch (e) {}
         const curVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
         if (curVid) {
-          console.log(TAG, `[SettingsChange] Switched to ${S.operationMode} -> Triggering HQ harvest for ${curVid}`);
+          try { window.postMessage({ type: 'YTSS_CLEAR_VIDEO_CACHE', videoId: curVid }, '*'); } catch (e) {}
+          console.log(TAG, `[SettingsChange] ${wasDisabled ? 'Re-enabled' : `Switched to ${S.operationMode}`} -> Triggering HQ harvest for ${curVid}`);
           prewarmCache(curVid, { forceFresh: true });
         }
       }
@@ -510,7 +522,11 @@
 
   async function fetchAllHQAudio(videoId, opts = {}) {
     if (!videoId || !VIDEO_ID_RE.test(videoId)) return { formats: [], streamingContext: null };
-    if (confirmedNo774Videos.has(videoId) && !opts.forceFresh) {
+    if (opts.forceFresh) {
+      confirmedNo774Videos.delete(videoId);
+      failedFetches.delete(videoId);
+    }
+    if (confirmedNo774Videos.has(videoId)) {
       return { formats: [], streamingContext: null };
     }
     const hasFailoverOpts = !!(opts.excludeSource || opts.preferredSource);
@@ -537,9 +553,19 @@
       report();
     }
 
+    const myGen = fetchGeneration;
     const fetchPromise = fetchHQViaSW(videoId, opts).then(({ results, streamingContext, confirmedNo774, error }) => {
+      if (myGen !== fetchGeneration || !S.enabled) {
+        if (pendingFetches.get(videoId) === fetchPromise) {
+          pendingFetches.delete(videoId);
+        }
+        return { formats: [], streamingContext: null, cancelled: true, superseded: true };
+      }
+
       if (error === 'HARVEST_CANCELLED' || error === 'HARVEST_TIMEOUT') {
-        pendingFetches.delete(videoId);
+        if (pendingFetches.get(videoId) === fetchPromise) {
+          pendingFetches.delete(videoId);
+        }
         return { formats: [], streamingContext: null, cancelled: true };
       }
 
@@ -548,7 +574,9 @@
           confirmedNo774Videos.add(videoId);
           failedFetches.set(videoId, Date.now());
         }
-        pendingFetches.delete(videoId);
+        if (pendingFetches.get(videoId) === fetchPromise) {
+          pendingFetches.delete(videoId);
+        }
         console.log(TAG, `[HQ] Video ${videoId} reported NO 774 from SW. Marked as confirmedNo774.`);
         if (isCurrentWatchVideo(videoId) && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
           StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
@@ -598,6 +626,7 @@
       const only774 = merged.filter(f => f.itag === 774 || f._origItag === 774);
       const has774 = only774.length > 0;
       if (has774) {
+        confirmedNo774Videos.delete(videoId);
         // Strip 251 and non-774 audio formats so 251 never goes into the player after fetch
         cacheSet(videoId, only774, tvCtx, statsForVideo);
         failedFetches.delete(videoId);
@@ -615,7 +644,9 @@
           StudioEngine774.stopAndUnmute('No 774 stream available for this video', videoId);
         }
       }
-      pendingFetches.delete(videoId);
+      if (pendingFetches.get(videoId) === fetchPromise) {
+        pendingFetches.delete(videoId);
+      }
 
       if (isCurrentWatchVideo(videoId)) {
         status.clientStats = statsForVideo;
@@ -634,16 +665,23 @@
   // ─── PRE-WARM CACHE ────────────────────────────────────────────────
   // Start fetching HQ formats immediately from URL videoId, BEFORE player initializes.
   // When ytInitialPlayerResponse fires, cache should already be ready → sync merge.
+  function isMiniplayerActive() {
+    const mini = document.querySelector('ytd-miniplayer');
+    return !!(mini && (mini.hasAttribute('active') || mini.offsetHeight > 0));
+  }
+
   function getVideoIdFromUrl() {
     try {
+      if (window.location.pathname.startsWith('/shorts/')) {
+        return null;
+      }
       const urlVid = new URLSearchParams(window.location.search).get('v');
       if (urlVid && VIDEO_ID_RE.test(urlVid)) return urlVid;
-      if (window.location.pathname.startsWith('/shorts/')) {
-        const sVid = window.location.pathname.split('/')[2];
-        if (sVid && VIDEO_ID_RE.test(sVid)) return sVid;
+      const onWatchLike = window.location.pathname.startsWith('/watch') || window.location.pathname.startsWith('/live') || window.location.pathname.startsWith('/tv');
+      if (onWatchLike || isMiniplayerActive()) {
+        const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+        if (playerVid && VIDEO_ID_RE.test(playerVid)) return playerVid;
       }
-      const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
-      if (playerVid && VIDEO_ID_RE.test(playerVid)) return playerVid;
       return null;
     } catch (e) { return null; }
   }
@@ -656,13 +694,10 @@
   }
 
   function isPlayerActiveOnPage() {
-    const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/shorts') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
+    if (location.pathname.startsWith('/shorts/')) return false;
+    const isWatch = location.pathname.startsWith('/watch') || location.pathname.startsWith('/live') || location.pathname.startsWith('/tv') || isMusicSite;
     if (isWatch) return true;
-    const mini = document.querySelector('ytd-miniplayer');
-    const isMiniActive = mini && (mini.hasAttribute('active') || mini.style.display !== 'none' || mini.offsetHeight > 0);
-    const player = document.getElementById('movie_player');
-    const hasPlayerVideo = !!(player && player.getVideoData?.()?.video_id);
-    return !!isMiniActive || hasPlayerVideo;
+    return isMiniplayerActive();
   }
 
   navTargetVideoId = getVideoIdFromUrl();
@@ -1703,12 +1738,15 @@
           if (!this.isActive || this.isAdActive()) return;
           const video = getMainVideoElement();
           if (video) {
-            if (!this._initialMetaSynced) {
-              this._initialMetaSynced = true;
-              const vTime = getVideoTimeFor(this.activeVideoId);
-              if (vTime > 0.8 && Math.abs(this.audio.currentTime - vTime) > 0.35) {
-                try { this.audio.currentTime = vTime; } catch (e) {}
-              }
+            this._initialMetaSynced = true;
+            const vTime = getVideoTimeFor(this.activeVideoId);
+            if (vTime > 0.5 && Math.abs(this.audio.currentTime - vTime) > 0.35) {
+              try {
+                this.audio.currentTime = vTime;
+                if (UmpMseController774.isActive) {
+                  UmpMseController774.onSeek(vTime);
+                }
+              } catch (e) {}
             }
             this.audio.playbackRate = video.playbackRate || 1.0;
           }
@@ -1738,9 +1776,21 @@
           this._lastAudioTime = this.audio.currentTime;
           this._lastAudioAdvance = Date.now();
           onAudioBufferReady();
-          if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
+          if (this.isAdActive()) {
+            try { this.audio.pause(); } catch (e) {}
+            const v = getMainVideoElement();
+            if (v) this.restoreNativeVideo(v);
+            return;
+          }
+          if (this.isActive || this._isTransitioning) {
             const video = getMainVideoElement();
             if (video) {
+              const pState = document.getElementById('movie_player')?.getPlayerState?.();
+              // If user paused video while audio was still buffering/loading, immediately pause audio to prevent sound leak
+              if (video.paused && pState !== 3 && (!document.hidden || this._userPaused || pState === 2 || pState === 0)) {
+                try { this.audio.pause(); } catch (e) {}
+                return;
+              }
               this._silenceElement(video);
               const playerVid = document.getElementById('movie_player')?.getVideoData?.()?.video_id;
               // Align silent video to master audio clock if video drifted while audio was buffering
@@ -2175,6 +2225,16 @@
         }
         this.hookVideo(video);
 
+        // If an ad is active, immediately pause 774 audio and restore native video audio
+        // (must run before activePlayerVid check and before document.hidden check)
+        if (this.isAdActive()) {
+          if (this.audio && !this.audio.paused) {
+            try { this.audio.pause(); } catch (err) {}
+          }
+          this.restoreNativeVideo(video);
+          return;
+        }
+
         // If we have a pending 774 stream waiting for video
         if (this.pending774) {
           const { videoId, best774 } = this.pending774;
@@ -2183,7 +2243,7 @@
           }
         }
 
-        if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
+        if (this.isActive || this._isTransitioning) {
           this._silenceElement(video);
         }
 
@@ -2316,6 +2376,10 @@
             const pState = document.getElementById('movie_player')?.getPlayerState?.();
             // If YouTube player state is 1 (playing), Chrome is just background-throttling the video element; keep playing audio!
             if (pState === 1 && !video.ended) {
+              try {
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+              } catch (err) {}
               return;
             }
             // Otherwise (pState === 2 for paused, or 0 for ended, or -1 for unstarted), genuine pause!
@@ -2738,10 +2802,14 @@
     },
 
     prepareTransition(newVid) {
+      if (!newVid || !VIDEO_ID_RE.test(newVid) || window.location.pathname.startsWith('/shorts/')) {
+        this.stopAndUnmute('Navigated away from watch page');
+        return;
+      }
       console.log(TAG, `[StudioEngine774] Preparing transition to: ${newVid}`);
       UmpMseController774.stop();
       this._isTransitioning = true;
-      this._transitionTargetVid = newVid || null;
+      this._transitionTargetVid = newVid;
       this._transitionStartedAt = Date.now();
       this._initialMetaSynced = false;
       this.isActive = false;
@@ -2764,6 +2832,17 @@
         clearTimeout(this._advanceFallbackTimer);
         this._advanceFallbackTimer = null;
       }
+      if (this._transitionSafetyTimer) {
+        clearTimeout(this._transitionSafetyTimer);
+        this._transitionSafetyTimer = null;
+      }
+      this._transitionSafetyTimer = setTimeout(() => {
+        this._transitionSafetyTimer = null;
+        if (this._isTransitioning && !this.isActive) {
+          console.log(TAG, `[StudioEngine774] Transition safety timeout for ${newVid} -> restoring native audio`);
+          this.stopAndUnmute('Transition timeout fallback', newVid);
+        }
+      }, 6000);
       if (this.audio) {
         try {
           this.audio.pause();
@@ -3026,7 +3105,14 @@
         NextVideoManager.tick();
       }
       if (!this.isActive || !this.audio || !this.audio.src) return;
-      if (this.isAdActive()) return;
+      if (this.isAdActive()) {
+        if (!this.audio.paused) {
+          try { this.audio.pause(); } catch (e) {}
+        }
+        const v = getMainVideoElement();
+        if (v) this.restoreNativeVideo(v);
+        return;
+      }
 
       const video = getMainVideoElement();
       if (!video) return;
@@ -3272,11 +3358,16 @@
         return true;
       }
 
+      confirmedNo774Videos.delete(videoId);
       this.pending774 = null;
       this.activeVideoId = videoId;
       this.best774Candidate = best774;
       this._isTransitioning = false;
       this._transitionTargetVid = null;
+      if (this._transitionSafetyTimer) {
+        clearTimeout(this._transitionSafetyTimer);
+        this._transitionSafetyTimer = null;
+      }
       this._initialMetaSynced = false;
       this.isActive = true;
       this._reconnectAttempts = 0;
@@ -3307,7 +3398,6 @@
       if (startSec > 0.8) {
         try {
           this.audio.currentTime = startSec;
-          this._initialMetaSynced = true;
         } catch (e) {}
       }
       this.audio.playbackRate = mainVideo.playbackRate || 1.0;
@@ -3412,6 +3502,10 @@
       const wasActive = this.isActive || this._isTransitioning;
       this._isTransitioning = false;
       this._transitionTargetVid = null;
+      if (this._transitionSafetyTimer) {
+        clearTimeout(this._transitionSafetyTimer);
+        this._transitionSafetyTimer = null;
+      }
       this.isActive = false;
       this.activeVideoId = vId;
       this.best774Candidate = null;
@@ -3669,13 +3763,24 @@
 
   function prewarmCache(videoId, opts = {}) {
     if (!videoId || !VIDEO_ID_RE.test(videoId) || !S.enabled || !S.hqFetch) return;
-    if (confirmedNo774Videos.has(videoId) && !opts.forceFresh) return;
+    if (opts.forceFresh) {
+      confirmedNo774Videos.delete(videoId);
+      failedFetches.delete(videoId);
+      sabrRewrite.downgradedVideoId = null;
+    }
+    if (confirmedNo774Videos.has(videoId)) return;
     navTargetVideoId = videoId;
     reloadedVideos.delete(videoId);
     status.prewarmStatus = `pre-fetching ${videoId}…`;
     report();
     fetchAllHQAudio(videoId, opts).then(hqData => {
-      if (hqData?.cancelled) return;
+      if (hqData?.superseded) return;
+      if (hqData?.cancelled) {
+        if (isCurrentWatchVideo(videoId) && !pendingFetches.has(videoId) && StudioEngine774._isTransitioning && !StudioEngine774.isActive) {
+          StudioEngine774.stopAndUnmute('Harvest cancelled or timed out', videoId);
+        }
+        return;
+      }
       const formats = hqData?.formats || (Array.isArray(hqData) ? hqData : []);
       const tvCtx = hqData?.streamingContext || null;
       const count = formats.length;
@@ -3725,16 +3830,28 @@
   window.addEventListener('yt-navigate-start', (e) => {
     isInitialPageLoad = false; // We are now in SPA territory, never reload page
 
+    let isShortsNav = Boolean(e?.detail?.endpoint?.reelWatchEndpoint || e?.detail?.command?.reelWatchEndpoint || window.location.pathname.startsWith('/shorts/'));
     let incomingVid = e?.detail?.endpoint?.watchEndpoint?.videoId
       || e?.detail?.command?.watchEndpoint?.videoId
       || e?.detail?.params?.videoId
       || null;
 
-    if (!incomingVid && typeof e?.detail?.url === 'string') {
+    if (typeof e?.detail?.url === 'string') {
       try {
         const u = new URL(e.detail.url, window.location.origin);
-        incomingVid = u.searchParams.get('v') || (u.pathname.startsWith('/shorts/') ? u.pathname.split('/')[2] : null);
+        if (u.pathname.startsWith('/shorts/')) {
+          isShortsNav = true;
+          incomingVid = null;
+        } else if (!incomingVid) {
+          incomingVid = u.searchParams.get('v');
+        }
       } catch (err) { }
+    }
+
+    if (isShortsNav) {
+      navTargetVideoId = null;
+      StudioEngine774.stopAndUnmute('Navigated to Shorts');
+      return;
     }
 
     if (incomingVid) {
@@ -3743,7 +3860,7 @@
       sabrRewrite.downgradedVideoId = null;
     }
 
-    const currentActiveVid = StudioEngine774.activeVideoId || document.getElementById('movie_player')?.getVideoData?.()?.video_id;
+    const currentActiveVid = StudioEngine774.activeVideoId || getVideoIdFromUrl();
 
     // ONLY reset and stop if we are navigating to a DIFFERENT video!
     // When minimizing the player to home page, incomingVid is null/same, so keep 774 audio playing smoothly!
@@ -3774,7 +3891,13 @@
 
   window.addEventListener('popstate', () => {
     const currentVid = getVideoIdFromUrl();
-    if (currentVid && currentVid !== StudioEngine774.activeVideoId) {
+    if (!currentVid) {
+      if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
+        StudioEngine774.stopAndUnmute('Navigated away from watch page');
+      }
+      return;
+    }
+    if (currentVid !== StudioEngine774.activeVideoId) {
       confirmedNo774Videos.clear();
       failedFetches.delete(currentVid);
       sabrRewrite.downgradedVideoId = null;
@@ -5268,7 +5391,12 @@
         // and finish background HQ fetch when ready.
         if (S.hqFetch && videoId && isCurrentWatchVideo(videoId)) {
           fetchAllHQAudio(videoId).then(hqData => {
-            if (hqData?.cancelled) return;
+            if (hqData?.cancelled) {
+              if (isCurrentWatchVideo(videoId) && !pendingFetches.has(videoId) && StudioEngine774._isTransitioning) {
+                StudioEngine774.stopAndUnmute('Harvest cancelled or timed out', videoId);
+              }
+              return;
+            }
             const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
             if (hasFormats) {
               const isActive = isPlayerActiveOnPage();
@@ -5511,7 +5639,12 @@
           } else if (S.hqFetch && videoId && isCurrentWatchVideo(videoId)) {
             // Cache miss: fetch in background and upgrade seamlessly once ready.
             fetchAllHQAudio(videoId).then(hqData => {
-              if (hqData?.cancelled) return;
+              if (hqData?.cancelled) {
+                if (isCurrentWatchVideo(videoId) && !pendingFetches.has(videoId) && StudioEngine774._isTransitioning) {
+                  StudioEngine774.stopAndUnmute('Harvest cancelled or timed out', videoId);
+                }
+                return;
+              }
               const hasFormats = hqData && (hqData.formats?.length > 0 || hqData.length > 0 || hqData.streamingContext);
               if (hasFormats) {
                 const isActive = isPlayerActiveOnPage();
@@ -5631,6 +5764,7 @@
     },
     clearCache: () => {
       hqCache.clear();
+      confirmedNo774Videos.clear();
       pendingFetches.clear();
       reloadedVideos.clear();
       pendingReloads.clear();
@@ -5642,8 +5776,8 @@
         }
       } catch (e) { }
     },
-    fetchAllHQAudio: (vid) => fetchAllHQAudio(vid),
-    prewarmCache: (vid) => prewarmCache(vid)
+    fetchAllHQAudio: (vid, opts) => fetchAllHQAudio(vid, opts),
+    prewarmCache: (vid, opts) => prewarmCache(vid, opts)
   };
 
   console.log(TAG, 'Injected — Pre-warm + ytplayer.config + ITAG disguise + ForceReload active');
