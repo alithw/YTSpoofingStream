@@ -42,6 +42,8 @@
   "clientAndroidVr": "Android VR",
   "clientCache": "会话缓存",
   "controlsTitle": "控制与选项",
+  "controlVolumeBalance": "音量平衡",
+  "controlVolumeBalanceDesc": "平衡 Dual-Engine 774 上的音频响度",
   "controlAutoReload": "更改设置后自动刷新页面",
   "controlStatsOverride": "覆盖“详细统计信息” (774 Spoof)",
   "controlStatsOverrideDesc": "在播放器“详细统计信息”面板中显示实时 Opus 774 码率与编码参数",

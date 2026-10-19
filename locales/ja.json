@@ -42,6 +42,8 @@
   "clientAndroidVr": "Android VR",
   "clientCache": "セッションキャッシュ",
   "controlsTitle": "コントロール",
+  "controlVolumeBalance": "音量バランス",
+  "controlVolumeBalanceDesc": "Dual-Engine 774 で音量の大きさを均一化",
   "controlAutoReload": "設定変更時にページを自動リロード",
   "controlStatsOverride": "詳細統計情報のオーバーライド (774 Spoof)",
   "controlStatsOverrideDesc": "プレーヤーの「詳細統計情報」にOpus 774のテレメトリを表示",

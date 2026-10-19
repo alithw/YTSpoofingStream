@@ -36,6 +36,8 @@
   "clientAndroidVr": "Android VR",
   "clientCache": "Bộ nhớ đệm phiên",
   "controlsTitle": "Cài đặt & Điều khiển",
+  "controlVolumeBalance": "Cân bằng âm lượng",
+  "controlVolumeBalanceDesc": "Cân bằng độ lớn âm thanh trên Dual-Engine 774",
   "controlAutoReload": "Tự động tải lại trang khi đổi thiết lập",
   "controlStatsOverride": "Ghi đè Thống kê chi tiết (Giả lập 774)",
   "controlStatsOverrideDesc": "Hiển thị thông số Opus 774 trong Thống kê chi tiết (Stats for Nerds)",

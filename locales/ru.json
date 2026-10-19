@@ -42,6 +42,8 @@
   "clientAndroidVr": "Android VR",
   "clientCache": "Кэш сессии",
   "controlsTitle": "Управление",
+  "controlVolumeBalance": "Баланс громкости",
+  "controlVolumeBalanceDesc": "Балансировка громкости звука в Dual-Engine 774",
   "controlAutoReload": "Автообновление страницы при смене настроек",
   "controlStatsOverride": "Подмена «Статистики для сисадминов» (774 Spoof)",
   "controlStatsOverrideDesc": "Отображать телеметрию Opus 774 в окне «Статистика для сисадминов»",

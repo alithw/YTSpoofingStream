@@ -36,6 +36,8 @@
   "clientAndroidVr": "Android VR",
   "clientCache": "Session Cache",
   "controlsTitle": "Controls",
+  "controlVolumeBalance": "Volume Balance",
+  "controlVolumeBalanceDesc": "Balance audio loudness on Dual-Engine 774",
   "controlAutoReload": "Auto-reload page on change",
   "controlStatsOverride": "Stats for Nerds Override (774 Spoof)",
   "controlStatsOverrideDesc": "Display Opus 774 metrics in player Stats for Nerds",

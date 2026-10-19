@@ -100,6 +100,7 @@
   const KEYS = {
     enabled: '#en',
     audioOnly: '#ao',
+    volumeBalance: '#vb',
     autoReload: '#ar',
     shadowPlayer: '#sp',
   };
@@ -107,6 +108,7 @@
   let settings = {
     enabled: true,
     audioOnly: false,
+    volumeBalance: true,
     autoReload: true,
     operationMode: 'HYBRID_HQ',
     shadowPlayer: true,
@@ -243,26 +245,27 @@
   function save(e) {
     if ($('#en')) settings.enabled = $('#en').checked;
     if ($('#ao')) settings.audioOnly = $('#ao').checked;
+    if ($('#vb')) settings.volumeBalance = $('#vb').checked;
     if ($('#ar')) settings.autoReload = $('#ar').checked;
     if ($('#sp')) settings.shadowPlayer = $('#sp').checked;
 
-    const isAoOnly = Boolean(e && e.target && e.target.id === 'ao');
+    const isLiveToggle = Boolean(e && e.target && (e.target.id === 'ao' || e.target.id === 'vb'));
 
     applyUI();
     pendingSelfSaves++;
     chrome.storage.local.set(settings, () => {
       pendingSelfSaves = Math.max(0, pendingSelfSaves - 1);
     });
-    log(`Settings saved. OpMode: ${settings.operationMode}, AudioOnly: ${settings.audioOnly}, StatsOverride: ${settings.shadowPlayer}`);
+    log(`Settings saved. OpMode: ${settings.operationMode}, AudioOnly: ${settings.audioOnly}, VolBalance: ${settings.volumeBalance}, StatsOverride: ${settings.shadowPlayer}`);
 
-    // Note: YouTube page must refresh after applying config (except for audioOnly live toggle)
+    // Note: YouTube page must refresh after applying config (except for audioOnly and volumeBalance live toggles)
     // Send settings to content script and trigger reload if necessary
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0]) return;
 
       // Send settings to content script (inject.js) via messaging
       execInYouTubeTab(tabs[0], {
-        func: (s, isAo) => {
+        func: (s, isLive) => {
           localStorage.setItem('ytss_settings', JSON.stringify(s));
           localStorage.setItem('ytSpoofingStream_settings', JSON.stringify(s));
           if (window.YTSS_SpoofingMethods && typeof window.YTSS_SpoofingMethods.applySettings === 'function') {
@@ -270,18 +273,18 @@
           } else {
             window.postMessage({ type: 'YTSpoofingStream_settingsUpdate', settings: s }, '*');
           }
-          if (isAo) {
+          if (s.audioOnly !== undefined) {
             window.postMessage({ type: 'YTSS_SET_AUDIO_ONLY', audioOnly: s.audioOnly }, '*');
           }
 
-          // Force reload YouTube page to apply new config (skip reload for audioOnly toggle)
-          if (!isAo && s.autoReload && window.location.href.includes('youtube.com')) {
+          // Force reload YouTube page to apply new config (skip reload for live toggles)
+          if (!isLive && s.autoReload && window.location.href.includes('youtube.com')) {
             window.location.reload();
           }
         },
-        args: [settings, isAoOnly],
+        args: [settings, isLiveToggle],
       }, () => {
-        if (!isAoOnly && settings.autoReload && isYouTubeTab(tabs[0])) {
+        if (!isLiveToggle && settings.autoReload && isYouTubeTab(tabs[0])) {
           log('Config applied — reloading YouTube page...');
         }
       });
