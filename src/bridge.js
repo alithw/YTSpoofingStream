@@ -117,13 +117,19 @@ window.addEventListener('message', (event) => {
 // Listen for messages from background/popup to forward to the page
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'YTSS_SW_TRIGGER' || msg.type === 'YTSS_DOWNLOAD_AUDIO' || msg.type === 'YTSS_SET_AUDIO_ONLY') {
-    window.postMessage(msg, '*');
+    chrome.storage.local.get('enabled', (st) => {
+      if (st.enabled === false && msg.type !== 'YTSS_SET_AUDIO_ONLY') return;
+      window.postMessage(msg, '*');
+    });
   }
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'YTSS_TRIGGER_UPGRADE') {
-    window.postMessage({ type: 'YTSS_TRIGGER_UPGRADE', videoId: msg.videoId }, '*');
+    chrome.storage.local.get('enabled', (st) => {
+      if (st.enabled === false) return;
+      window.postMessage({ type: 'YTSS_TRIGGER_UPGRADE', videoId: msg.videoId }, '*');
+    });
   }
 });
 
@@ -188,6 +194,9 @@ function detectBrowserLang() {
 function pushSettings() {
   chrome.storage.local.get(EXPOSED_SETTINGS, (data) => {
     const settings = pickSettings(data);
+    try {
+      localStorage.setItem('ytss_settings', JSON.stringify(settings));
+    } catch (e) {}
     if (Object.keys(settings).length > 0) {
       window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings }, '*');
     }

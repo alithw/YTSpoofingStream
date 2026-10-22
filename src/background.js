@@ -386,6 +386,18 @@ async function setupStaticRules() {
       const existingRules = await chrome.declarativeNetRequest.getSessionRules();
       const existingIds = existingRules.map(r => r.id);
 
+      // Always clear any lingering/legacy dynamic rules (e.g. wildcard CORS rules with id 101)
+      try {
+        const existingDynamic = await chrome.declarativeNetRequest.getDynamicRules();
+        if (existingDynamic.length > 0) {
+          await chrome.declarativeNetRequest.updateDynamicRules({
+            removeRuleIds: existingDynamic.map(r => r.id),
+            addRules: [],
+          });
+          console.log(TAG, '[DNR] Cleaned up ' + existingDynamic.length + ' stale dynamic rules.');
+        }
+      } catch (e) {}
+
       if (storage.enabled === false) {
         if (existingIds.length > 0) {
           await chrome.declarativeNetRequest.updateSessionRules({
@@ -693,6 +705,16 @@ async function setupStaticRules() {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.enabled !== undefined) {
     setupStaticRules();
+    if (changes.enabled.newValue === false) {
+      console.log(TAG, '[Settings] Extension disabled — tearing down background SW state');
+      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
+      scheduleOffscreenClose(0);
+      confirmedNo774Videos.clear();
+      chrome.storage.session.get(null).then(all => {
+        const hqKeys = Object.keys(all || {}).filter(k => k.startsWith('hq_') || k.startsWith('tvctx_') || k.startsWith('no774_'));
+        if (hqKeys.length > 0) chrome.storage.session.remove(hqKeys).catch(() => {});
+      }).catch(() => {});
+    }
   }
   if (area === 'local' && changes.operationMode !== undefined) {
     console.log(TAG, `[Settings] Operation mode changed to ${changes.operationMode.newValue}, clearing SW session cache`);
@@ -1658,12 +1680,15 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'ytss-keepalive') {
-    chrome.declarativeNetRequest.getSessionRules().then(rules => {
+    chrome.storage.local.get('enabled').then(st => {
+      if (st.enabled === false) return;
+      chrome.declarativeNetRequest.getSessionRules().then(rules => {
       const hasOriginRule = rules.some(r => r.id === ORIGIN_RULE_ID);
       if (!hasOriginRule) {
         console.log(TAG, '[Keepalive] DNR rules missing — re-applying...');
         setupStaticRules();
       }
+    }).catch(() => {});
     }).catch(() => {});
   }
 });
@@ -1678,6 +1703,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 const HQ_CACHE_TTL_MS = 3600000;
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   try {
+    const storage = await chrome.storage.local.get('enabled');
+    if (storage.enabled === false) return;
     const tab = await chrome.tabs.get(tabId);
     if (!tab.url || !tab.url.includes('youtube.com/watch')) return;
 
