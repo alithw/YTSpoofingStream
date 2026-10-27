@@ -34,7 +34,7 @@ This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDU
 
 3. **Reloading After Code Changes**:
    - For changes to `src/popup.html`, `src/popup.js`: Close and reopen the popup.
-   - For changes to `src/inject.js`, `src/bridge.js`: Refresh the YouTube page (`Ctrl+F5` or `Cmd+Shift+R`).
+   - For changes to `src/inject.js`, `src/bridge.js`: Click the reload icon in `chrome://extensions/` and then refresh the YouTube page.
    - For changes to `src/background.js`, `manifest.json`: Click the refresh/reload icon on the extension card in `chrome://extensions/`.
 
 ---

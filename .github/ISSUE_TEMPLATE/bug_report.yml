@@ -40,6 +40,7 @@ body:
         - "HYBRID_HQ (Default & Recommended)"
         - "YTM_HARVESTER"
         - "TV_HEADLESS"
+        - "TV_RELAY"
     validations:
       required: true
 
