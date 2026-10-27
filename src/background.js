@@ -96,6 +96,8 @@ const confirmedNo774Videos = {
   delete(v) { if (currentNo774VideoId === v) currentNo774VideoId = null; },
   clear() { currentNo774VideoId = null; }
 };
+const VALID_LOCALES = new Set(['en', 'vi', 'ja', 'ru', 'zh-cn', 'zh-tw']);
+const localeCache = new Map();
 
 // ─── AUTHENTICATION ──────────────────────────────────────────────────
 // YouTube web derives its Authorization header from up to three cookies, each with
@@ -1245,6 +1247,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log(TAG, `[CONFIRM_NO_774] Video ${videoId} temporarily marked as NO 774 in SW (ephemeral).`);
     }
     sendResponse({ received: true });
+    return true;
+  }
+
+  if (msg.type === 'GET_LOCALE') {
+    const l = VALID_LOCALES.has(msg.lang) ? msg.lang : 'en';
+    if (localeCache.has(l)) {
+      sendResponse({ success: true, lang: l, strings: localeCache.get(l) });
+      return true;
+    }
+    (async () => {
+      try {
+        let url = chrome.runtime.getURL(`locales/${l}.json`);
+        let res = await fetch(url);
+        if (!res.ok && l !== 'en') {
+          url = chrome.runtime.getURL('locales/en.json');
+          res = await fetch(url);
+        }
+        if (res.ok) {
+          const strings = await res.json();
+          localeCache.set(l, strings);
+          sendResponse({ success: true, lang: l, strings });
+          return;
+        }
+      } catch (err) {
+        void err;
+      }
+      sendResponse({ success: false });
+    })();
     return true;
   }
 

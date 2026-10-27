@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.6-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.7-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="Giấy phép Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -23,21 +23,20 @@ Nếu tiện ích giúp trải nghiệm nghe nhạc của bạn trên YouTube t�
 **Lưu ý trước khi sử dụng:**
 - **Cần có tài khoản YouTube Premium**: Máy chủ của YouTube chỉ phân phối luồng âm thanh Opus chất lượng cao (`ITAG 774`, ~256k–301kbps, dải tần >20kHz) và AAC (`ITAG 141`, ~256kbps) cho các phiên đăng nhập có gói YouTube Premium. Tài khoản miễn phí sẽ không nhận được các luồng này từ hệ thống của Google.
 - **Đăng nhập TVHTML5 (Khuyên dùng)**: Để giải mã trực tiếp luồng `ITAG 774` qua `MediaSource` (không tốn RAM tạo iframe ngầm, hoạt động trên cả các bản cover, live session và video UGC không có trên YouTube Music), hãy mở popup của tiện ích, nhấn nút đăng nhập **TVHTML5** và liên kết đúng tài khoản Google có gói Premium.
-- **Phiên bản mới nhất ([v0.2.6](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.6))**: Bổ sung tính năng Volume Balance khớp tiêu chuẩn -14 LUFS của YouTube chống mất cân bằng âm thanh, triệt tiêu hiện tượng vọt âm lượng khi bật miniplayer, và ngăn ngừa rò rỉ âm thanh khi điều hướng thanh bên. [Xem chi tiết cập nhật v0.2.6 bên dưới ↓](#recent-updates)
+- **Phiên bản mới nhất ([v0.2.7](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.7))**: Triệt tiêu khoảng lặng âm thanh 3–5 giây đầu khi chuyển bài, gỡ móc hoàn toàn khi tắt extension, và xóa bỏ cảnh báo lỗi dynamic URL của Chrome MV3. [Xem chi tiết cập nhật v0.2.7 bên dưới ↓](#recent-updates)
 
 ---
 
 ## 📑 Mục lục
-- [✨ Có gì mới trong phiên bản v0.2.6](#recent-updates)
+- [✨ Có gì mới trong phiên bản v0.2.7](#recent-updates)
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
-- [🧠 Kiến trúc Hệ thống (v0.2.6)](#-kiến-trúc-hệ-thống-v026)
+- [🧠 Kiến trúc Hệ thống (v0.2.7)](#-kiến-trúc-hệ-thống-v026)
   - [1. Cấu trúc Thư mục & Mã nguồn](#1-cấu-trúc-thư-mục--mã-nguồn)
   - [2. Nền tảng SABR / UMP của YouTube & Vì sao phương pháp cũ thất bại](#2-nền-tảng-sabr--ump-của-youtube--vì-sao-phương-pháp-cũ-thất-bại)
   - [3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)](#3-quy-trình-thu-hoạch--giải-mã-luồng-kép-774-umpmsecontroller774--ytm_harvester)
   - [4. Tắt tiếng Tầng Descriptor Phần cứng & Cơ chế Chống Tự Tắt Tiếng (Anti-Mute Guard)](#4-tắt-tiếng-tầng-descriptor-phần-cứng--cơ-chế-chống-tự-tắt-tiếng-anti-mute-guard)
   - [5. Đồng bộ Chuẩn Master Clock 1.0x & Chống Nhảy Nhạc Khi Trình Duyệt Lag](#5-đồng-bộ-chuẩn-master-clock-10x--chống-nhảy-nhạc-khi-trình-duyệt-lag)
 - [🎛️ 4 Chế độ Hoạt động](#️-4-chế-độ-hoạt-động)
-- [📊 Kết quả Đo lường Phổ âm Toàn bài hát (FFT Spectrum)](#-kết-quả-đo-lường-phổ-âm-toàn-bài-hát-fft-spectrum)
 - [🚀 Hướng dẫn Cài đặt](#-hướng-dẫn-cài-đặt)
 - [🌐 Hỗ trợ Đa Ngôn Ngữ & Hướng dẫn Đóng góp Bản dịch](#-hỗ-trợ-đa-ngôn-ngữ--hướng-dẫn-đóng-góp-bản-dịch)
 - [⚙️ Cấu hình & Điều khiển](#️-cấu-hình--điều-khiển)
@@ -51,9 +50,9 @@ Nếu tiện ích giúp trải nghiệm nghe nhạc của bạn trên YouTube t�
 ---
 
 <a id="recent-updates"></a>
-## ✨ Có gì mới trong phiên bản v0.2.6
+## ✨ Có gì mới trong phiên bản v0.2.7
 
-Bản cập nhật **v0.2.6** bổ sung tính năng cân bằng âm lượng chuẩn phòng thu, hoàn thiện độ mượt khi chuyển đổi miniplayer và ngăn ngừa rò rỉ âm thanh khi điều hướng:
+Bản cập nhật **v0.2.7** bổ sung tính năng cân bằng âm lượng chuẩn phòng thu, hoàn thiện độ mượt khi chuyển đổi miniplayer và ngăn ngừa rò rỉ âm thanh khi điều hướng:
 
 - **Tính năng Cân bằng Âm lượng (Volume Balance)**:
   - Khớp chuẩn xác với tiêu chuẩn **-14 LUFS** của trình phát YouTube bằng cách tự động tính toán hệ số bù âm lượng ($10^{-\text{loudnessDb}/20}$) từ trường dữ liệu `audioConfig.loudnessDb`.
@@ -79,7 +78,7 @@ Trên hệ sinh thái YouTube hiện nay, chất lượng âm thanh bị phân t
 
 ---
 
-## 🧠 Kiến trúc Hệ thống (v0.2.6)
+## 🧠 Kiến trúc Hệ thống (v0.2.7)
 
 ### 1. Cấu trúc Thư mục & Mã nguồn
 YTSpoofingStream được xây dựng bằng **100% JavaScript thuần (Vanilla ES6+)**—không dùng bundler, không thư viện ngoài hay mã thực thi từ xa—đảm bảo hiệu năng tối đa, minh bạch và dễ kiểm toán:
@@ -110,7 +109,7 @@ Trình phát YouTube máy tính hiện đại đã chuyển hoàn toàn sang gia
   2. Tiêm trực tiếp URL của TV/Android vào trình phát mặc định sẽ gây lỗi bảo mật CORS và lệch chữ ký token mã `s:49` (`poToken` / `cplatform`).
 
 ### 3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)
-Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.2.6** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
+Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.2.7** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
 
 ```mermaid
 flowchart TD
@@ -143,7 +142,7 @@ flowchart TD
 ### 4. Tắt tiếng Tầng Descriptor Phần cứng & Cơ chế Chống Tự Tắt Tiếng (Anti-Mute Guard)
 Nếu gán trực tiếp `video.muted = true` hoặc `video.volume = 0` qua thuộc tính DOM thông thường, trình duyệt sẽ bắn sự kiện `volumechange`, khiến trình phát YouTube hiểu nhầm là người dùng vừa tắt tiếng, hiển thị biểu tượng loa gạch chéo và lưu trạng thái `"muted": true` vào `localStorage['yt-player-volume']`.
 
-**YTSpoofingStream v0.2.6** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](src/inject.js):
+**YTSpoofingStream v0.2.7** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](src/inject.js):
 1. **Định tuyến Descriptor Nguyên mẫu**: Gọi trực tiếp setter gốc `HTMLMediaElement.prototype.volume` (`descVolume.set.call(video, 0)`) để hạ âm lượng phần cứng của thẻ `<video>` về `0`, trong khi ghi đè getter để giao diện YouTube luôn đọc đúng mức âm lượng mà người dùng thiết lập.
 2. **Lá chắn Chống Tự Tắt Tiếng Khi Chuyển Bài**: Chặn toàn bộ các sự kiện `volumechange` nội bộ phát sinh trong quá trình đóng/mở âm lượng phần cứng (`_suppressNextVolumeEvent`) và chủ động khôi phục trạng thái unmute khi chuyển từ bài hát `★ 774` sang các video `251` không có 774 (`fallbackTo251()`), đảm bảo giao diện không bao giờ bị kẹt nút Mute.
 
@@ -170,21 +169,7 @@ Hệ thống phân phối âm thanh của YouTube sử dụng định dạng né
 **Một vài lưu ý về chế độ phát và âm lượng:**
 - **Khi nào nên dùng `TV_RELAY`**: Dựa trên phản hồi của người dùng, chế độ ghi đè luồng SABR trực tiếp trên trình phát gốc đã được đưa trở lại dưới tên **Smart TV Relay (`TV_RELAY`)**. Nếu máy của bạn gặp bất kỳ sự cố tương thích nào với cơ chế đồng bộ hai luồng, bạn có thể chuyển sang `TV_RELAY` để trình phát mặc định của YouTube tự xử lý toàn bộ.
 - **Chênh lệch âm lượng & Tính năng Cân bằng Âm lượng (Volume Balance)**: Các bản nhạc lấy từ YouTube Music (`YTM_HARVESTER`) thường nghe to hơn khoảng **+3dB đến +6dB** so với video YouTube thông thường, do bản thu trên YouTube Music được chuẩn hóa âm lượng theo tiêu chuẩn riêng của nền tảng nhạc số. Với tính năng **Volume Balance**, tiện ích tự động điều chỉnh độ lớn âm thanh theo chuẩn **-14 LUFS** của YouTube, loại bỏ hiện tượng "mất cân bằng âm thanh" khi chuyển giữa bài có luồng 774 và bài không có luồng 774.
-
----
-
-## 📊 Kết quả Đo lường Phổ âm Toàn bài hát (FFT Spectrum)
-
-Kết quả kiểm thử thực tế thời gian thực 100% thời lượng trên 4 bài hát tiêu chuẩn: khi **Bật extension (Studio 774)** so với khi **Tắt cứng extension trong Cài đặt Chrome (Luồng Gốc)**:
-
-| Bài hát | Video ID | Thời lượng đo | Khi Tắt Extension (Luồng Gốc) | Khi Bật YTSpoofingStream v0.2.6 (774) | Dải tần cao (>16kHz - 22kHz) |
-|---|---|---|---|---|---|
-| **Track 1 (Song to the Mirrored Moon)** | `MI4I7v-0tnc` | 211.7s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (301kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
-| **Track 2 (Kirara Magic - Sunny Rain)** | `Xy6sPZc0CKA` | 184.2s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.500 Hz)** |
-| **Track 3 (Fontaine)** | `tiulg9ySfR8` | 185.0s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>21.000 Hz)** |
-| **Track 4 (Dazbee - Chidori Cover)** | `fs_pEYuMZio` | 224.5s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (280kbps)** | **Hoạt động mạnh (>20.000 Hz)** |
-
-*Nhận xét*: Luồng ITAG 251 tiêu chuẩn bị cắt phẳng dải tần (brickwall filter) ở 15.5kHz–16kHz. Luồng 774 trên YTSpoofingStream v0.2.6 duy trì mật độ phổ âm thanh liên tục lên tới trên 21kHz, mang lại âm trường rộng và chi tiết tiếng treble/cymbal/vocal sắc nét vượt trội.
+- **Độ trễ khi tải 2 luồng (Dual-Stream Delay)**: Đối với mode YTM và Smart TV UMP sẽ delay khoảng 0,15–1,5s phụ thuộc vào tình trạng mạng của bạn để tải 2 luồng.
 
 ---
 

@@ -4,7 +4,7 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.6-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.7-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="License Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -23,21 +23,20 @@ If this extension makes your music sound better on YouTube, consider leaving a �
 **Before You Start:**
 - **YouTube Premium Required**: YouTube only serves unthrottled `ITAG 774` Opus (~256k–301kbps, >20kHz) and `ITAG 141` AAC (~256kbps) to authenticated YouTube Premium accounts. Free accounts do not receive these streams from Google's servers.
 - **TVHTML5 Login (Recommended)**: To stream `ITAG 774` directly via `MediaSource` (zero iframe memory overhead, works on covers and UGC videos not listed on YouTube Music), open the extension popup, click **Login to TVHTML5**, and link the Google account that holds your Premium subscription.
-- **Latest Release ([v0.2.6](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.6))**: Adds Volume Balance matching YouTube's -14 LUFS standard to prevent loudness imbalance, eliminates volume spikes when toggling miniplayer, and prevents audio leakage during sidebar navigation. [Jump to what's new in v0.2.6 ↓](#recent-updates)
+- **Latest Release ([v0.2.7](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.7))**: Eliminates initial playback audio silence during track transitions, ensures clean unhooking when disabled, and resolves Chrome MV3 dynamic URL warnings. [Jump to what's new in v0.2.7 ↓](#recent-updates)
 
 ---
 
 ## 📑 Table of Contents
-- [✨ What's New in v0.2.6](#recent-updates)
+- [✨ What's New in v0.2.7](#recent-updates)
 - [🌟 Why YTSpoofingStream?](#-why-ytspoofingstream)
-- [🧠 System Architecture (v0.2.6)](#-system-architecture-v026)
+- [🧠 System Architecture (v0.2.7)](#-system-architecture-v026)
   - [1. Codebase & Directory Structure](#1-codebase--directory-structure)
   - [2. YouTube's SABR / UMP Infrastructure & Why Legacy Spoofing Fails](#2-youtubes-sabr--ump-infrastructure--why-legacy-spoofing-fails)
   - [3. Dual-Engine 774 Acquisition Pipeline (`UmpMseController774` + `YTM_HARVESTER`)](#3-dual-engine-774-acquisition-pipeline-umpmsecontroller774--ytm_harvester)
   - [4. Hardware-Level Descriptor Volume Silencing & Anti-Mute Guard](#4-hardware-level-descriptor-volume-silencing--anti-mute-guard)
   - [5. Native 1.0x Master Clock & Lag-Resilient Synchronization (High-Fidelity Audio Delivery)](#5-native-10x-master-clock--lag-resilient-synchronization-high-fidelity-audio-delivery)
 - [🎛️ Operation Modes](#️-operation-modes)
-- [📊 Full-Track FFT Spectrum Benchmark Results](#-full-track-fft-spectrum-benchmark-results)
 - [🚀 Installation](#-installation)
 - [🌐 Localization & Adding Your Language](#-localization--adding-your-language)
 - [⚙️ Configuration & Controls](#️-configuration--controls)
@@ -51,9 +50,9 @@ If this extension makes your music sound better on YouTube, consider leaving a �
 ---
 
 <a id="recent-updates"></a>
-## ✨ What's New in v0.2.6
+## ✨ What's New in v0.2.7
 
-**v0.2.6** introduces studio loudness normalization, smooths miniplayer transitions, and resolves audio leakage during navigation:
+**v0.2.7** introduces studio loudness normalization, smooths miniplayer transitions, and resolves audio leakage during navigation:
 
 - **Volume Balance (-14 LUFS Loudness Normalization)**:
   - Dynamically aligns auxiliary Studio 774 audio output with YouTube's standard **-14 LUFS** loudness target by calculating real-time normalization gain ($10^{-\text{loudnessDb}/20}$) from `audioConfig.loudnessDb`.
@@ -79,7 +78,7 @@ Across YouTube's ecosystem today, audio quality is strictly tiered:
 
 ---
 
-## 🧠 System Architecture (v0.2.6)
+## 🧠 System Architecture (v0.2.7)
 
 ### 1. Codebase & Directory Structure
 YTSpoofingStream is built with **100% pure vanilla JavaScript (ES6+)**—no bundlers, external libraries, or remote dependencies—for maximum speed, security, and auditability:
@@ -110,7 +109,7 @@ Modern YouTube desktop web streaming uses Google's proprietary **SABR (Server-si
   2. Injecting mobile/TV URLs directly into YouTube's native player triggers CORS and token-binding errors `s:49` (`poToken` / client platform mismatch).
 
 ### 3. Dual-Engine 774 Acquisition Pipeline (`UmpMseController774` + `YTM_HARVESTER`)
-To guarantee 100% crash-free playback while delivering unthrottled studio `ITAG 774`, **YTSpoofingStream v0.2.6** completely decouples video rendering from studio audio acquisition using two specialized engines:
+To guarantee 100% crash-free playback while delivering unthrottled studio `ITAG 774`, **YTSpoofingStream v0.2.7** completely decouples video rendering from studio audio acquisition using two specialized engines:
 
 ```mermaid
 flowchart TD
@@ -143,7 +142,7 @@ flowchart TD
 ### 4. Hardware-Level Descriptor Volume Silencing & Anti-Mute Guard
 Setting `video.muted = true` or `video.volume = 0` via standard DOM properties causes the browser to dispatch `volumechange` events, which tricks YouTube's player into showing a muted speaker icon and persisting `"muted": true` into `localStorage['yt-player-volume']`.
 
-**YTSpoofingStream v0.2.6** solves this with a two-layer hardware descriptor shield in [`src/inject.js`](src/inject.js):
+**YTSpoofingStream v0.2.7** solves this with a two-layer hardware descriptor shield in [`src/inject.js`](src/inject.js):
 1. **Prototype Descriptor Routing**: Calls the native `HTMLMediaElement.prototype.volume` setter (`descVolume.set.call(video, 0)`) directly on the `<video>` element while intercepting property getters so YouTube's player UI always sees the user's chosen volume and mute state.
 2. **Transition Anti-Mute Guard**: Suppresses synthetic `volumechange` events triggered during hardware silencing/restoration (`_suppressNextVolumeEvent`) and proactively unmutes stale player states when transitioning from a `★ 774` song to a standard `251` video (`fallbackTo251()`), ensuring the player never gets stuck muted across playlist changes.
 
@@ -170,21 +169,7 @@ YouTube's audio infrastructure distributes lossy compressed formats (Opus and AA
 **Notes on Modes & Loudness:**
 - **When to use `TV_RELAY`**: Based on community feedback, we brought back the classic in-place SABR stream override as **Smart TV Relay (`TV_RELAY`)**. If you ever run into quirks with the dual-stream engine on your setup, you can switch to `TV_RELAY` so YouTube's native player handles the stream directly.
 - **Volume Difference & Volume Balance**: Tracks pulled from YouTube Music (`YTM_HARVESTER`) often sound **+3dB to +6dB louder** than standard YouTube videos because YouTube Music masters follow music-streaming loudness targets rather than general video normalization. With **Volume Balance** enabled, YTSpoofingStream automatically matches YouTube's standard **-14 LUFS** loudness target, preventing volume jumps when switching between tracks with and without ITAG 774.
-
----
-
-## 📊 Full-Track FFT Spectrum Benchmark Results
-
-Comprehensive 1x real-time full-duration tests across 4 diverse benchmark tracks with extension **ON (Studio 774)** vs **OFF (Hard Disabled in Chrome Settings)**:
-
-| Track | Video ID | Full Duration | Native Stream (Extension OFF) | YTSpoofingStream v0.2.6 (774 ON) | High Frequency (>16kHz - 22kHz) |
-|---|---|---|---|---|---|
-| **Track 1 (Song to the Mirrored Moon)** | `MI4I7v-0tnc` | 211.7s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (301kbps)** | **Active (>20,000 Hz)** |
-| **Track 2 (Kirara Magic - Sunny Rain)** | `Xy6sPZc0CKA` | 184.2s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Active (>20,500 Hz)** |
-| **Track 3 (Fontaine)** | `tiulg9ySfR8` | 185.0s (100%) | ITAG 251 (~160kbps) | **ITAG 774 (280kbps)** | **Active (>21,000 Hz)** |
-| **Track 4 (Dazbee - Chidori Cover)** | `fs_pEYuMZio` | 224.5s (100%) | ITAG 251 (~155kbps) | **ITAG 774 (280kbps)** | **Active (>20,000 Hz)** |
-
-*Observation*: Standard ITAG 251 applies a steep low-pass brickwall filter cutoff at 15.5kHz–16kHz. YTSpoofingStream v0.2.6 delivers unclipped spectral density up to 21kHz+, resulting in noticeably clearer cymbals, vocals, and soundstage.
+- **Dual-Stream Buffering Latency**: For YTM Harvester and Smart TV UMP modes, there will be an initial delay of approximately 0.15–1.5s depending on your network conditions to load and buffer both streams.
 
 ---
 

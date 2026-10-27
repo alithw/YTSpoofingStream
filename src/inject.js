@@ -157,10 +157,24 @@
       if (typeof applyAudioOnlyState === 'function') applyAudioOnlyState();
       if (typeof StatsForNerdsSpoofer !== 'undefined') StatsForNerdsSpoofer.teardown();
 
-      // Unhook prototypes and browser APIs
+      if (typeof StudioEngine774 !== 'undefined') {
+        StudioEngine774.unhookPlayer();
+      }
       unhookMediaPrototype();
       unhookServiceWorker();
       unhookNetwork();
+      try {
+        const rawVol = localStorage.getItem('yt-player-volume') || sessionStorage.getItem('yt-player-volume');
+        if (rawVol) {
+          const parsed = JSON.parse(rawVol);
+          const inner = typeof parsed?.data === 'string' ? JSON.parse(parsed.data) : (parsed?.data || parsed);
+          if (inner && (inner.muted || inner.volume < 10)) {
+            const restored = JSON.stringify({ data: JSON.stringify({ volume: 100, muted: false }) });
+            localStorage.setItem('yt-player-volume', restored);
+            sessionStorage.setItem('yt-player-volume', restored);
+          }
+        }
+      } catch (e) {}
 
       status.activeMethod = 'original';
       status.activeAudioItag = 251;
@@ -926,7 +940,7 @@
           if (!isMainVideo) {
             return descVolume.get.call(this);
           }
-          if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
+          if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive) {
             if (typeof this._userVol === 'number' && !isNaN(this._userVol)) {
               return this._userVol;
             }
@@ -970,7 +984,7 @@
               this._userMuted = true;
               StudioEngine774._userMuted = true;
             }
-            if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+            if (StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
               if (typeof StudioEngine774._silenceElement === 'function') {
                 StudioEngine774._silenceElement(this);
               }
@@ -1007,7 +1021,7 @@
           if (!isMainVideo) {
             return descMuted.get.call(this);
           }
-          if (typeof StudioEngine774 !== 'undefined' && (StudioEngine774.isActive || StudioEngine774._isTransitioning)) {
+          if (typeof StudioEngine774 !== 'undefined' && StudioEngine774.isActive) {
             return Boolean(StudioEngine774._userMuted);
           }
           return descMuted.get.call(this);
@@ -1047,7 +1061,7 @@
             if (targetMuted) {
               StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
             }
-            if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+            if (StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
               if (typeof StudioEngine774._silenceElement === 'function') {
                 StudioEngine774._silenceElement(this);
               }
@@ -1074,7 +1088,7 @@
     try {
       HTMLMediaElement.prototype.play = function(...args) {
         if (!S.enabled) return origPlay.apply(this, args);
-        if (typeof StudioEngine774 !== 'undefined' && this !== StudioEngine774.audio && (StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+        if (typeof StudioEngine774 !== 'undefined' && this !== StudioEngine774.audio && StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
           StudioEngine774._silenceElement(this);
         }
         return origPlay.apply(this, args);
@@ -2200,7 +2214,7 @@
     },
 
     _silenceElement(el) {
-      if (!el || el === this.audio || (!this.isActive && !this._isTransitioning) || this.isAdActive()) return;
+      if (!S.enabled || !el || el === this.audio || !this.isActive || this.isAdActive()) return;
       this.hookVideoVolume(el);
       try {
         if (descVolume.get.call(el) !== 0) {
@@ -2216,7 +2230,7 @@
     },
 
     hookVideoVolume(video) {
-      if (!video || video._ytssVolHooked) return;
+      if (!S.enabled || !video || video._ytssVolHooked) return;
       video._ytssVolHooked = true;
       try {
         const rawV = descVolume.get.call(video);
@@ -2228,11 +2242,11 @@
       }
       video._userMuted = Boolean(this._userMuted);
 
-      // 1. Intercept volume setter/getter
       try {
         Object.defineProperty(video, 'volume', {
           get() {
-            if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
+            if (!S.enabled) return descVolume.get.call(this);
+            if (StudioEngine774.isActive) {
               if (typeof this._userVol === 'number' && !isNaN(this._userVol)) {
                 return this._userVol;
               }
@@ -2243,6 +2257,10 @@
             return descVolume.get.call(this);
           },
           set(v) {
+            if (!S.enabled) {
+              try { descVolume.set.call(this, v); } catch (e) {}
+              return;
+            }
             const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(1.0, v)) : 1.0;
             StudioEngine774._lastUserMuteOrVolIntentAt = Date.now();
             this._userVol = numV;
@@ -2255,7 +2273,7 @@
               this._userMuted = true;
               StudioEngine774._userMuted = true;
             }
-            if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+            if (StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
               StudioEngine774._silenceElement(this);
               if (StudioEngine774.audio && StudioEngine774.isActive) {
                 StudioEngine774.syncVolDirect(numV);
@@ -2268,16 +2286,20 @@
         });
       } catch (e) {}
 
-      // 2. Intercept muted setter/getter
       try {
         Object.defineProperty(video, 'muted', {
           get() {
-            if (StudioEngine774.isActive || StudioEngine774._isTransitioning) {
+            if (!S.enabled) return descMuted.get.call(this);
+            if (StudioEngine774.isActive) {
               return Boolean(StudioEngine774._userMuted);
             }
             return descMuted.get.call(this);
           },
           set(m) {
+            if (!S.enabled) {
+              try { descMuted.set.call(this, m); } catch (e) {}
+              return;
+            }
             let targetMuted = !!m;
             if (!this.isConnected) {
               this._userMuted = targetMuted;
@@ -2297,7 +2319,7 @@
             }
             this._userMuted = targetMuted;
             StudioEngine774._userMuted = targetMuted;
-            if ((StudioEngine774.isActive || StudioEngine774._isTransitioning) && !StudioEngine774.isAdActive()) {
+            if (StudioEngine774.isActive && !StudioEngine774.isAdActive()) {
               StudioEngine774._silenceElement(this);
               if (StudioEngine774.audio && StudioEngine774.isActive) {
                 if (StudioEngine774.isUserMuted()) {
@@ -2317,6 +2339,7 @@
     },
 
     silenceNativeVideo(video) {
+      if (!S.enabled || !this.isActive) return;
       if (video) {
         this._silenceElement(video);
         return;
@@ -2329,13 +2352,14 @@
     },
 
     restoreNativeVideo(video) {
+      const stored = readStoredYoutubeVolumeState();
+      const rawUserVol = (typeof this._userVol === 'number' && !isNaN(this._userVol) && this._userVol > 0.05)
+        ? this._userVol
+        : (stored.volume > 0.05 ? stored.volume : 1.0);
+      const isMuted = this.hasRecentUserMuteOrVolIntent() ? Boolean(this._userMuted) : false;
+
       const restore = (v) => {
         if (!v || v === this.audio) return;
-        const savedVol = (typeof v._userVol === 'number' && !isNaN(v._userVol) && v._userVol > 0)
-          ? v._userVol
-          : (this._userVol || 1.0);
-        const isMuted = Boolean(this._userMuted);
-
         delete v._ytssVolHooked;
         delete v.volume;
         delete v.muted;
@@ -2343,13 +2367,19 @@
         delete v._userMuted;
 
         try { descMuted.set.call(v, isMuted); } catch (e) {}
-        if (savedVol !== null) {
-          try { descVolume.set.call(v, isMuted ? 0 : savedVol); } catch (e) {}
-        }
+        try { descVolume.set.call(v, rawUserVol); } catch (e) {}
 
         const p = document.getElementById('movie_player');
-        if (p && typeof p.unMute === 'function' && !isMuted && p.isMuted()) {
-          try { p.unMute(); } catch (e) {}
+        if (p) {
+          if (!isMuted && typeof p.unMute === 'function' && p.isMuted()) {
+            try { p.unMute(); } catch (e) {}
+          }
+          if (typeof p.setVolume === 'function') {
+            const curPVol = typeof p.getVolume === 'function' ? p.getVolume() : 0;
+            if (curPVol < 5 && rawUserVol > 0.05) {
+              try { p.setVolume(Math.round(rawUserVol * 100)); } catch (e) {}
+            }
+          }
         }
       };
       if (video) restore(video);
@@ -2358,6 +2388,13 @@
           if (v !== this.audio) restore(v);
         });
       } catch (e) {}
+      this._hookedVideos.clear();
+      this._isTransitioning = false;
+      this._transitionTargetVid = null;
+      if (this._transitionSafetyTimer) {
+        clearTimeout(this._transitionSafetyTimer);
+        this._transitionSafetyTimer = null;
+      }
     },
 
     isAdActive() {
@@ -2407,6 +2444,7 @@
 
       // HTML5 video events do not bubble, so we capture them at the document root
       const onVideoEvent = (e) => {
+        if (!S.enabled) return;
         if (!e.target || e.target.tagName !== 'VIDEO' || e.target.id === 'ytss-studio-774') return;
         const video = e.target;
         // Ignore hover thumbnail previews on home/feed pages
@@ -2439,7 +2477,7 @@
           }
         }
 
-        if (this.isActive || this._isTransitioning) {
+        if (this.isActive) {
           this._silenceElement(video);
         }
 
@@ -2674,7 +2712,7 @@
           this.isActive = false;
           return;
         } else if (e.type === 'loadedmetadata' || e.type === 'canplay') {
-          if (!this.isAdActive() && !document.hidden && !this._isInternalVideoSync && !this._isVolScrubbing) {
+          if (this.isActive && !this.isAdActive() && !document.hidden && !this._isInternalVideoSync && !this._isVolScrubbing) {
             this._silenceElement(video);
             this.syncVol(video);
             if (video.paused && !this.audio.paused) {
@@ -2693,7 +2731,7 @@
     },
 
     hookVideo(video) {
-      if (!video || this._hookedVideos.has(video)) return;
+      if (!S.enabled || !video || this._hookedVideos.has(video)) return;
       this._hookedVideos.add(video);
       this.hookVideoVolume(video);
       video.addEventListener('timeupdate', () => {
@@ -2702,6 +2740,25 @@
         }
       }, { passive: true });
       this.hookPlayer();
+    },
+
+    unhookPlayer() {
+      const player = document.getElementById('movie_player');
+      if (!player) return;
+      if (this._origSetVol && typeof this._origSetVol === 'function') {
+        player.setVolume = this._origSetVol;
+      }
+      if (this._origMute && typeof this._origMute === 'function') {
+        player.mute = this._origMute;
+      }
+      if (this._origUnmute && typeof this._origUnmute === 'function') {
+        player.unMute = this._origUnmute;
+      }
+      if (this._origSeekTo && typeof this._origSeekTo === 'function') {
+        player.seekTo = this._origSeekTo;
+      }
+      delete player._ytssMethodsHooked;
+      delete player._ytssEventsHooked;
     },
 
     hookPlayer() {
@@ -2713,6 +2770,7 @@
         player._ytssEventsHooked = true;
 
         const handleVolumeChange = (data) => {
+          if (!S.enabled) return;
           let isMuted = data ? !!data.muted : (typeof player.isMuted === 'function' && player.isMuted());
           let vol = (typeof this._userVol === 'number' && !isNaN(this._userVol)) ? this._userVol : 1.0;
           if (data && typeof data.volume === 'number' && !isNaN(data.volume)) {
@@ -2757,6 +2815,7 @@
 
         let isPlaybackEnded = false;
         const handleVideoDataChange = () => {
+          if (!S.enabled) return;
           const urlVid = (typeof getVideoIdFromUrl === 'function' ? getVideoIdFromUrl() : null);
           const pVid = player.getVideoData?.()?.video_id || null;
           // During SPA transition, player.getVideoData().video_id often lags on the outgoing track
@@ -2826,6 +2885,7 @@
 
         player.addEventListener('videodatachange', handleVideoDataChange);
         player.addEventListener('onStateChange', (state) => {
+          if (!S.enabled) return;
           if (state === 0) {
             if (this.isLoopActive()) {
               this._trackEnded = false;
@@ -2928,16 +2988,20 @@
       if (!player._ytssMethodsHooked && typeof player.setVolume === 'function') {
         player._ytssMethodsHooked = true;
 
-        const origSeekTo = player.seekTo;
+        this._origSeekTo = player.seekTo;
+        const origSeekTo = this._origSeekTo;
         if (typeof origSeekTo === 'function') {
           player.seekTo = (...args) => {
+            if (!S.enabled) return origSeekTo.apply(player, args);
             this._lastUserSeekIntentAt = Date.now();
             return origSeekTo.apply(player, args);
           };
         }
 
-        const origSetVol = player.setVolume;
+        this._origSetVol = player.setVolume;
+        const origSetVol = this._origSetVol;
         player.setVolume = (v) => {
+          if (!S.enabled) return origSetVol.call(player, v);
           this._lastUserMuteOrVolIntentAt = Date.now();
           const numV = (typeof v === 'number' && !isNaN(v)) ? Math.max(0, Math.min(100, v)) : 100;
           if (numV > 0) {
@@ -2958,7 +3022,7 @@
             }
           }
           const res = origSetVol.call(player, numV);
-          if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
+          if (this.isActive && !this.isAdActive()) {
             const mainV = getMainVideoElement();
             if (mainV) this._silenceElement(mainV);
             if (this.audio && this.isActive) {
@@ -2968,12 +3032,13 @@
           return res;
         };
 
-        const origMute = player.mute;
+        this._origMute = player.mute;
+        const origMute = this._origMute;
         if (typeof origMute === 'function') {
           player.mute = () => {
+            if (!S.enabled) return origMute.call(player);
             this._lastUserMuteOrVolIntentAt = Date.now();
-            if (!this._userMuted && (this._isTransitioning || this.isInTransitionWindow())) {
-              // Suppress spurious YouTube auto-mute during track switch
+            if (!this._userMuted && this.isActive && !this.hasRecentUserMuteOrVolIntent()) {
               const mainV = getMainVideoElement();
               if (mainV) this._silenceElement(mainV);
               return;
@@ -2982,7 +3047,7 @@
             const mainV = getMainVideoElement();
             if (mainV) mainV._userMuted = true;
             const res = origMute.call(player);
-            if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
+            if (this.isActive && !this.isAdActive()) {
               const mainV = getMainVideoElement();
               if (mainV) this._silenceElement(mainV);
               if (this.audio) {
@@ -2993,15 +3058,17 @@
           };
         }
 
-        const origUnmute = player.unMute;
+        this._origUnmute = player.unMute;
+        const origUnmute = this._origUnmute;
         if (typeof origUnmute === 'function') {
           player.unMute = () => {
+            if (!S.enabled) return origUnmute.call(player);
             this._lastUserMuteOrVolIntentAt = Date.now();
             this._userMuted = false;
             const mainV = getMainVideoElement();
             if (mainV) mainV._userMuted = false;
             const res = origUnmute.call(player);
-            if ((this.isActive || this._isTransitioning) && !this.isAdActive()) {
+            if (this.isActive && !this.isAdActive()) {
               const mainV = getMainVideoElement();
               if (mainV) this._silenceElement(mainV);
               if (this.audio && this.isActive) {
@@ -3016,6 +3083,7 @@
     },
 
     prepareTransition(newVid) {
+      if (!S.enabled) return;
       if (!newVid || !VIDEO_ID_RE.test(newVid) || window.location.pathname.startsWith('/shorts/')) {
         this.stopAndUnmute('Navigated away from watch page');
         return;
@@ -3056,7 +3124,7 @@
           console.log(TAG, `[StudioEngine774] Transition safety timeout for ${newVid} -> restoring native audio`);
           this.stopAndUnmute('Transition timeout fallback', newVid);
         }
-      }, 6000);
+      }, 4000);
       if (this.audio) {
         try {
           this.audio.pause();
@@ -3064,7 +3132,6 @@
           this.audio.load();
         } catch (e) {}
       }
-      this.silenceNativeVideo();
     },
 
     isUserMuted() {
@@ -4167,6 +4234,7 @@
 
   // Also pre-warm on YouTube SPA navigation (yt-navigate-start fires before new page renders)
   window.addEventListener('yt-navigate-start', (e) => {
+    if (!S.enabled) return;
     isInitialPageLoad = false; // We are now in SPA territory, never reload page
     isSpaNavigating = true;
     lastSpaNavStartAt = Date.now();
@@ -4232,6 +4300,7 @@
   });
 
   window.addEventListener('popstate', () => {
+    if (!S.enabled) return;
     lastSpaNavStartAt = Date.now();
     const currentVid = getVideoIdFromUrl();
     if (!currentVid) {
@@ -5638,7 +5707,22 @@
 
   ['DOMContentLoaded', 'yt-navigate-finish', 'yt-page-data-updated'].forEach(evt => {
     document.addEventListener(evt, () => {
-      if (!S.enabled) return;
+      if (!S.enabled) {
+        const v = document.querySelector('video');
+        if (v) {
+          delete v._ytssVolHooked;
+          delete v.volume;
+          delete v.muted;
+          delete v._userVol;
+          delete v._userMuted;
+          const stored = readStoredYoutubeVolumeState();
+          const targetVol = stored.volume > 0.05 ? stored.volume : 1.0;
+          if (descVolume.get.call(v) === 0 && !stored.muted) {
+            try { descVolume.set.call(v, targetVol); } catch (e) {}
+          }
+        }
+        return;
+      }
       StudioEngine774.init();
       StatsForNerdsSpoofer.init();
       PlayerBadgeUI.inject();

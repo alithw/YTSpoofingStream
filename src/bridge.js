@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.2.6 — Bridge (ISOLATED world)               ║
+// ║  YTSpoofingStream v0.2.7 — Bridge (ISOLATED world)               ║
 // ║  Relays messages between MAIN world and Service Worker.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
@@ -163,21 +163,15 @@ function pickSettings(data) {
 
 const VALID_LOCALES = new Set(['en', 'vi', 'ja', 'ru', 'zh-cn', 'zh-tw']);
 
-async function pushLocaleData(lang) {
+function pushLocaleData(lang) {
+  const l = VALID_LOCALES.has(lang) ? lang : 'en';
   try {
-    const l = VALID_LOCALES.has(lang) ? lang : 'en';
-    let url = chrome.runtime.getURL(`locales/${l}.json`);
-    let res = await fetch(url);
-    if (!res.ok && l !== 'en') {
-      url = chrome.runtime.getURL('locales/en.json');
-      res = await fetch(url);
-    }
-    if (res.ok) {
-      const strings = await res.json();
-      window.postMessage({ type: 'YTSS_LOCALE_DATA', lang: l, strings }, '*');
-    }
-  } catch (e) {
-    console.log('[YTSS-Bridge] Failed to load locale data:', e);
+    safeSend({ type: 'GET_LOCALE', lang: l }, (res) => {
+      if (chrome.runtime.lastError || !res?.success || !res?.strings) return;
+      window.postMessage({ type: 'YTSS_LOCALE_DATA', lang: res.lang || l, strings: res.strings }, '*');
+    });
+  } catch (err) {
+    void err;
   }
 }
 
