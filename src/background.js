@@ -110,6 +110,18 @@ const SAPISID_COOKIES = [
   { name: '__Secure-3PAPISID', prefix: 'SAPISID3PHASH' },
 ];
 
+const SAPISID_COOKIE_NAMES = new Set(SAPISID_COOKIES.map(c => c.name));
+const sapisidHashCache = new Map();
+const SAPISID_CACHE_TTL_MS = 15000;
+
+if (chrome.cookies?.onChanged) {
+  chrome.cookies.onChanged.addListener(({ cookie }) => {
+    if (cookie && SAPISID_COOKIE_NAMES.has(cookie.name)) {
+      sapisidHashCache.clear();
+    }
+  });
+}
+
 async function sha1Hex(input) {
   const buf = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest('SHA-1', buf);
@@ -118,17 +130,32 @@ async function sha1Hex(input) {
 
 async function getSapisidHash(origin = 'https://www.youtube.com') {
   try {
-    const ts = Math.floor(Date.now() / 1000);
-    const parts = [];
-
-    for (const { name, prefix } of SAPISID_COOKIES) {
-      const cookie = await chrome.cookies.get({ url: origin, name });
-      if (!cookie?.value) continue;
-      const hex = await sha1Hex(`${ts} ${cookie.value} ${origin}`);
-      parts.push(`${prefix} ${ts}_${hex}`);
+    const cached = sapisidHashCache.get(origin);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.header;
     }
 
-    return parts.length ? parts.join(' ') : null;
+    const ts = Math.floor(Date.now() / 1000);
+    const cookies = await Promise.all(
+      SAPISID_COOKIES.map(({ name }) => chrome.cookies.get({ url: origin, name }))
+    );
+
+    const hashTasks = [];
+    for (let i = 0; i < SAPISID_COOKIES.length; i++) {
+      const value = cookies[i]?.value;
+      if (!value) continue;
+      const { prefix } = SAPISID_COOKIES[i];
+      hashTasks.push(
+        sha1Hex(`${ts} ${value} ${origin}`).then(hex => `${prefix} ${ts}_${hex}`)
+      );
+    }
+
+    const parts = await Promise.all(hashTasks);
+    const header = parts.length ? parts.join(' ') : null;
+    if (header) {
+      sapisidHashCache.set(origin, { header, expiresAt: Date.now() + SAPISID_CACHE_TTL_MS });
+    }
+    return header;
   } catch (err) {
     return null;
   }
@@ -140,11 +167,20 @@ async function getSapisidHash(origin = 'https://www.youtube.com') {
 // own ytcfg and relays them here via bridge.js (YTSS_PAGE_CONTEXT).
 // Mirrored into chrome.storage.session so the values survive a service worker restart.
 let pageContext = { visitorData: null, sessionIndex: null, delegatedSessionId: null };
+let lastPersistedSts = 0;
 
 async function loadPageContext() {
   try {
-    const s = await chrome.storage.session.get('pageContext');
+    const [s, l] = await Promise.all([
+      chrome.storage.session.get('pageContext'),
+      chrome.storage.local.get('lastKnownSts')
+    ]);
     if (s.pageContext) pageContext = { ...pageContext, ...s.pageContext };
+    const savedSts = Number(l.lastKnownSts);
+    if (savedSts > 20000) {
+      lastPersistedSts = savedSts;
+      if (!pageContext.sts) pageContext.sts = savedSts;
+    }
   } catch (e) { }
 }
 // Kept as a promise so request handlers can await it. Chrome evicts this worker
@@ -193,6 +229,11 @@ function setPageContext(ctx) {
   if (changed) {
     console.log(TAG, `[PageContext] visitorData=${next.visitorData ? 'set' : 'none'} authUser=${next.sessionIndex ?? '0'}`);
     chrome.storage.session.set({ pageContext: next }).catch(() => { });
+    const nextSts = Number(next.sts);
+    if (nextSts > 20000 && nextSts !== lastPersistedSts) {
+      lastPersistedSts = nextSts;
+      chrome.storage.local.set({ lastKnownSts: nextSts }).catch(() => { });
+    }
   }
 }
 
@@ -214,14 +255,26 @@ function resolveOAuthClientKey(clientType) {
 }
 
 const oauthPollSessions = {};
+const pendingAuthKey = (clientType) => `pendingAuth_${clientType}`;
 
-function stopPollingToken(clientType) {
+function savePendingAuth(clientType, pending) {
+  chrome.storage.session.set({ [pendingAuthKey(clientType)]: pending }).catch(() => {});
+}
+
+function clearPendingAuth(clientType) {
+  chrome.storage.session.remove(pendingAuthKey(clientType)).catch(() => {});
+}
+
+function stopPollingToken(clientType, clearSession = false) {
   const key = resolveOAuthClientKey(clientType);
   const session = oauthPollSessions[key];
   if (session) {
     session.cancelled = true;
     if (session.timerId) clearTimeout(session.timerId);
     oauthPollSessions[key] = null;
+  }
+  if (clearSession) {
+    clearPendingAuth(key);
   }
 }
 
@@ -239,35 +292,66 @@ async function requestDeviceCode(clientType = 'TVHTML5') {
   return await resp.json();
 }
 
-async function startPollingToken(clientType, device_code, interval = 5, expiresIn = 1800) {
+async function startPollingToken(
+  clientType,
+  device_code,
+  interval = 5,
+  expiresIn = 1800,
+  user_code = null,
+  resumeDeadline = null,
+  initialDelayMs = null,
+  lastPollAt = 0
+) {
   const key = resolveOAuthClientKey(clientType);
   const conf = OAUTH_CLIENTS[key];
-  stopPollingToken(key);
+  stopPollingToken(key, false);
 
   let delaySec = Math.max(1, Number(interval) || 5);
   const ttlSec = Math.max(1, Number(expiresIn) || 1800);
-  const deadline = Date.now() + ttlSec * 1000;
-  const session = { timerId: null, cancelled: false };
+  const deadline = Number.isFinite(resumeDeadline) ? resumeDeadline : (Date.now() + ttlSec * 1000);
+  const session = {
+    timerId: null,
+    cancelled: false,
+    user_code: user_code || null,
+    device_code,
+    interval: delaySec,
+    deadline,
+    lastPollAt: lastPollAt || Date.now()
+  };
   oauthPollSessions[key] = session;
 
+  const persistSessionState = () => {
+    savePendingAuth(key, {
+      user_code: session.user_code,
+      device_code: session.device_code,
+      interval: delaySec,
+      deadline: session.deadline,
+      lastPollAt: session.lastPollAt
+    });
+  };
+  persistSessionState();
+
   return new Promise((resolve, reject) => {
-    const scheduleNext = () => {
+    const scheduleNext = (overrideMs = null) => {
       if (session.cancelled) return;
-      if (Date.now() + delaySec * 1000 > deadline) {
-        stopPollingToken(key);
+      const waitMs = overrideMs !== null ? Math.max(50, overrideMs) : delaySec * 1000;
+      if (Date.now() + waitMs > deadline) {
+        stopPollingToken(key, true);
         reject('expired_token');
         return;
       }
-      session.timerId = setTimeout(pollOnce, delaySec * 1000);
+      session.timerId = setTimeout(pollOnce, waitMs);
     };
 
     const pollOnce = async () => {
       if (session.cancelled) return;
       if (Date.now() >= deadline) {
-        stopPollingToken(key);
+        stopPollingToken(key, true);
         reject('expired_token');
         return;
       }
+      session.lastPollAt = Date.now();
+      persistSessionState();
       try {
         const resp = await fetch('https://oauth2.googleapis.com/token', {
           method: 'POST',
@@ -283,35 +367,43 @@ async function startPollingToken(clientType, device_code, interval = 5, expiresI
         if (session.cancelled) return;
 
         if (data.access_token) {
-          stopPollingToken(key);
+          stopPollingToken(key, true);
           data.expires_at = Date.now() + (data.expires_in * 1000);
           await chrome.storage.local.set({ [conf.storageKey]: data });
           resolve(data);
         } else if (data.error === 'slow_down') {
           delaySec += 5;
+          session.interval = delaySec;
+          persistSessionState();
           scheduleNext();
         } else if (data.error === 'authorization_pending') {
           scheduleNext();
         } else {
-          stopPollingToken(key);
+          stopPollingToken(key, true);
           reject(data.error || 'Unknown error');
         }
       } catch (e) {
-        stopPollingToken(key);
+        stopPollingToken(key, true);
         reject(e.message);
       }
     };
 
-    scheduleNext();
+    scheduleNext(initialDelayMs);
   });
 }
+
+const clientTokenCache = new Map();
 
 async function getClientAccessToken(clientType) {
   const conf = OAUTH_CLIENTS[clientType];
   if (!conf) return null;
 
-  const storage = await chrome.storage.local.get(conf.storageKey);
-  let token = storage[conf.storageKey];
+  let token = clientTokenCache.has(conf.storageKey) ? clientTokenCache.get(conf.storageKey) : undefined;
+  if (token === undefined) {
+    const storage = await chrome.storage.local.get(conf.storageKey);
+    token = storage[conf.storageKey] || null;
+    clientTokenCache.set(conf.storageKey, token);
+  }
   if (!token || !token.access_token) return null;
 
   const expiresAt = Number(token.expires_at);
@@ -334,13 +426,18 @@ async function getClientAccessToken(clientType) {
       });
       const data = await resp.json();
       if (data.access_token) {
-        token.access_token = data.access_token;
-        token.expires_in = data.expires_in;
-        token.expires_at = Date.now() + (data.expires_in * 1000);
+        token = {
+          ...token,
+          access_token: data.access_token,
+          expires_in: data.expires_in,
+          expires_at: Date.now() + (data.expires_in * 1000),
+        };
+        clientTokenCache.set(conf.storageKey, token);
         await chrome.storage.local.set({ [conf.storageKey]: token });
         console.log(TAG, `[OAuth] refreshed ${clientType} access_token, valid ${Math.round(data.expires_in / 60)}min`);
       } else {
         if (data.error === 'invalid_grant') {
+          clientTokenCache.set(conf.storageKey, null);
           await chrome.storage.local.remove(conf.storageKey).catch(() => {});
         }
         return null;
@@ -350,10 +447,6 @@ async function getClientAccessToken(clientType) {
     }
   }
   return token.access_token;
-}
-
-async function getTVAccessToken() {
-  return getClientAccessToken('TVHTML5');
 }
 
 // ─── DECLARATIVENETREQUEST: HEADER SPOOFING ──────────────────────────
@@ -366,11 +459,6 @@ const API_UA_RULE_ID_BASE  = 9400;
 const CORS_RULE_ID         = 9500;
 const CORS_YTM_RULE_ID     = 9501;
 
-// Escape a string for safe embedding in a DNR regexFilter.
-function reEscape(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // Persistent rules:
 // 1. Spoof Origin/Referer/Sec-Fetch-* headers on ALL player API requests
 // 2. Spoof User-Agent on the SW's own player API request, per client. Each client
@@ -381,32 +469,47 @@ function reEscape(s) {
 //    played on Desktop.
 let _setupRulesChain = Promise.resolve();
 
-async function setupStaticRules() {
+async function setupStaticRules(force = false) {
   const run = async () => {
     try {
-      const storage = await chrome.storage.local.get('enabled');
-      const existingRules = await chrome.declarativeNetRequest.getSessionRules();
+      const [storage, existingRules, sessionMeta] = await Promise.all([
+        chrome.storage.local.get('enabled'),
+        chrome.declarativeNetRequest.getSessionRules(),
+        chrome.storage.session.get('dnrMeta').catch(() => ({})),
+      ]);
       const existingIds = existingRules.map(r => r.id);
+      const isEnabled = storage.enabled !== false;
+      const dnrMeta = sessionMeta?.dnrMeta;
+
+      if (!force && dnrMeta?.version === VERSION && dnrMeta?.enabled === isEnabled) {
+        const hasCoreRules = !isEnabled
+          ? existingIds.length === 0
+          : existingIds.length === dnrMeta.count && existingIds.includes(ORIGIN_RULE_ID);
+        if (hasCoreRules) return;
+      }
 
       // Always clear any lingering/legacy dynamic rules (e.g. wildcard CORS rules with id 101)
-      try {
-        const existingDynamic = await chrome.declarativeNetRequest.getDynamicRules();
-        if (existingDynamic.length > 0) {
-          await chrome.declarativeNetRequest.updateDynamicRules({
-            removeRuleIds: existingDynamic.map(r => r.id),
-            addRules: [],
-          });
-          console.log(TAG, '[DNR] Cleaned up ' + existingDynamic.length + ' stale dynamic rules.');
-        }
-      } catch (e) {}
+      if (force || dnrMeta?.version !== VERSION) {
+        try {
+          const existingDynamic = await chrome.declarativeNetRequest.getDynamicRules();
+          if (existingDynamic.length > 0) {
+            await chrome.declarativeNetRequest.updateDynamicRules({
+              removeRuleIds: existingDynamic.map(r => r.id),
+              addRules: [],
+            });
+            console.log(TAG, '[DNR] Cleaned up ' + existingDynamic.length + ' stale dynamic rules.');
+          }
+        } catch (e) {}
+      }
 
-      if (storage.enabled === false) {
+      if (!isEnabled) {
         if (existingIds.length > 0) {
           await chrome.declarativeNetRequest.updateSessionRules({
             removeRuleIds: [...new Set(existingIds)],
             addRules: [],
           });
         }
+        chrome.storage.session.set({ dnrMeta: { version: VERSION, enabled: false, count: 0 } }).catch(() => {});
         console.log(TAG, 'Extension is DISABLED: Wiped all declarativeNetRequest rules.');
         return;
       }
@@ -695,6 +798,7 @@ async function setupStaticRules() {
         removeRuleIds: [...new Set(rulesToRemove)],
         addRules: rulesToAdd,
       });
+      chrome.storage.session.set({ dnrMeta: { version: VERSION, enabled: true, count: rulesToAdd.length } }).catch(() => {});
       console.log(TAG, `Static DNR rules enabled (${rulesToAdd.length} rules: Origin + per-client API UA + Media UA + Blacklist/SW Block + CORS).`);
     } catch (e) {
       console.log(TAG, 'Failed to setup static rules:', e);
@@ -704,9 +808,19 @@ async function setupStaticRules() {
   return _setupRulesChain;
 }
 
+const OAUTH_STORAGE_KEYS = new Set(Object.values(OAUTH_CLIENTS).map(c => c.storageKey));
+
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.enabled !== undefined) {
-    setupStaticRules();
+  if (area !== 'local' || !changes) return;
+
+  for (const key of OAUTH_STORAGE_KEYS) {
+    if (changes[key] !== undefined) {
+      clientTokenCache.delete(key);
+    }
+  }
+
+  if (changes.enabled !== undefined) {
+    setupStaticRules(true);
     if (changes.enabled.newValue === false) {
       console.log(TAG, '[Settings] Extension disabled — tearing down background SW state');
       chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_HARVEST' }).catch(() => {});
@@ -718,7 +832,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
       }).catch(() => {});
     }
   }
-  if (area === 'local' && changes.operationMode !== undefined) {
+  if (changes.operationMode !== undefined) {
     console.log(TAG, `[Settings] Operation mode changed to ${changes.operationMode.newValue}, clearing SW session cache`);
     confirmedNo774Videos.clear();
     chrome.storage.session.get(null).then(all => {
@@ -731,7 +845,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // (setupStaticRules is called at the end of the file)
 
 // ─── INNERTUBE NATIVE FETCHER ─────────────────────────────────────────
-async function fetchFromClient(videoId, client) {
+async function fetchFromClient(videoId, client, preloadedToken = undefined) {
   // This worker gets evicted after ~30s idle, and the FETCH_HQ that wakes it back up
   // races the session-storage restore. Without this await the first request after every
   // eviction goes out with no visitorData/authUser, InnerTube answers without the
@@ -749,7 +863,7 @@ async function fetchFromClient(videoId, client) {
   // WEB_REMIX / TVHTML5_SIMPLY: SAPISIDHASH
   // Mobile clients (ANDROID, IOS, etc.): No web SAPISIDHASH (causes HTTP 400 Bad Request)
   if (isTVClient) {
-    bearerToken = await getClientAccessToken('TVHTML5');
+    bearerToken = preloadedToken !== undefined ? preloadedToken : await getClientAccessToken('TVHTML5');
     if (!bearerToken) {
       console.log(TAG, `[${client.name}] TV client requires login (Premium) -> Skipping fetch.`);
       return { source: client.name, error: 'NO_TV_LOGIN', audioFormats: [] };
@@ -829,7 +943,7 @@ async function fetchFromClient(videoId, client) {
     racyCheckOk: true,
     playbackContext: {
       contentPlaybackContext: {
-        ...(client.name !== 'WEB_REMIX' && { signatureTimestamp: pageContext.sts || 20696 }),
+        ...(client.name !== 'WEB_REMIX' && { signatureTimestamp: pageContext.sts || 20767 }),
         audioQualityPreference: 'AUDIO_QUALITY_HIGH',
       },
     },
@@ -898,7 +1012,7 @@ async function fetchFromClient(videoId, client) {
           poToken: pageContext.poToken || null,
           visitorData: data.responseContext?.visitorData || clientObj.visitorData || null,
           // Signature timestamp the TV player was signed under.
-          sts: pageContext.sts || 20696,
+          sts: pageContext.sts || 20767,
           ts: Date.now(),
         };
         console.log(TAG, `[${client.name}] captured streamingContext: sabrUrl=present ustreamerConfig=${ustreamerCfg ? 'present' : 'absent'}`);
@@ -917,7 +1031,7 @@ async function fetchFromClient(videoId, client) {
 // ─── OFFSCREEN HARVESTER & WEBREQUEST LISTENER ───────────────────────
 let offscreenIdleTimer = null;
 
-function scheduleOffscreenClose(delayMs = 10000) {
+function scheduleOffscreenClose(delayMs = 180000) {
   if (offscreenIdleTimer) clearTimeout(offscreenIdleTimer);
   offscreenIdleTimer = setTimeout(async () => {
     offscreenIdleTimer = null;
@@ -925,7 +1039,7 @@ function scheduleOffscreenClose(delayMs = 10000) {
     if (chrome.offscreen && chrome.offscreen.hasDocument && await chrome.offscreen.hasDocument()) {
       try {
         await chrome.offscreen.closeDocument();
-        console.log(TAG, '[Harvester] Offscreen document auto-slept (closed to free 100% RAM)');
+        console.log(TAG, '[Harvester] Offscreen document auto-slept (closed after 180s idle to free RAM)');
       } catch (e) {}
     }
   }, delayMs);
@@ -1306,7 +1420,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'RELOAD_RULES') {
-    setupStaticRules().then(() => sendResponse({ success: true })).catch(() => sendResponse({ success: false }));
+    setupStaticRules(true).then(() => sendResponse({ success: true })).catch(() => sendResponse({ success: false }));
     return true;
   }
 
@@ -1366,6 +1480,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return curOp !== opMode;
       };
 
+      const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
+
       // ── HYBRID MODE: HYBRID_HQ (Bidirectional Smart Failover: TV UMP MSE <-> YTM Harvester)
       if (opMode === 'HYBRID_HQ') {
         const PROV_YTM = 'YTM_HARVESTER';
@@ -1373,6 +1489,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         let wasCancelled = false;
         let wasTimedOut = false;
+        const tvToken = excludeSource === PROV_TV ? null : await getClientAccessToken('TVHTML5');
 
         const tryYtm = async () => {
           console.log(TAG, `[FETCH_HQ] [Hybrid] Hunting for 774 via YTM Harvester on ${videoId}...`);
@@ -1392,10 +1509,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const tryTv = async () => {
           console.log(TAG, `[FETCH_HQ] [Hybrid] Checking TV client for ${videoId} with Premium login...`);
           try {
-            const tvToken = await getClientAccessToken('TVHTML5');
             if (tvToken) {
-              const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
-              const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
+              const tvRes = tvClient ? await fetchFromClient(videoId, tvClient, tvToken) : null;
               if (tvRes?.audioFormats?.some(f => f.itag === 774)) {
                 return { source: PROV_TV, audioFormats: tvRes.audioFormats, streamingContext: tvRes?.streamingContext || null };
               }
@@ -1408,7 +1523,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return null;
         };
 
-        const tvTokenAvailable = Boolean(await getClientAccessToken('TVHTML5'));
+        const tvTokenAvailable = Boolean(tvToken);
         let firstProv = tvTokenAvailable ? PROV_TV : PROV_YTM;
         let secondProv = tvTokenAvailable ? PROV_YTM : null;
 
@@ -1500,19 +1615,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
 
-      // ── MODE: TV_HEADLESS (TV SABR 774 UMP Demuxer + MSE Engine)
-      if (opMode === 'TV_HEADLESS') {
-        console.log(TAG, `[FETCH_HQ] Mode (TV_HEADLESS) resolving for ${videoId}...`);
-        // Check TV login first; skip if not logged in with Premium
+      // ── MODE: TV_HEADLESS / TV_RELAY (TV SABR 774 UMP Demuxer or Native SABR Relay)
+      if (opMode === 'TV_HEADLESS' || opMode === 'TV_RELAY') {
+        console.log(TAG, `[FETCH_HQ] Mode (${opMode}) resolving for ${videoId}...`);
         const tvToken = await getClientAccessToken('TVHTML5');
         if (!tvToken) {
-          console.log(TAG, `[FETCH_HQ] TV_HEADLESS: No TV login (Premium required) -> Stopping.`);
-          sendResponse({ success: false, results: [], error: 'NO_TV_LOGIN', opMode: 'TV_HEADLESS' });
+          console.log(TAG, `[FETCH_HQ] ${opMode}: No TV login (Premium required) -> Stopping.`);
+          sendResponse({ success: false, results: [], error: 'NO_TV_LOGIN', opMode });
           return;
         }
 
-        const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
-        const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
+        const tvRes = tvClient ? await fetchFromClient(videoId, tvClient, tvToken) : null;
         const tvHas774 = tvRes?.audioFormats?.some(f => f.itag === 774);
         const tvCtx = tvRes?.streamingContext || null;
         if (tvCtx) {
@@ -1520,55 +1633,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         if (!tvHas774) {
-          console.log(TAG, `[FETCH_HQ] TV_HEADLESS: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
+          console.log(TAG, `[FETCH_HQ] ${opMode}: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
           confirmedNo774Videos.add(videoId);
-          sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'TV_HEADLESS' });
+          sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode });
           return;
         }
 
-        // TV confirmed 774 is available! Delivering authenticated TVHTML5 ITAG 774
-        console.log(TAG, `[FETCH_HQ] TV_HEADLESS: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
+        console.log(TAG, `[FETCH_HQ] ${opMode}: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
         const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
         chrome.storage.session.set({
           [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
         }).catch(() => {});
-        sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_HEADLESS' });
-        return;
-      }
-
-      // ── MODE: TV_RELAY (Legacy Smart TV SABR Relay — Main Player Body Rewrite)
-      if (opMode === 'TV_RELAY') {
-        console.log(TAG, `[FETCH_HQ] Mode (TV_RELAY) resolving for ${videoId}...`);
-        // Check TV login first; skip if not logged in with Premium
-        const tvToken = await getClientAccessToken('TVHTML5');
-        if (!tvToken) {
-          console.log(TAG, `[FETCH_HQ] TV_RELAY: No TV login (Premium required) -> Stopping.`);
-          sendResponse({ success: false, results: [], error: 'NO_TV_LOGIN', opMode: 'TV_RELAY' });
-          return;
-        }
-
-        const tvClient = CLIENTS.find(c => c.name === 'TVHTML5');
-        const tvRes = tvClient ? await fetchFromClient(videoId, tvClient) : null;
-        const tvHas774 = tvRes?.audioFormats?.some(f => f.itag === 774);
-        const tvCtx = tvRes?.streamingContext || null;
-        if (tvCtx) {
-          chrome.storage.session.set({ [`tvctx_${videoId}`]: tvCtx }).catch(() => {});
-        }
-
-        if (!tvHas774) {
-          console.log(TAG, `[FETCH_HQ] TV_RELAY: Exact video ${videoId} has NO 774 on TV -> Cancelling.`);
-          confirmedNo774Videos.add(videoId);
-          sendResponse({ success: false, results: [], error: 'NO_774_STREAM', confirmedNo774: true, opMode: 'TV_RELAY' });
-          return;
-        }
-
-        // TV confirmed 774 is available! Delivering authenticated TVHTML5 ITAG 774 for native SABR relay
-        console.log(TAG, `[FETCH_HQ] TV_RELAY: Delivering authenticated TVHTML5 ITAG 774 for ${videoId}`);
-        const results = [{ source: 'TVHTML5', audioFormats: tvRes.audioFormats }];
-        chrome.storage.session.set({
-          [`hq_${videoId}`]: { videoId, formats: tvRes.audioFormats, streamingContext: tvCtx, ts: Date.now() }
-        }).catch(() => {});
-        sendResponse({ success: true, results, streamingContext: tvCtx, opMode: 'TV_RELAY' });
+        sendResponse({ success: true, results, streamingContext: tvCtx, opMode });
         return;
       }
 
@@ -1626,10 +1702,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const codeData = await requestDeviceCode(clientType);
-        sendResponse({ success: true, data: codeData });
-        if (codeData.device_code) {
-          startPollingToken(clientType, codeData.device_code, codeData.interval || 5, codeData.expires_in || 1800)
-            .catch(err => console.log(TAG, `${clientType} OAuth error:`, err));
+        if (codeData && codeData.device_code && codeData.user_code) {
+          startPollingToken(
+            clientType,
+            codeData.device_code,
+            codeData.interval || 5,
+            codeData.expires_in || 1800,
+            codeData.user_code
+          ).catch(err => console.log(TAG, `${clientType} OAuth error:`, err));
+          sendResponse({ success: true, data: codeData });
+        } else {
+          stopPollingToken(clientType, true);
+          sendResponse({
+            success: false,
+            error: codeData?.error_description || codeData?.error || 'Invalid device code response'
+          });
         }
       } catch (err) {
         sendResponse({ success: false, error: err.message });
@@ -1645,12 +1732,58 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     const clientType = resolveOAuthClientKey(msg.client);
     const storageKey = OAUTH_CLIENTS[clientType].storageKey;
-    chrome.storage.local.get(storageKey).then(s => {
-      sendResponse({
-        isAuth: !!(s[storageKey] && s[storageKey].access_token),
-        waiting: Boolean(oauthPollSessions[clientType]),
-      });
-    });
+    (async () => {
+      const [localData, sessionData] = await Promise.all([
+        chrome.storage.local.get(storageKey),
+        chrome.storage.session.get(pendingAuthKey(clientType)).catch(() => ({}))
+      ]);
+      const isAuth = !!(localData[storageKey] && localData[storageKey].access_token);
+      if (isAuth) {
+        if (oauthPollSessions[clientType] || sessionData?.[pendingAuthKey(clientType)]) {
+          stopPollingToken(clientType, true);
+        }
+        sendResponse({ isAuth: true, waiting: false });
+        return;
+      }
+
+      const activeSession = oauthPollSessions[clientType];
+      const savedPending = sessionData?.[pendingAuthKey(clientType)];
+      if (activeSession && !activeSession.cancelled && Date.now() < activeSession.deadline) {
+        sendResponse({
+          isAuth: false,
+          waiting: true,
+          code: activeSession.user_code || savedPending?.user_code || null
+        });
+        return;
+      }
+
+      if (savedPending && savedPending.device_code && savedPending.user_code && Date.now() < savedPending.deadline) {
+        const intervalSec = Math.max(1, Number(savedPending.interval) || 5);
+        const elapsed = Date.now() - (savedPending.lastPollAt || 0);
+        const initialDelayMs = Math.max(50, intervalSec * 1000 - elapsed);
+        startPollingToken(
+          clientType,
+          savedPending.device_code,
+          intervalSec,
+          Math.ceil((savedPending.deadline - Date.now()) / 1000),
+          savedPending.user_code,
+          savedPending.deadline,
+          initialDelayMs,
+          savedPending.lastPollAt || Date.now()
+        ).catch(err => console.log(TAG, `${clientType} resumed OAuth error:`, err));
+        sendResponse({
+          isAuth: false,
+          waiting: true,
+          code: savedPending.user_code
+        });
+        return;
+      }
+
+      if (savedPending) {
+        clearPendingAuth(clientType);
+      }
+      sendResponse({ isAuth: false, waiting: false });
+    })();
     return true;
   }
 
@@ -1662,7 +1795,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const clientType = resolveOAuthClientKey(msg.client);
     const storageKey = OAUTH_CLIENTS[clientType].storageKey;
     chrome.storage.local.remove(storageKey).then(() => {
-      stopPollingToken(clientType);
+      stopPollingToken(clientType, true);
       sendResponse({ success: true });
     });
     return true;
@@ -1701,11 +1834,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  setupStaticRules();
+  setupStaticRules(true);
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  setupStaticRules();
+  setupStaticRules(true);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -1713,12 +1846,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     chrome.storage.local.get('enabled').then(st => {
       if (st.enabled === false) return;
       chrome.declarativeNetRequest.getSessionRules().then(rules => {
-      const hasOriginRule = rules.some(r => r.id === ORIGIN_RULE_ID);
-      if (!hasOriginRule) {
-        console.log(TAG, '[Keepalive] DNR rules missing — re-applying...');
-        setupStaticRules();
-      }
-    }).catch(() => {});
+        const hasOriginRule = rules.some(r => r.id === ORIGIN_RULE_ID);
+        if (!hasOriginRule) {
+          console.log(TAG, '[Keepalive] DNR rules missing — re-applying...');
+          setupStaticRules(true);
+        }
+      }).catch(() => {});
     }).catch(() => {});
   }
 });
@@ -1760,9 +1893,10 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   }
 });
 
-// Also run on every SW wake-up. Session rules and the keepalive alarm are both
-// idempotent (rules are replaced by ID, the alarm is keyed by name), so re-running
-// here restores state after Chrome evicts the worker without waiting for a
-// re-install or browser restart.
-setupStaticRules();
-chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
+// Only apply DNR rules and keepalive alarm on wake-up if missing or version changed.
+setupStaticRules(false);
+chrome.alarms.get('ytss-keepalive', (existing) => {
+  if (!existing) {
+    chrome.alarms.create('ytss-keepalive', { periodInMinutes: 1 / 3 });
+  }
+});

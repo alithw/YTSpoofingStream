@@ -68,8 +68,17 @@
       };
       // Strip serverAbrStreamingUrl so YTM player uses direct HTTP GET with deciphered n + pot and itag=774 in URL
       delete json.streamingData.serverAbrStreamingUrl;
-      // Keep only 774 for audio, stripping all lower formats (251, 250, 249, 140, 141)
-      json.streamingData.adaptiveFormats = af.filter(f => f.itag === 774 || !f.mimeType?.includes('audio/'));
+      delete json.streamingData.formats;
+      // Keep only 774 audio plus the single lowest-bitrate video format to avoid pulling HD video in the hidden iframe.
+      let minVideoFmt = null;
+      for (const f of af) {
+        if (f.mimeType?.includes('video/')) {
+          if (!minVideoFmt || (f.bitrate || Infinity) < (minVideoFmt.bitrate || Infinity)) {
+            minVideoFmt = f;
+          }
+        }
+      }
+      json.streamingData.adaptiveFormats = minVideoFmt ? [target774, minVideoFmt] : [target774];
       return json;
     }
 

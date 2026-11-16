@@ -4,7 +4,7 @@
   <p><b>Kích Hoạt 100% Luồng Âm Thanh Studio Opus 774 Chuẩn Phòng Thu Trên Trình Duyệt YouTube</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.7-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.3.0-blue.svg?style=flat-square" alt="Phiên bản Mới nhất"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="Giấy phép Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Nền tảng hỗ trợ">
@@ -23,14 +23,14 @@ Nếu tiện ích giúp trải nghiệm nghe nhạc của bạn trên YouTube t�
 **Lưu ý trước khi sử dụng:**
 - **Cần có tài khoản YouTube Premium**: Máy chủ của YouTube chỉ phân phối luồng âm thanh Opus chất lượng cao (`ITAG 774`, ~256k–301kbps, dải tần >20kHz) và AAC (`ITAG 141`, ~256kbps) cho các phiên đăng nhập có gói YouTube Premium. Tài khoản miễn phí sẽ không nhận được các luồng này từ hệ thống của Google.
 - **Đăng nhập TVHTML5 (Khuyên dùng)**: Để giải mã trực tiếp luồng `ITAG 774` qua `MediaSource` (không tốn RAM tạo iframe ngầm, hoạt động trên cả các bản cover, live session và video UGC không có trên YouTube Music), hãy mở popup của tiện ích, nhấn nút đăng nhập **TVHTML5** và liên kết đúng tài khoản Google có gói Premium.
-- **Phiên bản mới nhất ([v0.2.7](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.7))**: Triệt tiêu khoảng lặng âm thanh 3–5 giây đầu khi chuyển bài, gỡ móc hoàn toàn khi tắt extension, và xóa bỏ cảnh báo lỗi dynamic URL của Chrome MV3. [Xem chi tiết cập nhật v0.2.7 bên dưới ↓](#recent-updates)
+- **Phiên bản mới nhất ([v0.3.0](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.3.0))**: Tối ưu tốc độ nạp ban đầu, khắc phục giật cục và lệch đồng bộ A/V khi chuyển bài, ổn định Volume Balance qua miniplayer/fallback và cải thiện trải nghiệm chờ đăng nhập TVHTML5. [Xem chi tiết cập nhật v0.3.0 bên dưới ↓](#recent-updates)
 
 ---
 
 ## 📑 Mục lục
-- [✨ Có gì mới trong phiên bản v0.2.7](#recent-updates)
+- [Có gì mới trong phiên bản v0.3.0](#recent-updates)
 - [🌟 Tại sao bạn cần YTSpoofingStream?](#-tại-sao-bạn-cần-ytspoofingstream)
-- [🧠 Kiến trúc Hệ thống (v0.2.7)](#-kiến-trúc-hệ-thống-v026)
+- [🧠 Kiến trúc Hệ thống (v0.3.0)](#-kiến-trúc-hệ-thống-v030)
   - [1. Cấu trúc Thư mục & Mã nguồn](#1-cấu-trúc-thư-mục--mã-nguồn)
   - [2. Nền tảng SABR / UMP của YouTube & Vì sao phương pháp cũ thất bại](#2-nền-tảng-sabr--ump-của-youtube--vì-sao-phương-pháp-cũ-thất-bại)
   - [3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)](#3-quy-trình-thu-hoạch--giải-mã-luồng-kép-774-umpmsecontroller774--ytm_harvester)
@@ -50,17 +50,22 @@ Nếu tiện ích giúp trải nghiệm nghe nhạc của bạn trên YouTube t�
 ---
 
 <a id="recent-updates"></a>
-## ✨ Có gì mới trong phiên bản v0.2.7
+## Có gì mới trong phiên bản v0.3.0
 
-Bản cập nhật **v0.2.7** bổ sung tính năng cân bằng âm lượng chuẩn phòng thu, hoàn thiện độ mượt khi chuyển đổi miniplayer và ngăn ngừa rò rỉ âm thanh khi điều hướng:
+Bản cập nhật **v0.3.0** tập trung vào tốc độ khởi động, đồng bộ chuyển bài, ổn định cân bằng âm lượng và luồng chờ xác thực TVHTML5:
 
-- **Tính năng Cân bằng Âm lượng (Volume Balance)**:
-  - Khớp chuẩn xác với tiêu chuẩn **-14 LUFS** của trình phát YouTube bằng cách tự động tính toán hệ số bù âm lượng ($10^{-\text{loudnessDb}/20}$) từ trường dữ liệu `audioConfig.loudnessDb`.
-  - Triệt tiêu hoàn toàn hiện tượng "mất cân bằng âm thanh" (âm lượng nhảy bất ngờ quá to hoặc quá nhỏ) khi chuyển giữa các bài hát có luồng 774 và các bài không có 774 (fallback về luồng gốc `251`), hoặc giữa các bài hát có độ lớn mastering khác nhau.
-- **Khắc phục vọt âm lượng (Volume Spike) khi bật Miniplayer**:
-  - Bổ sung cửa sổ chờ điều hướng SPA trong `isPlayerActiveOnPage()` khi trình phát đang phát nhạc, ngăn chặn việc ngắt sớm luồng 774 và làm lộ âm thanh gốc của trình phát trong quá trình chuyển đổi giao diện.
-- **Ngăn ngừa rò rỉ âm thanh khi điều hướng thanh bên (Sidebar Navigation)**:
-  - Khắc phục triệt để lỗi rò rỉ âm thanh khi phát video đơn lẻ lúc chuyển qua lại giữa các tab bằng các nút điều hướng trên thanh bên (sidebar) của YouTube, đảm bảo ngắt luồng 774 kịp thời và chuẩn xác khi rời khỏi trang phát.
+- **Tối ưu tốc độ nạp & khởi động**:
+  - Lưu cache `SAPISIDHASH` (TTL 15s), token OAuth và trạng thái `dnrMeta` trong `src/background.js`, tránh tạo lại rule `declarativeNetRequest` và alarm trùng lặp mỗi lần Service Worker thức dậy.
+  - Xếp hàng thông điệp `postToBridge` tới khi nhận `YTSS_BRIDGE_READY` và giới hạn các Async Gate chặn `/player` / `/videoplayback` cho riêng chế độ `TV_RELAY`, giúp khởi động nhanh hơn trên `HYBRID_HQ`, `TV_HEADLESS` và `YTM_HARVESTER`.
+  - Loại bỏ định dạng muxed cũ và chỉ giữ `ITAG 774` cùng một luồng video bitrate thấp nhất trong `src/ytm_harvester_cs.js`.
+- **Chuyển bài & Đồng bộ A/V khi phát**:
+  - Khắc phục khựng hình đầu bài và lệch đồng hồ A/V kéo dài (`_alignClockOnPlayback` chỉ chốt đồng bộ sau khi audio chạy ổn định `>= 180ms`, `_startupHoldTimer`, căn chỉnh lại khi `> 0.04s` sau nạp đệm và ngưỡng lệch ổn định `0.15s`).
+  - Tránh hủy nhầm phân đoạn `seq=1` trong `UmpMseController774.onSeek`, chặn `[PlayerReplay]` fetch nhầm khi autoplay chuyển bài ở cuối track (`endedVideoId`) và ngăn lặp `[PlayerVideoDataChange]` trong `TV_RELAY`.
+  - Giữ nhịp `<video>` khi tua trên mạng chậm cho đến khi phân đoạn audio tại vị trí đích sẵn sàng.
+- **Volume Balance & Fallback trình phát gốc**:
+  - Duy trì chuẩn hóa âm lượng `-14 LUFS` xuyên suốt khi chuyển bài, thu nhỏ/phóng to miniplayer và trả đúng trạng thái âm lượng gốc cho các video không có `ITAG 774`/`251` (`applyNativeStatusUpdate`).
+- **Trải nghiệm chờ đăng nhập TVHTML5**:
+  - Lưu trạng thái chờ xác thực trong `chrome.storage.session` để khi đóng/mở lại popup vẫn giữ trạng thái `Waiting...` và tiếp tục polling, kèm sao chép nhanh mã, nút mở thẳng trang kích hoạt và nút cấp mã mới ngay trong dòng hướng dẫn chờ.
 
 ---
 
@@ -78,7 +83,7 @@ Trên hệ sinh thái YouTube hiện nay, chất lượng âm thanh bị phân t
 
 ---
 
-## 🧠 Kiến trúc Hệ thống (v0.2.7)
+## 🧠 Kiến trúc Hệ thống (v0.3.0)
 
 ### 1. Cấu trúc Thư mục & Mã nguồn
 YTSpoofingStream được xây dựng bằng **100% JavaScript thuần (Vanilla ES6+)**—không dùng bundler, không thư viện ngoài hay mã thực thi từ xa—đảm bảo hiệu năng tối đa, minh bạch và dễ kiểm toán:
@@ -109,7 +114,7 @@ Trình phát YouTube máy tính hiện đại đã chuyển hoàn toàn sang gia
   2. Tiêm trực tiếp URL của TV/Android vào trình phát mặc định sẽ gây lỗi bảo mật CORS và lệch chữ ký token mã `s:49` (`poToken` / `cplatform`).
 
 ### 3. Quy trình Thu hoạch & Giải mã Luồng Kép 774 (`UmpMseController774` + `YTM_HARVESTER`)
-Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.2.7** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
+Để đạt độ ổn định tuyệt đối không bao giờ gây lỗi trình phát mà vẫn phát đúng luồng `ITAG 774` nguyên bản, **YTSpoofingStream v0.3.0** tách biệt hoàn toàn luồng hiển thị hình ảnh và luồng thu nhận âm thanh phòng thu thông qua 2 động cơ chuyên biệt:
 
 ```mermaid
 flowchart TD
@@ -142,7 +147,7 @@ flowchart TD
 ### 4. Tắt tiếng Tầng Descriptor Phần cứng & Cơ chế Chống Tự Tắt Tiếng (Anti-Mute Guard)
 Nếu gán trực tiếp `video.muted = true` hoặc `video.volume = 0` qua thuộc tính DOM thông thường, trình duyệt sẽ bắn sự kiện `volumechange`, khiến trình phát YouTube hiểu nhầm là người dùng vừa tắt tiếng, hiển thị biểu tượng loa gạch chéo và lưu trạng thái `"muted": true` vào `localStorage['yt-player-volume']`.
 
-**YTSpoofingStream v0.2.7** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](src/inject.js):
+**YTSpoofingStream v0.3.0** giải quyết triệt để thông qua cơ chế bảo vệ 2 lớp trong [`src/inject.js`](src/inject.js):
 1. **Định tuyến Descriptor Nguyên mẫu**: Gọi trực tiếp setter gốc `HTMLMediaElement.prototype.volume` (`descVolume.set.call(video, 0)`) để hạ âm lượng phần cứng của thẻ `<video>` về `0`, trong khi ghi đè getter để giao diện YouTube luôn đọc đúng mức âm lượng mà người dùng thiết lập.
 2. **Lá chắn Chống Tự Tắt Tiếng Khi Chuyển Bài**: Chặn toàn bộ các sự kiện `volumechange` nội bộ phát sinh trong quá trình đóng/mở âm lượng phần cứng (`_suppressNextVolumeEvent`) và chủ động khôi phục trạng thái unmute khi chuyển từ bài hát `★ 774` sang các video `251` không có 774 (`fallbackTo251()`), đảm bảo giao diện không bao giờ bị kẹt nút Mute.
 

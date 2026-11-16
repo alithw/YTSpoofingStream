@@ -525,6 +525,72 @@
       filter: grayscale(0.85) !important;
       transition: opacity 0.25s ease, filter 0.25s ease;
     }
+
+    .auth-code-box {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin: 6px 0;
+      padding: 6px 10px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px dashed rgba(245, 158, 11, 0.45);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .auth-code-box:hover {
+      border-color: var(--gold);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    .auth-code-text {
+      font-family: 'Cascadia Code', monospace;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--text);
+      user-select: all;
+    }
+
+    .auth-code-copied {
+      font-size: 9.5px;
+      font-weight: 600;
+      color: var(--green);
+      display: none;
+    }
+
+    .auth-waiting-hint {
+      font-size: 10px;
+      color: var(--dim);
+      margin-top: 7px;
+      line-height: 1.5;
+    }
+
+    .btn-inline {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      vertical-align: baseline;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .btn-inline:hover:not(:disabled) {
+      background: rgba(233, 69, 96, 0.2);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .btn-inline:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
   </style>
 </head>
 
@@ -537,7 +603,7 @@
       </svg>
       <div>
         <h1>YTSpoofingStream</h1>
-        <div class="ver" data-i18n="headerSubtitle">v0.2.7 &bull; Studio 774 Dual-Stream Engine</div>
+        <div class="ver" data-i18n="headerSubtitle">v0.3.0 &bull; Studio 774 Dual-Stream Engine</div>
       </div>
     </div>
     <div class="hdr-lang">
@@ -669,7 +735,14 @@
         <div id="tvAuthStatus" style="font-size: 11px; margin-bottom: 6px; color: var(--dim);" data-i18n="tvStatusChecking">Status: Checking...</div>
         <div id="tvAuthCodeContainer" style="display: none; text-align: center; margin-bottom: 8px;">
           <div id="tvEnterCodeText" style="font-size: 10px; color: var(--dim);">Enter code at <a href="https://youtube.com/activate" target="_blank" style="color: var(--accent);">youtube.com/activate</a></div>
-          <div id="tvAuthCode" style="font-size: 16px; font-weight: 700; letter-spacing: 2px; margin-top: 4px;"></div>
+          <div id="tvAuthCodeBox" class="auth-code-box" role="button" tabindex="0">
+            <span id="tvAuthCode" class="auth-code-text"></span>
+            <span id="tvCodeCopiedBadge" class="auth-code-copied"></span>
+          </div>
+          <div class="btns" style="margin-top: 4px;">
+            <button type="button" class="btn btn-p" id="btnTvCopyActivate">Copy Code &amp; Open Activate</button>
+          </div>
+          <div id="tvAuthWaitingHint" class="auth-waiting-hint"></div>
         </div>
         <div class="btns">
           <button class="btn btn-p" id="btnTvLogin" data-i18n="tvBtnLogin">Login to TV</button>

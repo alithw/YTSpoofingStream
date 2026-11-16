@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  YTSpoofingStream v0.2.7 — Bridge (ISOLATED world)               ║
+// ║  YTSpoofingStream v0.3.0 — Bridge (ISOLATED world)               ║
 // ║  Relays messages between MAIN world and Service Worker.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
@@ -113,94 +113,126 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// SW → MAIN world: immediate HQ upgrade
-// Listen for messages from background/popup to forward to the page
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'YTSS_SW_TRIGGER' || msg.type === 'YTSS_DOWNLOAD_AUDIO' || msg.type === 'YTSS_SET_AUDIO_ONLY') {
-    chrome.storage.local.get('enabled', (st) => {
-      if (st.enabled === false && msg.type !== 'YTSS_SET_AUDIO_ONLY') return;
-      window.postMessage(msg, '*');
-    });
-  }
-});
+  window.postMessage({ type: 'YTSS_BRIDGE_READY' }, '*');
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'YTSS_TRIGGER_UPGRADE') {
-    chrome.storage.local.get('enabled', (st) => {
-      if (st.enabled === false) return;
-      window.postMessage({ type: 'YTSS_TRIGGER_UPGRADE', videoId: msg.videoId }, '*');
-    });
-  }
-});
+  let cachedEnabled = null;
 
-// Settings the MAIN world is allowed to see. `chrome.storage.local` also holds
-// `tvOAuthToken` (access_token + refresh_token). Posting the whole storage area
-// into the page handed those tokens to youtube.com — and to anything else running
-// in the page — so only these keys ever cross the boundary.
-const EXPOSED_SETTINGS = [
-  'enabled',
-  'hqFetch',
-  'forceOverride',
-  'autoReload',
-  'audioMode',
-  'preferredClient',
-  'rawItag',
-  'shadowPlayer',
-  'shadowVolume',
-  'operationMode',
-  'audioOnly',
-  'uiLanguage',
-];
-
-function pickSettings(data) {
-  const out = {};
-  if (!data) return out;
-  for (const key of EXPOSED_SETTINGS) {
-    if (data[key] !== undefined) out[key] = data[key];
-  }
-  return out;
-}
-
-const VALID_LOCALES = new Set(['en', 'vi', 'ja', 'ru', 'zh-cn', 'zh-tw']);
-
-function pushLocaleData(lang) {
-  const l = VALID_LOCALES.has(lang) ? lang : 'en';
-  try {
-    safeSend({ type: 'GET_LOCALE', lang: l }, (res) => {
-      if (chrome.runtime.lastError || !res?.success || !res?.strings) return;
-      window.postMessage({ type: 'YTSS_LOCALE_DATA', lang: res.lang || l, strings: res.strings }, '*');
-    });
-  } catch (err) {
-    void err;
-  }
-}
-
-function detectBrowserLang() {
-  const sysLang = (navigator.language || '').toLowerCase();
-  if (sysLang.startsWith('vi')) return 'vi';
-  if (sysLang.startsWith('ja')) return 'ja';
-  if (sysLang.startsWith('ru')) return 'ru';
-  if (sysLang === 'zh-tw' || sysLang === 'zh-hk' || sysLang === 'zh-mo' || sysLang.includes('hant')) return 'zh-tw';
-  if (sysLang.startsWith('zh')) return 'zh-cn';
-  return 'en';
-}
-
-function pushSettings() {
-  chrome.storage.local.get(EXPOSED_SETTINGS, (data) => {
-    const settings = pickSettings(data);
-    try {
-      localStorage.setItem('ytss_settings', JSON.stringify(settings));
-    } catch (e) {}
-    if (Object.keys(settings).length > 0) {
-      window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings }, '*');
+  // SW → MAIN world: forward immediate HQ triggers, downloads, and Audio-Only toggles
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type !== 'YTSS_SW_TRIGGER' && msg.type !== 'YTSS_DOWNLOAD_AUDIO' && msg.type !== 'YTSS_SET_AUDIO_ONLY' && msg.type !== 'YTSS_TRIGGER_UPGRADE') {
+      return;
     }
-    pushLocaleData(data?.uiLanguage || detectBrowserLang());
+    const forward = (isEnabled) => {
+      if (isEnabled === false && msg.type !== 'YTSS_SET_AUDIO_ONLY') return;
+      if (msg.type === 'YTSS_TRIGGER_UPGRADE') {
+        window.postMessage({ type: 'YTSS_TRIGGER_UPGRADE', videoId: msg.videoId }, '*');
+      } else {
+        window.postMessage(msg, '*');
+      }
+    };
+    if (cachedEnabled !== null) {
+      forward(cachedEnabled);
+      return;
+    }
+    chrome.storage.local.get('enabled', (st) => {
+      cachedEnabled = st?.enabled !== false;
+      forward(cachedEnabled);
+    });
   });
-}
 
-// Push settings changes to MAIN world
-chrome.storage.onChanged.addListener(pushSettings);
+  // Settings the MAIN world is allowed to see. `chrome.storage.local` also holds
+  // `tvOAuthToken` (access_token + refresh_token). Posting the whole storage area
+  // into the page handed those tokens to youtube.com — and to anything else running
+  // in the page — so only these keys ever cross the boundary.
+  const EXPOSED_SETTINGS = [
+    'enabled',
+    'hqFetch',
+    'forceOverride',
+    'autoReload',
+    'audioMode',
+    'preferredClient',
+    'rawItag',
+    'shadowPlayer',
+    'shadowVolume',
+    'operationMode',
+    'audioOnly',
+    'uiLanguage',
+  ];
+  const EXPOSED_SETTINGS_SET = new Set(EXPOSED_SETTINGS);
 
-// On load, push current settings to MAIN world
-pushSettings();
+  function pickSettings(data) {
+    const out = {};
+    if (!data) return out;
+    for (const key of EXPOSED_SETTINGS) {
+      if (data[key] !== undefined) out[key] = data[key];
+    }
+    return out;
+  }
+
+  const VALID_LOCALES = new Set(['en', 'vi', 'ja', 'ru', 'zh-cn', 'zh-tw']);
+  let lastSettingsJson = null;
+  let lastPushedLang = null;
+
+  function pushLocaleData(lang) {
+    const l = VALID_LOCALES.has(lang) ? lang : 'en';
+    if (l === lastPushedLang) return;
+    lastPushedLang = l;
+    try {
+      safeSend({ type: 'GET_LOCALE', lang: l }, (res) => {
+        if (chrome.runtime.lastError || !res?.success || !res?.strings) {
+          lastPushedLang = null;
+          return;
+        }
+        window.postMessage({ type: 'YTSS_LOCALE_DATA', lang: res.lang || l, strings: res.strings }, '*');
+      });
+    } catch (err) {
+      lastPushedLang = null;
+      void err;
+    }
+  }
+
+  function detectBrowserLang() {
+    const sysLang = (navigator.language || '').toLowerCase();
+    if (sysLang.startsWith('vi')) return 'vi';
+    if (sysLang.startsWith('ja')) return 'ja';
+    if (sysLang.startsWith('ru')) return 'ru';
+    if (sysLang === 'zh-tw' || sysLang === 'zh-hk' || sysLang === 'zh-mo' || sysLang.includes('hant')) return 'zh-tw';
+    if (sysLang.startsWith('zh')) return 'zh-cn';
+    return 'en';
+  }
+
+  function pushSettings(force = false) {
+    chrome.storage.local.get(EXPOSED_SETTINGS, (data) => {
+      cachedEnabled = data?.enabled !== false;
+      const settings = pickSettings(data);
+      const settingsJson = JSON.stringify(settings);
+      if (force || settingsJson !== lastSettingsJson) {
+        lastSettingsJson = settingsJson;
+        try {
+          localStorage.setItem('ytss_settings', settingsJson);
+        } catch (e) {}
+        if (Object.keys(settings).length > 0) {
+          window.postMessage({ type: 'YTSS_SETTINGS_UPDATE', settings }, '*');
+        }
+      }
+      pushLocaleData(data?.uiLanguage || detectBrowserLang());
+    });
+  }
+
+  // Only react to local storage changes affecting exposed settings; ignore session cache churn.
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes) return;
+    if (changes.enabled !== undefined) {
+      cachedEnabled = changes.enabled.newValue !== false;
+    }
+    for (const key in changes) {
+      if (EXPOSED_SETTINGS_SET.has(key)) {
+        pushSettings();
+        return;
+      }
+    }
+  });
+
+  // On load, push current settings to MAIN world
+  pushSettings(true);
 }

@@ -1,4 +1,4 @@
-// YTSpoofingStream v0.2.7 — Popup Controller (Studio 774 Dual-Stream Engine)
+// YTSpoofingStream v0.3.0 — Popup Controller (Studio 774 Dual-Stream Engine)
 (function () {
   'use strict';
 
@@ -267,14 +267,13 @@
       execInYouTubeTab(tabs[0], {
         func: (s, isLive) => {
           localStorage.setItem('ytss_settings', JSON.stringify(s));
-          localStorage.setItem('ytSpoofingStream_settings', JSON.stringify(s));
           if (window.YTSS_SpoofingMethods && typeof window.YTSS_SpoofingMethods.applySettings === 'function') {
             window.YTSS_SpoofingMethods.applySettings(s);
           } else {
             window.postMessage({ type: 'YTSpoofingStream_settingsUpdate', settings: s }, '*');
-          }
-          if (s.audioOnly !== undefined) {
-            window.postMessage({ type: 'YTSS_SET_AUDIO_ONLY', audioOnly: s.audioOnly }, '*');
+            if (s.audioOnly !== undefined) {
+              window.postMessage({ type: 'YTSS_SET_AUDIO_ONLY', audioOnly: s.audioOnly }, '*');
+            }
           }
 
           // Force reload YouTube page to apply new config (skip reload for live toggles)
@@ -292,15 +291,79 @@
   }
 
   // ─── CLIENT OAUTH HANDLERS ─────────────────────────────────────────
+  async function copyTextToClipboard(text) {
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        return ok;
+      } catch (e2) {
+        return false;
+      }
+    }
+  }
+
   function setupAuthControl(clientKey, statusElId, codeContId, codeElId, loginBtnId, logoutBtnId, labelName) {
     let lastAuth = null;
     let pollUI = null;
+    let copyResetTimer = null;
 
     function stopPollUI() {
       if (pollUI) {
         clearInterval(pollUI);
         pollUI = null;
       }
+    }
+
+    function startPollUI() {
+      stopPollUI();
+      pollUI = setInterval(() => {
+        chrome.runtime.sendMessage({ type: 'CHECK_CLIENT_AUTH', client: clientKey }, (check) => {
+          if (chrome.runtime.lastError || !check) return;
+          if (check.isAuth) {
+            stopPollUI();
+            lastAuth = { isAuth: true };
+            renderAuth();
+            log(`${labelName} Auth Successful!`);
+          } else if (check.waiting === false) {
+            stopPollUI();
+            lastAuth = { isAuth: false, error: check.error || 'expired_token' };
+            renderAuth();
+          } else if (check.waiting && check.code && lastAuth?.code !== check.code) {
+            lastAuth = { isAuth: false, waiting: true, code: check.code };
+            renderAuth();
+          }
+        });
+      }, 3000);
+    }
+
+    function renderWaitingHint() {
+      const hintEl = $('#tvAuthWaitingHint');
+      if (!hintEl) return;
+      const template = t('tvWaitingHint');
+      const parts = template.split('{btn}');
+      const newCodeBtn = document.createElement('button');
+      newCodeBtn.type = 'button';
+      newCodeBtn.id = 'btnTvNewCode';
+      newCodeBtn.className = 'btn-inline';
+      newCodeBtn.textContent = t('tvBtnNewCode');
+
+      const nodes = [document.createTextNode(parts[0] || '')];
+      nodes.push(newCodeBtn);
+      if (parts.length > 1 && parts[1]) {
+        nodes.push(document.createTextNode(parts.slice(1).join('{btn}')));
+      }
+      hintEl.replaceChildren(...nodes);
     }
 
     function renderAuth() {
@@ -310,12 +373,22 @@
       const codeCont = $(codeContId);
       const codeEl = $(codeElId);
       const enterCodeEl = $('#tvEnterCodeText');
+      const copyActivateBtn = $('#btnTvCopyActivate');
+      const copiedBadge = $('#tvCodeCopiedBadge');
 
       if (enterCodeEl) {
         enterCodeEl.innerHTML = t('tvEnterCode', {
           url: '<a href="https://youtube.com/activate" target="_blank" style="color: var(--accent);">youtube.com/activate</a>'
         });
       }
+      if (copyActivateBtn) {
+        copyActivateBtn.disabled = false;
+        copyActivateBtn.textContent = t('tvBtnCopyActivate');
+      }
+      if (copiedBadge) {
+        copiedBadge.textContent = t('tvCodeCopiedBadge');
+      }
+      renderWaitingHint();
 
       if (!lastAuth) {
         if (statusEl) {
@@ -341,11 +414,8 @@
           statusEl.textContent = t('tvStatusWaiting');
           statusEl.style.color = 'var(--gold)';
         }
-        if (loginBtn) {
-          loginBtn.style.display = 'block';
-          loginBtn.disabled = false;
-          loginBtn.textContent = t('tvBtnLogin', { label: labelName });
-        }
+        // Hide duplicate Login CTA while code box + copy/open + new-code button are displayed
+        if (loginBtn) loginBtn.style.display = 'none';
         if (logoutBtn) logoutBtn.style.display = 'none';
         if (codeCont) codeCont.style.display = 'block';
         if (codeEl && lastAuth.code) codeEl.textContent = lastAuth.code;
@@ -360,6 +430,7 @@
           loginBtn.textContent = t('tvBtnLogin', { label: labelName });
         }
         if (logoutBtn) logoutBtn.style.display = 'none';
+        if (codeCont) codeCont.style.display = 'none';
       } else {
         if (statusEl) {
           statusEl.textContent = t('tvStatusNotLoggedIn');
@@ -377,17 +448,32 @@
 
     function checkAuth() {
       chrome.runtime.sendMessage({ type: 'CHECK_CLIENT_AUTH', client: clientKey }, (res) => {
-        lastAuth = { isAuth: !!(res && res.isAuth) };
+        if (chrome.runtime.lastError) return;
+        if (res && res.isAuth) {
+          stopPollUI();
+          lastAuth = { isAuth: true };
+        } else if (res && res.waiting) {
+          lastAuth = { isAuth: false, waiting: true, code: res.code || null };
+          startPollUI();
+        } else {
+          stopPollUI();
+          lastAuth = { isAuth: false };
+        }
         renderAuth();
       });
     }
 
-    $(loginBtnId)?.addEventListener('click', () => {
+    function startNewAuth() {
       stopPollUI();
       const loginBtn = $(loginBtnId);
+      const newCodeBtn = $('#btnTvNewCode');
       if (loginBtn) {
         loginBtn.disabled = true;
         loginBtn.textContent = t('tvBtnLoading');
+      }
+      if (newCodeBtn) {
+        newCodeBtn.disabled = true;
+        newCodeBtn.textContent = t('tvBtnLoading');
       }
 
       chrome.runtime.sendMessage({ type: 'START_CLIENT_AUTH', client: clientKey }, (res) => {
@@ -395,31 +481,71 @@
           loginBtn.disabled = false;
           loginBtn.textContent = t('tvBtnLogin', { label: labelName });
         }
-        if (res && res.success && res.data) {
+        if (newCodeBtn) {
+          newCodeBtn.disabled = false;
+        }
+        if (res && res.success && res.data && res.data.user_code) {
           const d = res.data;
           lastAuth = { isAuth: false, waiting: true, code: d.user_code };
           renderAuth();
-
-          stopPollUI();
-          pollUI = setInterval(() => {
-            chrome.runtime.sendMessage({ type: 'CHECK_CLIENT_AUTH', client: clientKey }, (check) => {
-              if (check && check.isAuth) {
-                stopPollUI();
-                lastAuth = { isAuth: true };
-                renderAuth();
-                log(`${labelName} Auth Successful!`);
-              } else if (check && check.waiting === false) {
-                stopPollUI();
-                lastAuth = { isAuth: false, error: 'expired_token' };
-                renderAuth();
-              }
-            });
-          }, 3000);
+          startPollUI();
         } else {
           lastAuth = { isAuth: false, error: res?.error || 'Unknown' };
           renderAuth();
         }
       });
+    }
+
+    $(loginBtnId)?.addEventListener('click', startNewAuth);
+
+    $('#tvAuthWaitingHint')?.addEventListener('click', (e) => {
+      if (e.target?.closest('#btnTvNewCode')) {
+        startNewAuth();
+      }
+    });
+
+    const handleCopyCodeOnly = async () => {
+      const code = lastAuth?.code;
+      if (!code) return;
+      const ok = await copyTextToClipboard(code);
+      const badge = $('#tvCodeCopiedBadge');
+      if (ok && badge) {
+        badge.style.display = 'inline';
+        if (copyResetTimer) clearTimeout(copyResetTimer);
+        copyResetTimer = setTimeout(() => {
+          badge.style.display = 'none';
+        }, 1500);
+      }
+    };
+
+    $('#tvAuthCodeBox')?.addEventListener('click', handleCopyCodeOnly);
+    $('#tvAuthCodeBox')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleCopyCodeOnly();
+      }
+    });
+
+    $('#btnTvCopyActivate')?.addEventListener('click', async () => {
+      const code = lastAuth?.code;
+      if (!code) return;
+      const btn = $('#btnTvCopyActivate');
+      const copied = await copyTextToClipboard(code);
+      if (btn && copied) {
+        btn.disabled = true;
+        btn.textContent = t('tvBtnCopiedOpening');
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = t('tvBtnCopyActivate');
+        }, 1500);
+      }
+      setTimeout(() => {
+        if (chrome.tabs?.create) {
+          chrome.tabs.create({ url: 'https://youtube.com/activate' });
+        } else {
+          window.open('https://youtube.com/activate', '_blank');
+        }
+      }, copied ? 140 : 0);
     });
 
     $(logoutBtnId)?.addEventListener('click', () => {
@@ -600,6 +726,5 @@
     });
   }
 
-  pollStatus();
   setInterval(pollStatus, 1500);
 })();

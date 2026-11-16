@@ -1,5 +1,5 @@
 {
-  "headerSubtitle": "v0.2.7 • Studio 774 Dual-Stream Engine",
+  "headerSubtitle": "v0.3.0 • Studio 774 Dual-Stream Engine",
   "enableExtension": "Enable Extension",
   "opModeTitle": "Operation Mode",
   "opModeHybridTitle": "Mode: Hybrid Mix (774 Opus ★)",
@@ -54,6 +54,11 @@
   "tvBtnLogin": "Login to {label}",
   "tvBtnLogout": "Logout",
   "tvBtnLoading": "Loading...",
+  "tvBtnCopyActivate": "📋 Copy Code & Open Activate",
+  "tvBtnCopiedOpening": "✓ Copied! Opening...",
+  "tvWaitingHint": "Not successful yet? Wait 5-10s to update or {btn}.",
+  "tvBtnNewCode": "get a new code",
+  "tvCodeCopiedBadge": "✓ Copied",
   "audioOnly": "Audio-Only Mode",
   "audioOnlyDesc": "Disable video, stream HQ audio only to save RAM & CPU",
   "statusAudioBuffer": "Audio Buffer",

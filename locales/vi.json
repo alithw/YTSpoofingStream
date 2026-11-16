@@ -1,5 +1,5 @@
 {
-  "headerSubtitle": "v0.2.7 • Động cơ luồng kép Studio 774",
+  "headerSubtitle": "v0.3.0 • Động cơ luồng kép Studio 774",
   "enableExtension": "Bật tiện ích",
   "opModeTitle": "Chế độ hoạt động",
   "opModeHybridTitle": "Chế độ: Hỗn hợp Hybrid (774 Opus ★)",
@@ -54,6 +54,11 @@
   "tvBtnLogin": "Đăng nhập {label}",
   "tvBtnLogout": "Đăng xuất",
   "tvBtnLoading": "Đang xử lý...",
+  "tvBtnCopyActivate": "📋 Sao chép mã & Mở trang kích hoạt",
+  "tvBtnCopiedOpening": "✓ Đã sao chép! Đang mở...",
+  "tvWaitingHint": "Chưa thành công? hãy chờ 5-10s để cập nhật hoặc {btn}.",
+  "tvBtnNewCode": "cấp mã đăng nhập mới",
+  "tvCodeCopiedBadge": "✓ Đã sao chép",
   "audioOnly": "Chế độ chỉ nghe nhạc",
   "audioOnlyDesc": "Tắt video, chỉ phát âm thanh HQ để tiết kiệm tối đa RAM & CPU",
   "statusAudioBuffer": "Bộ đệm âm thanh",

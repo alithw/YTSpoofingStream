@@ -4,7 +4,7 @@
   <p><b>Force 100% Genuine Studio Opus 774 Audio on YouTube via Dual-Stream Synchronization Engine</b></p>
 
   <p>
-    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.2.7-blue.svg?style=flat-square" alt="Latest Release"></a>
+    <a href="https://github.com/alithw/YTSpoofingStream/releases"><img src="https://img.shields.io/badge/release-v0.3.0-blue.svg?style=flat-square" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/manifest-v3-green.svg?style=flat-square" alt="Manifest V3">
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square" alt="License Apache 2.0">
     <img src="https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-lightgrey?style=flat-square" alt="Platforms">
@@ -23,14 +23,14 @@ If this extension makes your music sound better on YouTube, consider leaving a �
 **Before You Start:**
 - **YouTube Premium Required**: YouTube only serves unthrottled `ITAG 774` Opus (~256k–301kbps, >20kHz) and `ITAG 141` AAC (~256kbps) to authenticated YouTube Premium accounts. Free accounts do not receive these streams from Google's servers.
 - **TVHTML5 Login (Recommended)**: To stream `ITAG 774` directly via `MediaSource` (zero iframe memory overhead, works on covers and UGC videos not listed on YouTube Music), open the extension popup, click **Login to TVHTML5**, and link the Google account that holds your Premium subscription.
-- **Latest Release ([v0.2.7](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.2.7))**: Eliminates initial playback audio silence during track transitions, ensures clean unhooking when disabled, and resolves Chrome MV3 dynamic URL warnings. [Jump to what's new in v0.2.7 ↓](#recent-updates)
+- **Latest Release ([v0.3.0](https://github.com/alithw/YTSpoofingStream/releases/tag/v0.3.0))**: Reduces extension startup latency, fixes next-track transition stutter and A/V sync drift, stabilizes Volume Balance across miniplayer/fallback transitions, and improves TVHTML5 login waiting UX. [Jump to what's new in v0.3.0 ↓](#recent-updates)
 
 ---
 
 ## 📑 Table of Contents
-- [✨ What's New in v0.2.7](#recent-updates)
+- [What's New in v0.3.0](#recent-updates)
 - [🌟 Why YTSpoofingStream?](#-why-ytspoofingstream)
-- [🧠 System Architecture (v0.2.7)](#-system-architecture-v026)
+- [🧠 System Architecture (v0.3.0)](#-system-architecture-v030)
   - [1. Codebase & Directory Structure](#1-codebase--directory-structure)
   - [2. YouTube's SABR / UMP Infrastructure & Why Legacy Spoofing Fails](#2-youtubes-sabr--ump-infrastructure--why-legacy-spoofing-fails)
   - [3. Dual-Engine 774 Acquisition Pipeline (`UmpMseController774` + `YTM_HARVESTER`)](#3-dual-engine-774-acquisition-pipeline-umpmsecontroller774--ytm_harvester)
@@ -50,17 +50,22 @@ If this extension makes your music sound better on YouTube, consider leaving a �
 ---
 
 <a id="recent-updates"></a>
-## ✨ What's New in v0.2.7
+## What's New in v0.3.0
 
-**v0.2.7** introduces studio loudness normalization, smooths miniplayer transitions, and resolves audio leakage during navigation:
+**v0.3.0** focuses on cold-start speed, next-track playback synchronization, volume balance stability, and TVHTML5 device authentication UX:
 
-- **Volume Balance (-14 LUFS Loudness Normalization)**:
-  - Dynamically aligns auxiliary Studio 774 audio output with YouTube's standard **-14 LUFS** loudness target by calculating real-time normalization gain ($10^{-\text{loudnessDb}/20}$) from `audioConfig.loudnessDb`.
-  - Eliminates jarring volume jumps ("loudness imbalance") when transitioning between Studio 774 tracks and standard non-774 (`ITAG 251`) fallback videos or across songs mastered at different loudness levels.
-- **Miniplayer Transition Volume Guard**:
-  - Eliminates transient volume spikes when toggling between the full player and miniplayer by introducing an SPA navigation grace window in `isPlayerActiveOnPage()` while playback is active, preventing premature 774 stoppage and native audio unmuting.
-- **Audio Leak Prevention on Navigation**:
-  - Fixes audio leakage when playing a single video and navigating across pages or tabs via YouTube sidebar navigation buttons, ensuring auxiliary 774 audio cleanly halts when leaving the watch view.
+- **Startup & Loading Optimization**:
+  - Caches `SAPISIDHASH` headers (15s TTL), OAuth tokens, and `declarativeNetRequest` session rule metadata in `src/background.js`, avoiding redundant rule rebuilds and duplicate alarms on Service Worker wake.
+  - Queues early `postToBridge` messages until `YTSS_BRIDGE_READY` and limits blocking `/player` and `/videoplayback` Async Gates to `TV_RELAY` mode, preventing cold-start playback stalls on `HYBRID_HQ`, `TV_HEADLESS`, and `YTM_HARVESTER`.
+  - Strips legacy muxed formats and retains only `ITAG 774` plus the lowest-bitrate video format in `src/ytm_harvester_cs.js`.
+- **Next-Track Transition & A/V Synchronization**:
+  - Eliminates initial playback freezes and steady A/V clock offset (`_alignClockOnPlayback` settled after `>= 180ms`, `_startupHoldTimer`, `> 0.04s` buffer-ready alignment, and `0.15s` steady drift threshold).
+  - Prevents mid-startup `seq=1` aborts during `UmpMseController774.onSeek`, false `[PlayerReplay]` fresh fetches on autoplay end-of-track (`endedVideoId`), and repeated `[PlayerVideoDataChange]` cycles in `TV_RELAY`.
+  - Holds native video during slow network seek buffering until target audio segments are ready.
+- **Volume Balance & Native Fallback**:
+  - Keeps `-14 LUFS` loudness normalization synchronized across track switches, miniplayer toggles, and native fallback videos without `ITAG 774`/`251` (`applyNativeStatusUpdate`).
+- **TVHTML5 Login Waiting UX**:
+  - Persists pending device auth state in `chrome.storage.session` so reopened popups resume polling and show waiting status with click-to-copy code, **Copy Code & Open Activate**, and inline **get a new code** controls.
 
 ---
 
@@ -78,7 +83,7 @@ Across YouTube's ecosystem today, audio quality is strictly tiered:
 
 ---
 
-## 🧠 System Architecture (v0.2.7)
+## 🧠 System Architecture (v0.3.0)
 
 ### 1. Codebase & Directory Structure
 YTSpoofingStream is built with **100% pure vanilla JavaScript (ES6+)**—no bundlers, external libraries, or remote dependencies—for maximum speed, security, and auditability:
@@ -109,7 +114,7 @@ Modern YouTube desktop web streaming uses Google's proprietary **SABR (Server-si
   2. Injecting mobile/TV URLs directly into YouTube's native player triggers CORS and token-binding errors `s:49` (`poToken` / client platform mismatch).
 
 ### 3. Dual-Engine 774 Acquisition Pipeline (`UmpMseController774` + `YTM_HARVESTER`)
-To guarantee 100% crash-free playback while delivering unthrottled studio `ITAG 774`, **YTSpoofingStream v0.2.7** completely decouples video rendering from studio audio acquisition using two specialized engines:
+To guarantee 100% crash-free playback while delivering unthrottled studio `ITAG 774`, **YTSpoofingStream v0.3.0** completely decouples video rendering from studio audio acquisition using two specialized engines:
 
 ```mermaid
 flowchart TD
@@ -142,7 +147,7 @@ flowchart TD
 ### 4. Hardware-Level Descriptor Volume Silencing & Anti-Mute Guard
 Setting `video.muted = true` or `video.volume = 0` via standard DOM properties causes the browser to dispatch `volumechange` events, which tricks YouTube's player into showing a muted speaker icon and persisting `"muted": true` into `localStorage['yt-player-volume']`.
 
-**YTSpoofingStream v0.2.7** solves this with a two-layer hardware descriptor shield in [`src/inject.js`](src/inject.js):
+**YTSpoofingStream v0.3.0** solves this with a two-layer hardware descriptor shield in [`src/inject.js`](src/inject.js):
 1. **Prototype Descriptor Routing**: Calls the native `HTMLMediaElement.prototype.volume` setter (`descVolume.set.call(video, 0)`) directly on the `<video>` element while intercepting property getters so YouTube's player UI always sees the user's chosen volume and mute state.
 2. **Transition Anti-Mute Guard**: Suppresses synthetic `volumechange` events triggered during hardware silencing/restoration (`_suppressNextVolumeEvent`) and proactively unmutes stale player states when transitioning from a `★ 774` song to a standard `251` video (`fallbackTo251()`), ensuring the player never gets stuck muted across playlist changes.
 
